@@ -12,6 +12,8 @@
 #include "commons.h"
 #include <cstdio>
 #include <cstdarg>
+#include <mutex>
+#include <unordered_set>
 
 // ── N-API exception helper ──────────────────────────────────────────
 extern "C" napi_value throwNapiException(const char *file, int line, napi_env env,
@@ -284,6 +286,32 @@ extern "C" napi_value newStringUtf8(napi_env env, const char *str) {
   return result;
 }
 
+// ── Session handle registry (B3, docs/11) ───────────────────────────
+// getSession() returns pointers validated against this set, so a stale or
+// forged BigInt from ArkTS can never be dereferenced as a tr_session*.
+static std::mutex gSessionMutex;
+static std::unordered_set<tr_session *> gLiveSessions;
+
+void registerSessionHandle(tr_session *session) {
+  if (session == nullptr) return;
+  std::lock_guard<std::mutex> lock(gSessionMutex);
+  gLiveSessions.insert(session);
+}
+
+bool unregisterSessionHandle(tr_session *session) {
+  if (session == nullptr) return false;
+  std::lock_guard<std::mutex> lock(gSessionMutex);
+  // erase returns 1 if present → true = was live (double-stop guard relies
+  // on the atomic check-and-erase; two separate lock sections would race).
+  return gLiveSessions.erase(session) != 0;
+}
+
+bool isLiveSession(tr_session *session) {
+  if (session == nullptr) return false;
+  std::lock_guard<std::mutex> lock(gSessionMutex);
+  return gLiveSessions.count(session) != 0;
+}
+
 // ── Session pointer extraction (ArkTS passes BigInt) ────────────────
 extern "C" tr_session *getSession(napi_env env, napi_value jsession) {
   if (jsession == nullptr) return nullptr;
@@ -293,7 +321,11 @@ extern "C" tr_session *getSession(napi_env env, napi_value jsession) {
   napi_status status = napi_get_value_bigint_uint64(env, jsession, &val, &lossless);
   if (status != napi_ok) return nullptr;
 
-  return (tr_session *) (uintptr_t) val;
+  tr_session *session = (tr_session *) (uintptr_t) val;
+  // B3: only accept handles created by SessionStart. BigInt(0) (toPtr of
+  // null) and any stale handle fail the registry check → callers throw
+  // "Session is null" instead of dereferencing a bogus pointer.
+  return isLiveSession(session) ? session : nullptr;
 }
 
 // ── Module registration ─────────────────────────────────────────────

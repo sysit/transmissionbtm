@@ -130,6 +130,17 @@ extern "C" char *getStringUtf8(napi_env env, napi_value value);
 extern "C" napi_value newStringUtf8(napi_env env, const char *str);
 extern "C" tr_session *getSession(napi_env env, napi_value jsession);
 
+// ── Session handle registry (B3, docs/11) ─────────────────────────
+// getSession() must only return handles created by SessionStart and not
+// yet closed. Without this registry, any BigInt passed from ArkTS is
+// dereferenced as a tr_session* — a stale handle or BigInt(0) from toPtr
+// becomes a wild/null pointer dereference. SessionStart registers, the
+// double-stop guard (SessionStop) atomically check-and-erases.
+void registerSessionHandle(tr_session *session);
+// Returns true if the handle was live (idempotent — second call is a no-op).
+bool unregisterSessionHandle(tr_session *session);
+bool isLiveSession(tr_session *session);
+
 // ── Hex conversion (4.0.6: tr_binary_to_hex / tr_hex_to_binary removed) ─
 void tr_binary_to_hex(void const *input, char *output, size_t byte_length);
 // P0/P1 fix (codex review): returns false (and zero-fills output) when the

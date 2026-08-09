@@ -23,20 +23,17 @@
 #include <cstring>
 #include <cstdlib>
 #include <cstdarg>
-#include <mutex>
-#include <unordered_set>
 
 #undef LOG_DOMAIN
 #undef LOG_TAG
 #define LOG_DOMAIN 0x0001
 #define LOG_TAG "transmissionhm"
 
-// P1 fix (codex review): track live session handles so SessionStop is
-// idempotent. tr_sessionClose frees the session; a second stop with the
-// same handle would otherwise use-after-free.
-static std::mutex gSessionMutex;
-static std::unordered_set<tr_session *> gLiveSessions;
-
+// P1 fix (codex review) + B3 (docs/11): live session handles tracked in the
+// commons registry (registerSessionHandle/unregisterSessionHandle). SessionStop
+// is idempotent — tr_sessionClose frees the session, so a second stop with the
+// same handle would otherwise use-after-free. The registry also backs
+// getSession() validation: only SessionStart-created handles are accepted.
 #define TR_DEFAULT_RPC_PORT 9091
 
 // Forward declarations from native_to_arkts.cc (C linkage)
@@ -218,10 +215,7 @@ static napi_value SessionStart(napi_env env, napi_callback_info info) {
     return nullptr;
   }
   tr_sessionSaveSettings(session, configDir, settings);
-  {
-    std::lock_guard<std::mutex> lock(gSessionMutex);
-    gLiveSessions.insert(session);
-  }
+  registerSessionHandle(session);
 
   free(configDir);
   free(downloadsDir);
@@ -269,16 +263,14 @@ static napi_value SessionStop(napi_env env, napi_callback_info info) {
 
   // P1 fix (codex review): double-stop guard. tr_sessionClose frees the
   // session; a second stop with the same handle is a use-after-free. The
-  // live-session set (populated by SessionStart) makes stop idempotent
-  // across repeated calls and service teardown.
-  {
-    std::lock_guard<std::mutex> lock(gSessionMutex);
-    if (gLiveSessions.erase(session) == 0) {
-      free(configDir);
-      napi_value result;
-      napi_get_undefined(env, &result);
-      return result;
-    }
+  // registry (populated by SessionStart) makes stop idempotent across
+  // repeated calls and service teardown — unregisterSessionHandle is an
+  // atomic check-and-erase.
+  if (!unregisterSessionHandle(session)) {
+    free(configDir);
+    napi_value result;
+    napi_get_undefined(env, &result);
+    return result;
   }
 
   // 4.1: tr_sessionGetSettings returns tr_variant by value
