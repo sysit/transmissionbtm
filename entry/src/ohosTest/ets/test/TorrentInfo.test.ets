@@ -451,7 +451,9 @@ export default function torrentInfoTest(): void {
   });
 
   // ═══════════════════════════════════════════════════════════════════
-  // isFinished — true when percentComplete >= 1.0
+  // isFinished — true when percentComplete >= 1.0 OR percentDone >= 1.0
+  // (percentDone covers the mid-verification case where the native brief stat
+  //  reports verify progress, not download progress, in arr[2] — C4/docs-11)
   // ═══════════════════════════════════════════════════════════════════
   describe('isFinished', () => {
     it('isFinished_complete_returnsTrue', 0, (): void => {
@@ -476,6 +478,17 @@ export default function torrentInfoTest(): void {
       const info: TorrentInfo = new TorrentInfo();
       info.percentComplete = 0;
       expect(info.isFinished()).assertFalse();
+    });
+
+    it('isFinished_midVerification_percentDoneCompletes_returnsTrue', 0, (): void => {
+      // During TR_STATUS_CHECK the native brief stat puts verify progress in
+      // arr[2] (percentComplete) while all bytes are already downloaded
+      // (percentDone == 1.0). A torrent that has its data is finished even
+      // while the check is still running (C4, docs/11).
+      const info: TorrentInfo = new TorrentInfo();
+      info.percentComplete = 0.45;
+      info.percentDone = 1.0;
+      expect(info.isFinished()).assertTrue();
     });
   });
 

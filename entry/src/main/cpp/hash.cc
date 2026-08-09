@@ -69,6 +69,25 @@ static napi_value HashStringToBytes(napi_env env, napi_callback_info info) {
     napi_throw_error(env, nullptr, "Invalid hash string argument");
     return nullptr;
   }
+  // C2 (docs/11): validate it's EXACTLY 40 hex characters. tr_hex_to_binary
+  // only rejects too-short input; a non-hex char decoded as garbage produces
+  // a bogus hash that silently matches no torrent.
+  size_t slen = strlen(hashString);
+  if (slen != 2 * (size_t) SHA_DIGEST_LENGTH) {
+    free(hashString);
+    napi_throw_error(env, nullptr, "Invalid hash string (expected 40 hex characters)");
+    return nullptr;
+  }
+  for (size_t i = 0; i < slen; i++) {
+    char c = hashString[i];
+    bool isHex = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+    if (!isHex) {
+      free(hashString);
+      napi_throw_error(env, nullptr, "Invalid hash string (non-hex character)");
+      return nullptr;
+    }
+  }
+
   // P1 fix (codex review): validate that the hex string is long enough
   // (2*SHA_DIGEST_LENGTH chars). A short input previously caused an
   // out-of-bounds read in tr_hex_to_binary; it now zero-fills and returns

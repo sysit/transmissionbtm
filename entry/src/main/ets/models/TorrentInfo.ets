@@ -337,8 +337,19 @@ export class TorrentInfo {
     return this.status === TorrentStatus.CHECK;
   }
 
+  /**
+   * All wanted bytes are on disk.
+   *
+   * C4 (docs/11): checked together with the C1-fixed getPercentDone — both
+   * percentComplete and percentDone derive from size_when_done /
+   * left_until_done, so a fresh torrent is 0% and a complete one is 100%.
+   * The OR is intentional: during TR_STATUS_CHECK the native brief stat puts
+   * verify progress (not download progress) in arr[2], so percentComplete can
+   * lag at < 1.0 while percentDone is already 1.0 (all data downloaded,
+   * verification still running).
+   */
   isFinished(): boolean {
-    return this.percentComplete >= 1.0;
+    return this.percentComplete >= 1.0 || this.percentDone >= 1.0;
   }
 
   /**
