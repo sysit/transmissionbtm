@@ -82,110 +82,148 @@ static uint64_t getUploadedEver(tr_torrent *tor) {
 extern "C" {
 
 // ── torrentAdd (returns 0=OK, 1=PARSE_ERR, 2=DUPLICATE, 3=OK_DELETE) ─
+// B1 (docs/11): tr_torrentNew + setFileDLs + duplicate handling run on the
+// session event thread via torrentAddFunc; ctor construction and arg parsing
+// stay on the calling thread (the ctor is only touched by the event thread
+// once tr_torrentNew consumes it).
+typedef struct {
+  tr_ctor *ctor;
+  bool deleteSource;
+  bool paused;
+  tr_file_index_t idxLen;
+  tr_file_index_t *wantedFiles;
+  uint8_t *outHash;
+  size_t outHashLen;
+  int err;
+} TorrentAddData;
+
+static void *torrentAddFunc(tr_session *s, void *d, Err *err) {
+  (void)s;
+  (void)err;
+  auto *ad = (TorrentAddData *) d;
+
+  // P0 fix (codex review): result-code semantics were wrong.
+  // The ArkTS side treats 0=OK, 1=PARSE_ERR, 2=DUPLICATE, 3=OK_DELETE,
+  // but the old logic only reached 0 on the unwanted-files branch, and
+  // a plain duplicate (tor==null, dupTor!=null) fell through to err=1.
+  tr_torrent *dupTor = nullptr;
+  tr_torrent *tor = tr_torrentNew(ad->ctor, &dupTor);
+  ad->err = 1;  // default PARSE_ERR
+
+  if (tor != nullptr) {
+    // Fresh torrent added → success (0), or OK_DELETE (3) if source deleted.
+    ad->err = ad->deleteSource ? 3 : 0;
+    if (ad->paused) {
+      tr_torrentStop(tor);
+    }
+  } else if (dupTor != nullptr) {
+    // Duplicate: report DUPLICATE (2). The OK_DELETE (3) case applies only
+    // when every file is unwanted AND delete-source is set (source removed).
+    ad->err = 2;
+    if (ad->wantedFiles != nullptr && dupTor->file_count() > 0) {
+      tr_file_index_t wantedCount = 0;
+      for (tr_file_index_t i = 0; i < dupTor->file_count(); i++) {
+        auto f = tr_torrentFile(dupTor, i);
+        if (f.wanted) wantedCount++;
+      }
+      if (wantedCount == 0) {
+        ad->err = ad->deleteSource ? 3 : 0;
+      }
+    }
+  } else {
+    ad->err = 1;  // PARSE_ERR
+  }
+
+  // 4.1: tr_ctorSetFilesWanted removed; set file DLs after creation
+  if (tor != nullptr && ad->wantedFiles != nullptr && ad->idxLen > 0) {
+    tr_torrentSetFileDLs(tor, ad->wantedFiles, ad->idxLen, true);
+  }
+
+  if (ad->outHash != nullptr && ad->outHashLen >= SHA_DIGEST_LENGTH) {
+    auto const *metainfo = tr_ctorGetMetainfo(ad->ctor);
+    if (metainfo != nullptr) {
+      // 4.1: use info_hash() accessor
+      auto const &hash = metainfo->info_hash();
+      memcpy(ad->outHash, std::data(hash), SHA_DIGEST_LENGTH);
+    }
+  }
+  return nullptr;
+}
+
 static napi_value TorrentAdd(napi_env env, napi_callback_info info) {
   size_t argc = 8;
   napi_value args[8];
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
 
   tr_ctor *ctor = ctorFromFile(env, args[0], args[1], false);
-
-  if (ctor != nullptr) {
-    if (!isNapiNull(env, args[2])) {
-      char *downloadDir = getStringUtf8(env, args[2]);
-      tr_ctorSetDownloadDir(ctor, TR_FORCE, downloadDir);
-      free(downloadDir);
-    }
-
-    bool setDelete = getBoolNapi(env, args[3]);
-    bool sequential = getBoolNapi(env, args[4]);
-    bool paused = (argc >= 8) ? getBoolNapi(env, args[7]) : false;
-
-    tr_file_index_t idxLen = 0;
-    tr_file_index_t *wantedFiles = nullptr;
-    if (!isNapiNull(env, args[5])) {
-      void *idxData = nullptr;
-      size_t idxByteLen = 0;
-      // P1 fix (codex review): check the ArrayBuffer is present and its
-      // length is a whole number of int32 elements before dereferencing.
-      napi_get_arraybuffer_info(env, args[5], &idxData, &idxByteLen);
-      if (idxData != nullptr && idxByteLen >= sizeof(int32_t) &&
-          idxByteLen % sizeof(int32_t) == 0) {
-        idxLen = (tr_file_index_t)(idxByteLen / sizeof(int32_t));
-        int32_t *srcIdx = (int32_t *) idxData;
-        wantedFiles = (tr_file_index_t *) malloc(idxLen * sizeof(tr_file_index_t));
-        if (wantedFiles != nullptr) {
-          for (tr_file_index_t i = 0; i < idxLen; i++)
-            wantedFiles[i] = (tr_file_index_t) srcIdx[i];
-        }
-      }
-    }
-
-    // P0 fix (codex review): result-code semantics were wrong.
-    // The ArkTS side treats 0=OK, 1=PARSE_ERR, 2=DUPLICATE, 3=OK_DELETE,
-    // but the old logic only reached 0 on the unwanted-files branch, and
-    // a plain duplicate (tor==null, dupTor!=null) fell through to err=1.
-    int err = 1;  // default PARSE_ERR
-    tr_ctorSetDeleteSource(ctor, setDelete);
-    (void)sequential;
-    bool deleteSource = false;
-    tr_ctorGetDeleteSource(ctor, &deleteSource);
-
-    tr_torrent *dupTor = nullptr;
-    tr_torrent *tor = tr_torrentNew(ctor, &dupTor);
-
-    if (tor != nullptr) {
-      // Fresh torrent added → success (0), or OK_DELETE (3) if source deleted.
-      err = deleteSource ? 3 : 0;
-      if (paused) {
-        tr_torrentStop(tor);
-      }
-    } else if (dupTor != nullptr) {
-      // Duplicate: report DUPLICATE (2). The OK_DELETE (3) case applies only
-      // when every file is unwanted AND delete-source is set (source removed).
-      err = 2;
-      if (!isNapiNull(env, args[5]) && dupTor->file_count() > 0) {
-        tr_file_index_t wantedCount = 0;
-        for (tr_file_index_t i = 0; i < dupTor->file_count(); i++) {
-          auto f = tr_torrentFile(dupTor, i);
-          if (f.wanted) wantedCount++;
-        }
-        if (wantedCount == 0) {
-          err = deleteSource ? 3 : 0;
-        }
-      }
-    } else {
-      err = 1;  // PARSE_ERR
-    }
-
-    // 4.1: tr_ctorSetFilesWanted removed; set file DLs after creation
-    if (tor != nullptr && wantedFiles != nullptr && idxLen > 0) {
-      tr_torrentSetFileDLs(tor, wantedFiles, idxLen, true);
-    }
-
-    if (!isNapiNull(env, args[6]) && tor != nullptr) {
-      void *hashData = nullptr;
-      size_t hashDataLen = 0;
-      // P1 fix (codex review): verify the output buffer is big enough before
-      // copying the 20-byte info hash into it.
-      napi_get_arraybuffer_info(env, args[6], &hashData, &hashDataLen);
-      auto const *metainfo = tr_ctorGetMetainfo(ctor);
-      if (metainfo != nullptr && hashData != nullptr && hashDataLen >= SHA_DIGEST_LENGTH) {
-        // 4.1: use info_hash() accessor
-        auto const &hash = metainfo->info_hash();
-        memcpy(hashData, std::data(hash), SHA_DIGEST_LENGTH);
-      }
-    }
-
-    free(wantedFiles);
-    tr_ctorFree(ctor);
-    napi_value result;
-    napi_create_int32(env, err, &result);
-    return result;
-  } else {
+  if (ctor == nullptr) {
     napi_value result;
     napi_create_int32(env, 1, &result);
     return result;
   }
+
+  if (!isNapiNull(env, args[2])) {
+    char *downloadDir = getStringUtf8(env, args[2]);
+    tr_ctorSetDownloadDir(ctor, TR_FORCE, downloadDir);
+    free(downloadDir);
+  }
+
+  bool setDelete = getBoolNapi(env, args[3]);
+  bool sequential = getBoolNapi(env, args[4]);
+  (void)sequential;
+  bool paused = (argc >= 8) ? getBoolNapi(env, args[7]) : false;
+
+  tr_file_index_t idxLen = 0;
+  tr_file_index_t *wantedFiles = nullptr;
+  if (!isNapiNull(env, args[5])) {
+    void *idxData = nullptr;
+    size_t idxByteLen = 0;
+    // P1 fix (codex review): check the ArrayBuffer is present and its
+    // length is a whole number of int32 elements before dereferencing.
+    napi_get_arraybuffer_info(env, args[5], &idxData, &idxByteLen);
+    if (idxData != nullptr && idxByteLen >= sizeof(int32_t) &&
+        idxByteLen % sizeof(int32_t) == 0) {
+      idxLen = (tr_file_index_t)(idxByteLen / sizeof(int32_t));
+      int32_t *srcIdx = (int32_t *) idxData;
+      wantedFiles = (tr_file_index_t *) malloc(idxLen * sizeof(tr_file_index_t));
+      if (wantedFiles != nullptr) {
+        for (tr_file_index_t i = 0; i < idxLen; i++)
+          wantedFiles[i] = (tr_file_index_t) srcIdx[i];
+      }
+    }
+  }
+
+  bool deleteSource = false;
+  tr_ctorSetDeleteSource(ctor, setDelete);
+  tr_ctorGetDeleteSource(ctor, &deleteSource);
+
+  uint8_t *outHash = nullptr;
+  size_t outHashLen = 0;
+  if (!isNapiNull(env, args[6])) {
+    void *hashData = nullptr;
+    // P1 fix (codex review): verify the output buffer is big enough before
+    // copying the 20-byte info hash into it (checked inside torrentAddFunc).
+    napi_get_arraybuffer_info(env, args[6], &hashData, &outHashLen);
+    outHash = (uint8_t *) hashData;
+  }
+
+  TorrentAddData d;
+  d.ctor = ctor;
+  d.deleteSource = deleteSource;
+  d.paused = paused;
+  d.idxLen = idxLen;
+  d.wantedFiles = wantedFiles;
+  d.outHash = outHash;
+  d.outHashLen = outHashLen;
+  d.err = 1;
+
+  runInTransmissionThread(__FILE__, __LINE__, env, args[0], torrentAddFunc, &d);
+  free(wantedFiles);
+  tr_ctorFree(ctor);
+
+  napi_value result;
+  napi_create_int32(env, d.err, &result);
+  return result;
 }
 
 // ── torrentRemove ───────────────────────────────────────────────────
@@ -200,24 +238,26 @@ static napi_value TorrentRemove(napi_env env, napi_callback_info info) {
   size_t argc = 3; napi_value args[3];
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
   TorrentRemoveData d = {getInt32Napi(env, args[1]), getBoolNapi(env, args[2])};
-  Err errCtx;
-  torrentRemoveFunc(getSession(env, args[0]), &d, &errCtx);
+  runInTransmissionThread(__FILE__, __LINE__, env, args[0], torrentRemoveFunc, &d);
   napi_value r; napi_get_undefined(env, &r); return r;
 }
 
 // ── torrentStart / torrentStop / torrentVerify ──────────────────────
-static void *torrentByIdOp(tr_session *s, void *d, Err *err) {
-  tr_torrent *tor = findTorrentById(s, (int)(intptr_t)d, err);
-  return tor;
-}
+// B1 (docs/11): the op now runs on the session event thread via
+// runInTransmissionThread — previously tr_torrentStart/Stop/Verify ran
+// directly on the calling (UI) thread.
 #define DEF_TORRENT_OP(name, op) \
+  static void *name##Func(tr_session *s, void *d, Err *err) { \
+    tr_torrent *tor = findTorrentById(s, (int)(intptr_t)d, err); \
+    if (tor) op(tor); \
+    return nullptr; \
+  } \
   static napi_value name(napi_env env, napi_callback_info info) { \
     size_t argc = 2; napi_value args[2]; \
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr); \
-    Err errCtx; \
-    tr_torrent *tor = (tr_torrent *) torrentByIdOp(getSession(env, args[0]), \
-        (void *)(intptr_t)getInt32Napi(env, args[1]), &errCtx); \
-    if (tor) op(tor); \
+    int32_t id = getInt32Napi(env, args[1]); \
+    runInTransmissionThread(__FILE__, __LINE__, env, args[0], \
+        name##Func, (void *)(intptr_t)id); \
     napi_value r; napi_get_undefined(env, &r); return r; \
   }
 DEF_TORRENT_OP(TorrentStart,  tr_torrentStart)
@@ -278,8 +318,7 @@ static napi_value TorrentListFiles(napi_env env, napi_callback_info info) {
   size_t argc = 2; napi_value args[2];
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
   ListFilesData d = {getInt32Napi(env, args[1]), 0, nullptr};
-  Err errCtx;
-  torrentListFilesFunc(getSession(env, args[0]), &d, &errCtx);
+  runInTransmissionThread(__FILE__, __LINE__, env, args[0], torrentListFilesFunc, &d);
   if (!d.count) { napi_value r; napi_get_null(env, &r); return r; }
   napi_value r; napi_create_array_with_length(env, d.count, &r);
   for (int i = 0; i < d.count; i++) {
@@ -290,20 +329,25 @@ static napi_value TorrentListFiles(napi_env env, napi_callback_info info) {
 }
 
 // ── torrentFindByHash ───────────────────────────────────────────────
+typedef struct { uint8_t hash[SHA_DIGEST_LENGTH]; int32_t id; } FindByHashData;
+static void *torrentFindByHashFunc(tr_session *s, void *d, Err *err) {
+  auto *fh = (FindByHashData *) d;
+  fh->id = findTorrentByHash(s, fh->hash, err);
+  return nullptr;
+}
 static napi_value TorrentFindByHash(napi_env env, napi_callback_info info) {
   size_t argc = 2; napi_value args[2];
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-  uint8_t hash[SHA_DIGEST_LENGTH];
+  FindByHashData d;
   void *data; size_t len;
   napi_get_arraybuffer_info(env, args[1], &data, &len);
   if (len < SHA_DIGEST_LENGTH) {
     napi_throw_error(env, nullptr, "Hash buffer too small, need 20 bytes");
     return nullptr;
   }
-  memcpy(hash, data, SHA_DIGEST_LENGTH);
-  Err errCtx;
-  int id = findTorrentByHash(getSession(env, args[0]), hash, &errCtx);
-  napi_value r; napi_create_int32(env, id, &r); return r;
+  memcpy(d.hash, data, SHA_DIGEST_LENGTH);
+  runInTransmissionThread(__FILE__, __LINE__, env, args[0], torrentFindByHashFunc, &d);
+  napi_value r; napi_create_int32(env, d.id, &r); return r;
 }
 
 // ── torrentGetName ──────────────────────────────────────────────────
@@ -314,9 +358,9 @@ static void *torrentGetNameFunc(tr_session *s, void *d, Err *err) {
 static napi_value TorrentGetName(napi_env env, napi_callback_info info) {
   size_t argc = 2; napi_value args[2];
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-  Err errCtx;
-  char *name = (char *) torrentGetNameFunc(getSession(env, args[0]),
-      (void *)(intptr_t)getInt32Napi(env, args[1]), &errCtx);
+  int32_t tid = getInt32Napi(env, args[1]);
+  char *name = (char *) runInTransmissionThread(__FILE__, __LINE__, env, args[0],
+      torrentGetNameFunc, (void *)(intptr_t)tid);
   if (!name) { napi_value r; napi_get_null(env, &r); return r; }
   napi_value r = newStringUtf8(env, name); free(name); return r;
 }
@@ -343,8 +387,7 @@ static napi_value TorrentGetHash(napi_env env, napi_callback_info info) {
     return nullptr;
   }
   GetHashData d = {getInt32Napi(env, args[1]), (uint8_t *) hashBuf};
-  Err errCtx;
-  torrentGetHashFunc(getSession(env, args[0]), &d, &errCtx);
+  runInTransmissionThread(__FILE__, __LINE__, env, args[0], torrentGetHashFunc, &d);
   napi_value r; napi_get_undefined(env, &r); return r;
 }
 
@@ -373,8 +416,7 @@ static napi_value TorrentGetPieceHash(napi_env env, napi_callback_info info) {
   }
   GetPieceHashData d = {getInt32Napi(env, args[1]), getInt64FromBigInt(env, args[2]),
                         (uint8_t *) hashBuf};
-  Err errCtx;
-  torrentGetPieceHashFunc(getSession(env, args[0]), &d, &errCtx);
+  runInTransmissionThread(__FILE__, __LINE__, env, args[0], torrentGetPieceHashFunc, &d);
   napi_value r; napi_get_undefined(env, &r); return r;
 }
 
@@ -404,8 +446,7 @@ static napi_value TorrentSetPiecesHiPri(napi_env env, napi_callback_info info) {
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
   SetPiecesHiPriData d = {getInt32Napi(env, args[1]), getInt64FromBigInt(env, args[2]),
                           getInt64FromBigInt(env, args[3])};
-  Err errCtx;
-  torrentSetPiecesHiPriFunc(getSession(env, args[0]), &d, &errCtx);
+  runInTransmissionThread(__FILE__, __LINE__, env, args[0], torrentSetPiecesHiPriFunc, &d);
   napi_value r; napi_get_undefined(env, &r); return r;
 }
 
@@ -425,8 +466,8 @@ static napi_value TorrentFindFile(napi_env env, napi_callback_info info) {
   size_t argc = 3; napi_value args[3];
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
   FileData d = {getInt32Napi(env, args[1]), getInt32Napi(env, args[2])};
-  Err errCtx;
-  char *path = (char *) torrentFindFileFunc(getSession(env, args[0]), &d, &errCtx);
+  char *path = (char *) runInTransmissionThread(__FILE__, __LINE__, env, args[0],
+      torrentFindFileFunc, &d);
   if (!path) { napi_value r; napi_get_null(env, &r); return r; }
   napi_value r = newStringUtf8(env, path); free(path); return r;
 }
@@ -444,8 +485,8 @@ static napi_value TorrentGetFileName(napi_env env, napi_callback_info info) {
   size_t argc = 3; napi_value args[3];
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
   FileData d = {getInt32Napi(env, args[1]), getInt32Napi(env, args[2])};
-  Err errCtx;
-  char *name = (char *) torrentGetFileNameFunc(getSession(env, args[0]), &d, &errCtx);
+  char *name = (char *) runInTransmissionThread(__FILE__, __LINE__, env, args[0],
+      torrentGetFileNameFunc, &d);
   if (!name) { napi_value r; napi_get_null(env, &r); return r; }
   napi_value r = newStringUtf8(env, name); free(name); return r;
 }
@@ -508,8 +549,7 @@ static napi_value TorrentGetFileStat(napi_env env, napi_callback_info info) {
   size_t argc = 4; napi_value args[4];
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
   FileStatData d = {getInt32Napi(env, args[1]), getInt32Napi(env, args[2]), 0, nullptr, false};
-  Err errCtx;
-  torrentGetFileStatFunc(getSession(env, args[0]), &d, &errCtx);
+  runInTransmissionThread(__FILE__, __LINE__, env, args[0], torrentGetFileStatFunc, &d);
   napi_value r; void *out;
   napi_create_arraybuffer(env, d.bfLen * sizeof(int64_t), &out, &r);
   memcpy(out, d.bf, d.bfLen * sizeof(int64_t));
@@ -603,8 +643,7 @@ static napi_value TorrentGetPiece(napi_env env, napi_callback_info info) {
   GetPieceData d = {getInt32Napi(env, args[1]), getInt32Napi(env, args[4]),
                     len, getInt64FromBigInt(env, args[2]),
                     (uint8_t *) dst};
-  Err errCtx;
-  torrentGetPieceFunc(getSession(env, args[0]), &d, &errCtx);
+  runInTransmissionThread(__FILE__, __LINE__, env, args[0], torrentGetPieceFunc, &d);
   napi_value r; napi_get_undefined(env, &r); return r;
 }
 
@@ -671,8 +710,7 @@ static napi_value TorrentStatBrief(napi_env env, napi_callback_info info) {
   size_t argc = 2; napi_value args[2];
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
   StatBriefData d = {nullptr, 0, false};
-  Err errCtx;
-  torrentStatBriefFunc(getSession(env, args[0]), &d, &errCtx);
+  runInTransmissionThread(__FILE__, __LINE__, env, args[0], torrentStatBriefFunc, &d);
   napi_value r; void *out;
   napi_create_arraybuffer(env, d.statLen * sizeof(int64_t), &out, &r);
   memcpy(out, d.stat, d.statLen * sizeof(int64_t));
@@ -689,9 +727,9 @@ static void *torrentGetErrorFunc(tr_session *s, void *d, Err *err) {
 static napi_value TorrentGetError(napi_env env, napi_callback_info info) {
   size_t argc = 2; napi_value args[2];
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-  Err errCtx;
-  char *errStr = (char *) torrentGetErrorFunc(getSession(env, args[0]),
-      (void *)(intptr_t)getInt32Napi(env, args[1]), &errCtx);
+  int32_t tid = getInt32Napi(env, args[1]);
+  char *errStr = (char *) runInTransmissionThread(__FILE__, __LINE__, env, args[0],
+      torrentGetErrorFunc, (void *)(intptr_t)tid);
   if (!errStr) { napi_value r; napi_get_null(env, &r); return r; }
   napi_value r = newStringUtf8(env, errStr); free(errStr); return r;
 }
@@ -724,8 +762,7 @@ static napi_value TorrentSetDnd(napi_env env, napi_callback_info info) {
     for (tr_file_index_t i = 0; i < d.count; i++)
       d.files[i] = (tr_file_index_t) src[i];
   }
-  Err errCtx;
-  torrentSetDndFunc(getSession(env, args[0]), &d, &errCtx);
+  runInTransmissionThread(__FILE__, __LINE__, env, args[0], torrentSetDndFunc, &d);
   free(d.files);
   napi_value r; napi_get_undefined(env, &r); return r;
 }
@@ -742,8 +779,7 @@ static napi_value TorrentSetLocation(napi_env env, napi_callback_info info) {
   size_t argc = 3; napi_value args[3];
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
   SetLocationData d = {getInt32Napi(env, args[1]), getStringUtf8(env, args[2])};
-  Err errCtx;
-  torrentSetLocationFunc(getSession(env, args[0]), &d, &errCtx);
+  runInTransmissionThread(__FILE__, __LINE__, env, args[0], torrentSetLocationFunc, &d);
   free((void *) d.path);
   napi_value r; napi_get_undefined(env, &r); return r;
 }
@@ -760,8 +796,7 @@ static napi_value TorrentReannounce(napi_env env, napi_callback_info info) {
   size_t argc = 2; napi_value args[2];
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
   ReannounceData d = {getInt32Napi(env, args[1])};
-  Err errCtx;
-  torrentReannounceFunc(getSession(env, args[0]), &d, &errCtx);
+  runInTransmissionThread(__FILE__, __LINE__, env, args[0], torrentReannounceFunc, &d);
   napi_value r; napi_get_undefined(env, &r); return r;
 }
 

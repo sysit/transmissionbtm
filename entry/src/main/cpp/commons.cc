@@ -191,7 +191,14 @@ void Err::set(const char *exception, const char *msg, ...) {
   isSet = true;
 }
 
-// ── Thread dispatch (semaphore-based, adapted for 4.0.6 session API) ─
+// ── Thread dispatch (semaphore + session event thread, 4.1 API) ────
+// B1 (docs/11, codex P0): every tr_* operation must run on the
+// libtransmission session's OWN event thread, never on the calling
+// (UI) thread. tr_runInEventThread() was removed in 4.0.6; the 4.1
+// equivalent is tr_session::run_in_session_thread(), which is non-blocking
+// (queues onto the event thread and returns). We add the caller-side
+// sem_wait on top so the N-API call keeps its synchronous return
+// semantics — exactly the transmissionbtc JNI pattern (docs/10 §2-A).
 struct Future {
   Err err;
   sem_t sem;
@@ -212,19 +219,28 @@ void *runInTransmissionThread(const char *file, int line, napi_env env,
                               void *(*func)(tr_session *, void *, Err *),
                               void *userData) {
   struct Future f;
-  sem_t *sem = &(f.sem);
-  sem_init(sem, 0, 0);
+  sem_init(&(f.sem), 0, 0);
   f.session = getSession(env, jsession);
   f.userData = userData;
   f.func = func;
+  f.result = nullptr;
 
-  // 4.0.6: tr_runInEventThread() removed. Run directly on calling thread.
-  // The calling ArkTS thread is NOT the transmission event thread,
-  // but this is safe for simple queries and short-lived operations.
-  runFutureFunc(&f);
+  if (f.session == nullptr) {
+    sem_destroy(&(f.sem));
+    throwNapiException(file, line, env, ERR_ARG, "Session is null");
+    return nullptr;
+  }
 
-  while ((sem_wait(sem) == -1) && (errno == EINTR));
-  sem_destroy(sem);
+  if (f.session->am_in_session_thread()) {
+    // Already on the event thread (e.g. re-entrant call from a callback or
+    // from another dispatched op) — running it here avoids a self-deadlock.
+    runFutureFunc(&f);
+  } else {
+    // Queue the work onto the event thread and block until it completes.
+    f.session->run_in_session_thread([&f] { runFutureFunc(&f); });
+    while ((sem_wait(&(f.sem)) == -1) && (errno == EINTR));
+  }
+  sem_destroy(&(f.sem));
 
   if (f.err.isSet) {
     throwNapiException(file, line, env, f.err.ex, f.err.exMsg);

@@ -293,6 +293,14 @@ static napi_value SessionStop(napi_env env, napi_callback_info info) {
 }
 
 // ── sessionSuspend ──────────────────────────────────────────────────
+typedef struct { bool suspend; } SuspendData;
+static void *transmissionSuspendFunc(tr_session *session, void *data, Err *err) {
+  (void)err;
+  auto *sd = (SuspendData *) data;
+  tr_sessionSetPaused(session, sd->suspend);
+  return nullptr;
+}
+
 static napi_value SessionSuspend(napi_env env, napi_callback_info info) {
   size_t argc = 2;
   napi_value args[2];
@@ -306,12 +314,8 @@ static napi_value SessionSuspend(napi_env env, napi_callback_info info) {
   bool suspend;
   napi_get_value_bool(env, args[1], &suspend);
 
-  tr_session *session = getSession(env, args[0]);
-  if (session == nullptr) {
-    napi_throw_error(env, nullptr, "Invalid session handle");
-    return nullptr;
-  }
-  tr_sessionSetPaused(session, suspend);
+  SuspendData d = {suspend};
+  runInTransmissionThread(__FILE__, __LINE__, env, args[0], transmissionSuspendFunc, &d);
 
   napi_value result;
   napi_get_undefined(env, &result);
@@ -345,7 +349,8 @@ static napi_value HasDownloadingTorrents(napi_env env, napi_callback_info info) 
   if (session == nullptr) {
     napi_value r; napi_get_boolean(env, false, &r); return r;
   }
-  bool has = transmissionHasDownloadingTorrents(session, nullptr, nullptr) != nullptr;
+  bool has = runInTransmissionThread(__FILE__, __LINE__, env, args[0],
+      transmissionHasDownloadingTorrents, nullptr) != nullptr;
 
   napi_value result;
   napi_get_boolean(env, has, &result);
@@ -394,7 +399,7 @@ static napi_value ListTorrentNames(napi_env env, napi_callback_info info) {
     napi_value r; napi_get_null(env, &r); return r;
   }
   ListTorrentsData d = {0, nullptr};
-  transmissionListTorrentNamesFunc(session, &d, nullptr);
+  runInTransmissionThread(__FILE__, __LINE__, env, args[0], transmissionListTorrentNamesFunc, &d);
 
   if (d.count == 0) {
     napi_value result;
@@ -415,18 +420,23 @@ static napi_value ListTorrentNames(napi_env env, napi_callback_info info) {
 }
 
 // ── getEncryptionMode ───────────────────────────────────────────────
+typedef struct { int32_t mode; } EncryptionData;
+static void *transmissionGetEncryptionFunc(tr_session *session, void *data, Err *err) {
+  (void)err;
+  auto *ed = (EncryptionData *) data;
+  ed->mode = (int32_t) tr_sessionGetEncryption(session);
+  return nullptr;
+}
+
 static napi_value GetEncryptionMode(napi_env env, napi_callback_info info) {
   size_t argc = 1;
   napi_value args[1];
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
 
-  tr_session *session = getSession(env, args[0]);
-  if (session == nullptr) {
-    napi_throw_error(env, nullptr, "Invalid session handle");
-    return nullptr;
-  }
+  EncryptionData d = {0};
+  runInTransmissionThread(__FILE__, __LINE__, env, args[0], transmissionGetEncryptionFunc, &d);
   napi_value result;
-  napi_create_int32(env, tr_sessionGetEncryption(session), &result);
+  napi_create_int32(env, d.mode, &result);
   return result;
 }
 

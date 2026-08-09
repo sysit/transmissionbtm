@@ -83,7 +83,11 @@ export default function sessionConfigTest(): void {
 
     it('returns_valid_session_critical_defaults', 0, (): void => {
       const config: SessionConfig = defaultSessionConfig();
-      expect(config.enableRpc).assertTrue();
+      // A2 (docs/11): RPC listener off by default — no web UI exists
+      // (ENABLE_WEB=OFF), so binding 9091 only exposes an unauthenticated
+      // control surface. The whitelist stays on so a future D7 (web control)
+      // opt-in binds to 127.0.0.1.
+      expect(config.enableRpc).assertFalse();
       expect(config.enableRpcWhitelist).assertTrue();
       expect(config.increaseSoBuf).assertTrue();
       expect(config.enableSeqDownload).assertFalse();
