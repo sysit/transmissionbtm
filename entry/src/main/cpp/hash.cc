@@ -13,13 +13,6 @@
 #include <cstdlib>
 #include "commons.h"
 
-// ── hashLength ──────────────────────────────────────────────────────
-static napi_value HashLength(napi_env env, napi_callback_info info) {
-  napi_value result;
-  napi_create_int32(env, SHA_DIGEST_LENGTH, &result);
-  return result;
-}
-
 // ── hashBytesToString ───────────────────────────────────────────────
 static napi_value HashBytesToString(napi_env env, napi_callback_info info) {
   size_t argc = 1;
@@ -107,60 +100,11 @@ static napi_value HashStringToBytes(napi_env env, napi_callback_info info) {
   return result;
 }
 
-// ── hashGetTorrentHash ──────────────────────────────────────────────
-// Extracts the info hash from a .torrent file without creating a session.
-// Uses ctorFromFile → tr_ctorGetMetainfo → metainfo.infoHash().
-static napi_value HashGetTorrentHash(napi_env env, napi_callback_info info) {
-  size_t argc = 1;
-  napi_value args[1];
-  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-
-  if (argc < 1) {
-    napi_throw_error(env, nullptr, "Expected 1 argument: torrentPath");
-    return nullptr;
-  }
-
-  char *path = getStringUtf8(env, args[0]);
-  if (path == nullptr) {
-    napi_throw_error(env, nullptr, "Invalid path argument");
-    return nullptr;
-  }
-
-  // Parse the .torrent file without a session
-  tr_ctor *ctor = tr_ctorNew(nullptr);
-  if (!tr_ctorSetMetainfoFromFile(ctor, path)) {
-    free(path);
-    tr_ctorFree(ctor);
-    napi_throw_error(env, nullptr, "Failed to parse torrent file");
-    return nullptr;
-  }
-  free(path);
-
-  auto const *metainfo = tr_ctorGetMetainfo(ctor);
-  if (metainfo == nullptr) {
-    tr_ctorFree(ctor);
-    napi_throw_error(env, nullptr, "No metainfo in torrent file");
-    return nullptr;
-  }
-
-  // Extract the 20-byte info hash
-  auto const &hash = metainfo->info_hash();
-  napi_value result;
-  void *outData;
-  napi_create_arraybuffer(env, SHA_DIGEST_LENGTH, &outData, &result);
-  memcpy(outData, std::data(hash), SHA_DIGEST_LENGTH);
-
-  tr_ctorFree(ctor);
-  return result;
-}
-
 // ── Module registration ─────────────────────────────────────────────
 extern "C" void RegisterHash(napi_env env, napi_value exports) {
   napi_property_descriptor desc[] = {
-    {"hashLength",         nullptr, HashLength,         nullptr, nullptr, nullptr, napi_default, nullptr},
-    {"hashBytesToString",  nullptr, HashBytesToString,  nullptr, nullptr, nullptr, napi_default, nullptr},
-    {"hashStringToBytes",  nullptr, HashStringToBytes,  nullptr, nullptr, nullptr, napi_default, nullptr},
-    {"hashGetTorrentHash", nullptr, HashGetTorrentHash, nullptr, nullptr, nullptr, napi_default, nullptr}
+    {"hashBytesToString", nullptr, HashBytesToString, nullptr, nullptr, nullptr, napi_default, nullptr},
+    {"hashStringToBytes", nullptr, HashStringToBytes, nullptr, nullptr, nullptr, napi_default, nullptr}
   };
   napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);
 }

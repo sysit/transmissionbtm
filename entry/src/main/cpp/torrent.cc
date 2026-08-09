@@ -440,6 +440,9 @@ static void *torrentGetPieceHashFunc(tr_session *s, void *d, Err *err) {
   }
   return nullptr;
 }
+// RESERVED (E1, docs/11): no ArkTS caller today. Corresponds to the original
+// torrentGetPieceHash feature; kept for the D5 HTTP-streaming / file-preview
+// reserve (per-piece hash integrity check).
 static napi_value TorrentGetPieceHash(napi_env env, napi_callback_info info) {
   size_t argc = 4; napi_value args[4];
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
@@ -478,6 +481,9 @@ static void *torrentSetPiecesHiPriFunc(tr_session *s, void *d, Err *err) {
   if (changed) { /* set_dirty() is private in 4.1 */ }
   return nullptr;
 }
+// RESERVED (E1, docs/11): no ArkTS caller today. Maps to the original
+// set-pieces-high-priority feature; kept for the D5 sequential-download /
+// play-while-downloading reserve.
 static napi_value TorrentSetPiecesHiPri(napi_env env, napi_callback_info info) {
   size_t argc = 4; napi_value args[4];
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
@@ -499,6 +505,8 @@ static void *torrentFindFileFunc(tr_session *s, void *d, Err *err) {
   auto path = tr_torrentFindFile(tor, (tr_file_index_t)fd->fileIdx);
   return strdup(path.c_str());
 }
+// RESERVED (E1, docs/11): no ArkTS caller today. Maps to the original
+// torrentFindFile feature (locate a torrent's data on disk).
 static napi_value TorrentFindFile(napi_env env, napi_callback_info info) {
   size_t argc = 3; napi_value args[3];
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
@@ -665,6 +673,9 @@ static void *torrentGetPieceFunc(tr_session *s, void *d, Err *err) {
   }
   return nullptr;
 }
+// RESERVED (E1, docs/11): no ArkTS caller today. Maps to the original
+// torrentGetPiece feature; kept for the D5 HTTP-streaming / preview reserve
+// (read a specific piece's raw bytes).
 static napi_value TorrentGetPiece(napi_env env, napi_callback_info info) {
   size_t argc = 6; napi_value args[6];
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
