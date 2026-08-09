@@ -150,12 +150,49 @@ static void *torrentAddFunc(tr_session *s, void *d, Err *err) {
   return nullptr;
 }
 
+// ── Magnet / info-hash detection (D1, docs/11) ─────────────────────
+// A magnet URI ("magnet:?xt=urn:btih:...") or a bare 40-hex info-hash is
+// added natively: tr_ctorSetMetainfoFromMagnetLink parses the link and
+// libtransmission fetches the metainfo from peers via BEP 9 (ut_metadata)
+// in the background (metadataPercentComplete grows 0→1). Previously the
+// string went to tr_ctorSetMetainfoFromFile and every magnet add failed
+// with PARSE_ERR.
+static bool isHexInfoHash(std::string_view s) {
+  if (s.size() != 2 * (size_t) SHA_DIGEST_LENGTH) return false;
+  for (char c : s) {
+    if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')))
+      return false;
+  }
+  return true;
+}
+
 static napi_value TorrentAdd(napi_env env, napi_callback_info info) {
   size_t argc = 8;
   napi_value args[8];
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
 
-  tr_ctor *ctor = ctorFromFile(env, args[0], args[1], false);
+  // D1 (docs/11): build a magnet ctor when the input is a magnet URI or a
+  // bare 40-hex info-hash; otherwise fall through to the file-based path.
+  tr_ctor *ctor = nullptr;
+  char *input = getStringUtf8(env, args[1]);
+  if (input != nullptr) {
+    std::string_view sv(input);
+    if (sv.starts_with("magnet:") || isHexInfoHash(sv)) {
+      std::string magnetUri = sv.starts_with("magnet:")
+        ? std::string(sv)
+        : "magnet:?xt=urn:btih:" + std::string(sv);
+      ctor = tr_ctorNew(getSession(env, args[0]));
+      if (ctor != nullptr &&
+          !tr_ctorSetMetainfoFromMagnetLink(ctor, magnetUri, nullptr)) {
+        tr_ctorFree(ctor);
+        ctor = nullptr;
+      }
+    }
+  }
+  free(input);
+  if (ctor == nullptr) {
+    ctor = ctorFromFile(env, args[0], args[1], false);
+  }
   if (ctor == nullptr) {
     napi_value result;
     napi_create_int32(env, 1, &result);

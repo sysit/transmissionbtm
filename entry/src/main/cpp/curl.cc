@@ -39,6 +39,17 @@ static napi_value CurlDownload(napi_env env, napi_callback_info info) {
     return nullptr;
   }
 
+  // D2 (docs/11): restrict to http/https. Without this a user-supplied URL
+  // can be "file:///..." and CURLOPT_WRITEDATA would write an arbitrary local
+  // file — an arbitrary-file-write primitive driven by user input. Checked
+  // before fopen so a rejected URL never creates a garbage destination file.
+  if (strncmp(url, "http://", 7) != 0 && strncmp(url, "https://", 8) != 0) {
+    free(url);
+    free(dst);
+    napi_throw_error(env, nullptr, "Only http:// and https:// URLs are supported");
+    return nullptr;
+  }
+
   int32_t timeout = 30; // default 30s
   if (argc >= 3) {
     napi_get_value_int32(env, args[2], &timeout);

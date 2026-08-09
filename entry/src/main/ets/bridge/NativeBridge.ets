@@ -130,6 +130,19 @@ export class NativeBridge {
     native.torrentRemove(this.toPtr(sessionId), torrentId, removeData);
   }
 
+  /**
+   * Download a file over HTTP(S) to a local path.
+   * D2 (docs/11): the AddTorrentPage URL flow fetches a .torrent into the app
+   * cache with this, then adds it through torrentAdd(). Native enforces
+   * http(s):// schemes (an arbitrary file:// URL would be a file-write vector).
+   * @param url      http(s):// URL to fetch
+   * @param dstPath  Absolute destination path (e.g. <cacheDir>/x.torrent)
+   * @param timeout  Optional timeout in seconds (default 30)
+   */
+  curlDownload(url: string, dstPath: string, timeout?: number): void {
+    native.curlDownload(url, dstPath, timeout ?? 30);
+  }
+
   torrentStart(sessionId: number, torrentId: number): void {
     native.torrentStart(this.toPtr(sessionId), torrentId);
   }

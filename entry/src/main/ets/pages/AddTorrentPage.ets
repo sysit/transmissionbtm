@@ -1,10 +1,12 @@
-// transmissionhm — AddTorrentPage (add torrent via file or magnet URI)
+// transmissionhm — AddTorrentPage (add torrent via file, magnet URI, or URL)
 //
-// Two-tab interface: file picker for .torrent files, text input for magnet URIs.
+// Three-tab interface: file picker for .torrent files, text input for magnet
+// URIs / info-hashes, and a URL field for downloading .torrent files (D2).
 // Validates inputs before passing to TransmissionSession.addTorrent().
 
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { TransmissionSession } from '../models/TransmissionSession';
+import { NativeBridge } from '../bridge/NativeBridge';
 import { TorrentAddResult } from '../utils/constants';
 import { Colors, FontSize, Spacing, Radius } from '../utils/constants';
 import { picker, fileIo as fs } from '@kit.CoreFileKit';
@@ -15,6 +17,7 @@ const TAG = 'AddTorrentPage';
 enum AddTab {
   FILE = 0,
   MAGNET = 1,
+  URL = 2,
 }
 
 @Component
@@ -24,9 +27,9 @@ export struct AddTorrentPage {
   @State currentTab: AddTab = AddTab.FILE;
   @State filePath: string = '';
   @State magnetUri: string = '';
+  @State urlInput: string = '';
   @State addPaused: boolean = false;
   @State isAdding: boolean = false;
-  @State isResolvingMagnet: boolean = false;
   @State statusMessage: string = '';
   @State statusIsError: boolean = false;
   onTorrentAdded?: () => void;
@@ -79,6 +82,7 @@ export struct AddTorrentPage {
     Row() {
       this.TabButton('📄 File', AddTab.FILE);
       this.TabButton('🧲 Magnet', AddTab.MAGNET);
+      this.TabButton('🔗 URL', AddTab.URL);
     }
     .width('100%')
     .padding({ left: Spacing.LG, right: Spacing.LG });
@@ -114,11 +118,13 @@ export struct AddTorrentPage {
     Column() {
       if (this.currentTab === AddTab.FILE) {
         this.buildFileTab();
-      } else {
+      } else if (this.currentTab === AddTab.MAGNET) {
         this.buildMagnetTab();
+      } else {
+        this.buildUrlTab();
       }
 
-      // Download directory (shared across both tabs)
+      // Download directory (shared across all tabs)
       this.buildDirectorySection();
     }
     .layoutWeight(1)
@@ -222,39 +228,51 @@ export struct AddTorrentPage {
         .width('100%')
         .margin({ bottom: Spacing.MD });
 
-      if (this.isResolvingMagnet) {
-        Column() {
-          LoadingProgress()
-            .width(36)
-            .height(36)
-            .color(Colors.DOWNLOAD);
-          Text('Resolving magnet link...')
-            .fontSize(FontSize.CAPTION)
-            .fontColor(Colors.TEXT_SECONDARY)
-            .margin({ top: Spacing.MD });
-        }
-        .width('100%')
-        .height(120)
-        .justifyContent(FlexAlign.Center)
+      // D1 (docs/11): native BEP 9 — the magnet is added immediately and
+      // libtransmission fetches the metainfo from peers in the background
+      // (metadataPercentComplete grows 0→1). No blocking "resolve" step
+      // exists anymore, so no spinner here.
+      TextArea({
+        placeholder: 'magnet:?xt=urn:btih:...',
+        text: this.magnetUri,
+      })
+        .fontSize(FontSize.CAPTION)
+        .fontColor(Colors.TEXT)
+        .fontFamily('JetBrains Mono')
         .backgroundColor(Colors.SURFACE)
-        .borderRadius(Radius.MD);
-      } else {
-        TextArea({
-          placeholder: 'magnet:?xt=urn:btih:...',
-          text: this.magnetUri,
-        })
-          .fontSize(FontSize.CAPTION)
-          .fontColor(Colors.TEXT)
-          .fontFamily('JetBrains Mono')
-          .backgroundColor(Colors.SURFACE)
-          .borderRadius(Radius.MD)
-          .height(120)
-          .padding(Spacing.MD)
-          .maxLength(2048)
-          .onChange((value: string) => {
-            this.magnetUri = value;
-          });
-      }
+        .borderRadius(Radius.MD)
+        .height(120)
+        .padding(Spacing.MD)
+        .maxLength(2048)
+        .onChange((value: string) => {
+          this.magnetUri = value;
+        });
+    }
+    .width('100%');
+  }
+
+  @Builder
+  buildUrlTab() {
+    Column() {
+      Text('Download a .torrent from a URL')
+        .fontSize(FontSize.CAPTION)
+        .fontColor(Colors.TEXT_SECONDARY)
+        .width('100%')
+        .margin({ bottom: Spacing.MD });
+
+      // D2 (docs/11): the URL is fetched to the app cache via curlDownload
+      // (NativeBridge), then added through the existing file-based path.
+      TextInput({ placeholder: 'https://example.com/file.torrent', text: this.urlInput })
+        .fontSize(FontSize.CAPTION)
+        .fontColor(Colors.TEXT)
+        .backgroundColor(Colors.SURFACE)
+        .borderRadius(Radius.MD)
+        .height(44)
+        .padding({ left: Spacing.MD, right: Spacing.MD })
+        .maxLength(2048)
+        .onChange((value: string) => {
+          this.urlInput = value;
+        });
     }
     .width('100%');
   }
@@ -428,13 +446,15 @@ export struct AddTorrentPage {
     this.statusIsError = false;
 
     // Validate input
-    const input = this.currentTab === AddTab.FILE ? this.filePath.trim() : this.magnetUri.trim();
+    const input = this.currentTab === AddTab.FILE ? this.filePath.trim()
+      : this.currentTab === AddTab.MAGNET ? this.magnetUri.trim()
+      : this.urlInput.trim();
 
     if (input.length === 0) {
       this.showError(
-        this.currentTab === AddTab.FILE
-          ? 'Please select a .torrent file'
-          : 'Please enter a magnet URI'
+        this.currentTab === AddTab.FILE ? 'Please select a .torrent file'
+          : this.currentTab === AddTab.MAGNET ? 'Please enter a magnet URI'
+          : 'Please enter a torrent URL'
       );
       return;
     }
@@ -444,57 +464,74 @@ export struct AddTorrentPage {
         this.showError('File must have a .torrent extension');
         return;
       }
-    } else {
+    } else if (this.currentTab === AddTab.MAGNET) {
       if (!this.validateMagnetUri(input)) {
-        this.showError('Invalid magnet URI. Must start with "magnet:"');
+        this.showError('Enter a magnet:?xt=urn:btih:... URI or a 40-hex info-hash');
         return;
       }
+    } else if (!this.validateUrl(input)) {
+      this.showError('Invalid URL. Must be http(s)://...');
+      return;
     }
 
     this.isAdding = true;
     this.statusMessage = '';
 
-    // Show resolve spinner for magnet links before calling addTorrent
-    if (this.currentTab === AddTab.MAGNET) {
-      this.isResolvingMagnet = true;
-      this.statusMessage = 'Resolving magnet link...';
-    }
-
     try {
       const session = new TransmissionSession();
       session.sessionId = this.sessionId;
 
-      const tid = session.addTorrent(input, this.downloadDir, this.addPaused);
-      this.isResolvingMagnet = false;
-
-      // P0 fix (codex review): native torrentAdd returns a result *code*
-      // (0=OK, 1=PARSE_ERR, 2=DUPLICATE, 3=OK_DELETE), NOT a torrent ID.
-      // The old `tid > 0` check treated every success (code 0) as a failure
-      // and showed "Failed to add torrent (code: 0)".
-      if (tid === TorrentAddResult.OK || tid === TorrentAddResult.OK_DELETE) {
-        this.showSuccess('Torrent added');
-        // Notify parent after a brief delay so user sees success
-        setTimeout(() => {
-          this.isAdding = false;
-          this.onTorrentAdded?.();
-        }, 600);
-      } else if (tid === TorrentAddResult.DUPLICATE) {
-        this.showError('This torrent is already in the list');
-        this.isAdding = false;
-        this.isResolvingMagnet = false;
-      } else if (tid === TorrentAddResult.PARSE_ERR) {
-        this.showError('Failed to parse torrent file. It may be corrupted.');
-        this.isAdding = false;
-        this.isResolvingMagnet = false;
-      } else {
-        this.showError(`Failed to add torrent (code: ${tid})`);
-        this.isAdding = false;
-        this.isResolvingMagnet = false;
+      // D2 (docs/11): URL tab — fetch the .torrent to the app cache first, then
+      // add it through the existing file-based path. A download failure shows
+      // here instead of a misleading PARSE_ERR from torrentAdd.
+      if (this.currentTab === AddTab.URL) {
+        this.addFromUrl(session, input);
+        return;
       }
+
+      // D1 (docs/11): native torrentAdd accepts magnet URIs and bare 40-hex
+      // info-hashes directly (BEP 9 ut_metadata) — no blocking resolve step.
+      this.handleAddResult(session.addTorrent(input, this.downloadDir, this.addPaused));
     } catch (e) {
       this.showError(`Error: ${String(e)}`);
       this.isAdding = false;
-      this.isResolvingMagnet = false;
+    }
+  }
+
+  /** D2 (docs/11): curlDownload the URL into the app cache, then add the file. */
+  private addFromUrl(session: TransmissionSession, url: string): void {
+    try {
+      const dstPath = `${getContext(this).cacheDir}/url_${Date.now()}.torrent`;
+      NativeBridge.getInstance().curlDownload(url, dstPath, 60);
+      this.handleAddResult(session.addTorrent(dstPath, this.downloadDir, this.addPaused));
+    } catch (e) {
+      this.showError(`Download failed: ${String(e)}`);
+      this.isAdding = false;
+    }
+  }
+
+  /** Shared result handling for the file / magnet / URL add paths. */
+  private handleAddResult(tid: number): void {
+    // P0 fix (codex review): native torrentAdd returns a result *code*
+    // (0=OK, 1=PARSE_ERR, 2=DUPLICATE, 3=OK_DELETE), NOT a torrent ID.
+    // The old `tid > 0` check treated every success (code 0) as a failure
+    // and showed "Failed to add torrent (code: 0)".
+    if (tid === TorrentAddResult.OK || tid === TorrentAddResult.OK_DELETE) {
+      this.showSuccess('Torrent added');
+      // Notify parent after a brief delay so user sees success
+      setTimeout(() => {
+        this.isAdding = false;
+        this.onTorrentAdded?.();
+      }, 600);
+    } else if (tid === TorrentAddResult.DUPLICATE) {
+      this.showError('This torrent is already in the list');
+      this.isAdding = false;
+    } else if (tid === TorrentAddResult.PARSE_ERR) {
+      this.showError('Failed to parse torrent file. It may be corrupted.');
+      this.isAdding = false;
+    } else {
+      this.showError(`Failed to add torrent (code: ${tid})`);
+      this.isAdding = false;
     }
   }
 
@@ -507,9 +544,32 @@ export struct AddTorrentPage {
   }
 
   private validateMagnetUri(uri: string): boolean {
+    // D1 (docs/11): accept a magnet URI or a bare 40-hex info-hash — native
+    // torrentAdd converts the bare hash to magnet:?xt=urn:btih:<hash>.
+    if (uri.length === 40) {
+      let allHex: boolean = true;
+      for (let i = 0; i < 40; i++) {
+        const code: number = uri.charCodeAt(i);
+        const isHex: boolean = (code >= 48 && code <= 57) ||
+          (code >= 97 && code <= 102) || (code >= 65 && code <= 70);
+        if (!isHex) {
+          allHex = false;
+          break;
+        }
+      }
+      if (allHex) {
+        return true;
+      }
+    }
     const lower = uri.toLowerCase();
     return lower.startsWith('magnet:') &&
       (lower.includes('xt=urn:btih:') || lower.includes('btih:'));
+  }
+
+  /** D2 (docs/11): accept only http(s):// URLs (native curlDownload enforces the same). */
+  private validateUrl(url: string): boolean {
+    const lower = url.toLowerCase();
+    return (lower.startsWith('http://') || lower.startsWith('https://')) && url.length > 8;
   }
 
   private extractFileName(path: string): string {
