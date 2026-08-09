@@ -16,6 +16,8 @@ import { FileTreePage } from './FileTreePage';
 import { EmptyState } from '../components/ui/EmptyState';
 import { formatSpeed } from '../utils/format';
 import { Colors, FontSize, Spacing, Radius } from '../utils/constants';
+import { WakeLockManager } from '../services/WakeLockManager';
+import { ConnectivityMonitor } from '../services/ConnectivityMonitor';
 
 const TAG = 'DownloadsPage';
 
@@ -31,6 +33,10 @@ export struct DownloadsPage {
   @State contextMenuTorrent: TorrentInfo | null = null;
   private session: TransmissionSession = new TransmissionSession();
   private pollTimer: number = -1;
+  private wakeLock: WakeLockManager = new WakeLockManager();
+  private wakeLockActive: boolean = false;
+  private connectivity: ConnectivityMonitor | null = null;
+  private netPaused: boolean = false;
 
   aboutToAppear(): void {
     hilog.info(0x0001, TAG, 'DownloadsPage aboutToAppear');
@@ -39,6 +45,15 @@ export struct DownloadsPage {
 
   aboutToDisappear(): void {
     this.stopPolling();
+    // D3/D4 (docs/11): release the wake lock and unregister the connectivity
+    // monitor before tearing the session down.
+    this.wakeLock.release();
+    this.wakeLockActive = false;
+    if (this.connectivity !== null) {
+      this.connectivity.destroy().then(() => {});
+      this.connectivity = null;
+    }
+    this.netPaused = false;
     this.stopSession();
   }
 
@@ -54,6 +69,7 @@ export struct DownloadsPage {
       hilog.info(0x0001, TAG, 'Session started, id=%{public}d', this.session.sessionId);
       this.refreshTorrents();
       this.startPolling();
+      this.startConnectivityMonitor();
     } catch (e) {
       hilog.error(0x0001, TAG, 'Session start failed: %{public}s', String(e));
       this.isLoading = false;
@@ -117,6 +133,74 @@ export struct DownloadsPage {
       // Session may not be active — keep existing list
     }
     this.isLoading = false;
+    this.updateWakeLock();
+  }
+
+  /**
+   * D3 (docs/11): revive the wake lock into the session poll.
+   * The M4 WakeLockManager existed but was never acquired anywhere, so the CPU
+   * could suspend mid-transfer. Track the native hasDownloadingTorrents state
+   * (covers DOWNLOAD/DOWNLOAD_WAIT/CHECK/CHECK_WAIT) and acquire/release the
+   * BACKGROUND running lock only on transitions, so a 1s poll never spams
+   * runningLock.create().
+   */
+  private updateWakeLock(): void {
+    let active: boolean = false;
+    try {
+      active = this.session.hasDownloadingTorrents();
+    } catch (e) {
+      // Session may not be active — treat as idle
+    }
+    if (active && !this.wakeLockActive) {
+      this.wakeLockActive = true;
+      this.wakeLock.acquire('active torrent transfer').then(() => {});
+    } else if (!active && this.wakeLockActive) {
+      this.wakeLockActive = false;
+      this.wakeLock.release();
+    }
+  }
+
+  /**
+   * D4 (docs/11): revive the connectivity monitor into the live session.
+   * The M4 ConnectivityMonitor existed but was never registered anywhere, so
+   * the session never paused/resumed on network loss. Wire it to the session
+   * suspend/resume primitives (tr_sessionSetPaused). The monitor itself gates
+   * on the wifi_only preference; base network loss always suspends.
+   */
+  private startConnectivityMonitor(): void {
+    if (this.connectivity !== null) {
+      return;
+    }
+    const monitor: ConnectivityMonitor = new ConnectivityMonitor(
+      () => { this.onNetworkAvailable(); },
+      () => { this.onNetworkLost(); }
+    );
+    this.connectivity = monitor;
+    monitor.start().then(() => {});
+  }
+
+  private onNetworkAvailable(): void {
+    if (this.netPaused) {
+      hilog.info(0x0001, TAG, 'Network restored — resuming session');
+      this.netPaused = false;
+      try {
+        this.session.suspend(false);
+      } catch (e) {
+        hilog.error(0x0001, TAG, 'Session resume failed: %{public}s', String(e));
+      }
+    }
+  }
+
+  private onNetworkLost(): void {
+    if (!this.netPaused) {
+      hilog.info(0x0001, TAG, 'Network lost — suspending session');
+      this.netPaused = true;
+      try {
+        this.session.suspend(true);
+      } catch (e) {
+        hilog.error(0x0001, TAG, 'Session suspend failed: %{public}s', String(e));
+      }
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════
