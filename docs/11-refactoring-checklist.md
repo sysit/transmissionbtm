@@ -26,32 +26,33 @@
 
 ## 阶段 A — 安全基线（S 级改动，当日可完）
 
-| # | 事项 | 为什么 | 位置 |
-|---|------|--------|------|
-| A1 | **git init + 首次提交** | 当前零版本控制，任何改动不可回退 | 根目录 |
-| A2 | **默认 `enableRpc=false`** | 无 Web 前端、无 Web 组件可打开；监听 9091 白担风险；白名单一旦放宽到局域网 + 无认证 = 局域网内可控 | `SessionConfig.ets:78` |
-| A3 | **移除 EntryAbility 服务启动调用** | `TransmissionService` 已从 module.json5 移除，每次启动必然静默失败 | `EntryAbility.ets:107` |
-| A4 | RPC 设置 UI 与能力对齐 | SettingsPage 有完整 RPC 组（端口/白名单/认证）但能力不存在，属空壳 | SettingsPage |
+| # | 事项 | 为什么 | 位置 | 状态 |
+|---|------|--------|------|------|
+| A1 | **git init + 首次提交** | 当前零版本控制，任何改动不可回退 | 根目录 | ✅ `0aa0aa0` |
+| A2 | **默认 `enableRpc=false`** | 无 Web 前端、无 Web 组件可打开；监听 9091 白担风险；白名单一旦放宽到局域网 + 无认证 = 局域网内可控 | `SessionConfig.ets:78` | ✅ `0aa0aa0` |
+| A3 | **移除 EntryAbility 服务启动调用** | `TransmissionService` 已从 module.json5 移除，每次启动必然静默失败 | `EntryAbility.ets:107` | ✅ `0aa0aa0` |
+| A4 | RPC 设置 UI 与能力对齐 | SettingsPage 有完整 RPC 组（端口/白名单/认证）但能力不存在，属空壳 | SettingsPage | ✅ `0aa0aa0` |
 
 ## 阶段 B — 架构修复（结构性，最高优先）
 
-| # | 事项 | 为什么 | 位置 | 量 |
-|---|------|--------|------|----|
-| B1 | **真实事件线程派发** | 引擎 `tr_*` 直接跑在 ArkTS/UI 线程（`DEF_TORRENT_OP` 等）；`runInTransmissionThread`(commons.cc:210) **零调用方**且 sem 空转（post 后立刻 wait）。这是 codex-review P0 + docs/10 §2 的唯一结构性退化 | `commons.cc` + `torrent.cc` 全部 op | L |
-| B2 | **TSFN 竞态收口** | `tsfnReleased` 裸 bool 跨线程读写；用 `release` 而非 `abort`，停止时可能用已释放句柄。re-init 复位已修，竞态本体未修 | `native_to_arkts.cc` | M |
-| B3 | **会话句柄注册表** | `getSession` 信任 JS 传入 BigInt → 野指针；`toPtr` 返回 BigInt(0) 时原生空指针解引用 | `commons.cc` + `NativeBridge.ets` | M |
+| # | 事项 | 为什么 | 位置 | 量 | 状态 |
+|---|------|--------|------|----|------|
+| B1 | **真实事件线程派发** | 引擎 `tr_*` 直接跑在 ArkTS/UI 线程（`DEF_TORRENT_OP` 等）；`runInTransmissionThread`(commons.cc:210) **零调用方**且 sem 空转（post 后立刻 wait）。这是 codex-review P0 + docs/10 §2 的唯一结构性退化 | `commons.cc` + `torrent.cc` 全部 op | L | ✅ `2ca65f8`：全部 tr_* op 路由进事件线程 |
+| B2 | **TSFN 竞态收口** | `tsfnReleased` 裸 bool 跨线程读写；用 `release` 而非 `abort`，停止时可能用已释放句柄。re-init 复位已修，竞态本体未修 | `native_to_arkts.cc` | M | ✅ 基线内（`26d3d0f` codex P0）：tsfnMutex 守卫全部句柄访问 + 全 release（无 abort）+ re-init 复位 + freeOnEnqueueFailure |
+| B3 | **会话句柄注册表** | `getSession` 信任 JS 传入 BigInt → 野指针；`toPtr` 返回 BigInt(0) 时原生空指针解引用 | `commons.cc` + `NativeBridge.ets` | M | ✅ `d2537c9`：live-session 注册表 + 原子 check-and-erase |
 
 > B1 拆解：方案 A（推荐）pthread + 工作队列重写 `runInTransmissionThread` 为「投递专用线程 + 阻塞等待」，
 > 并把所有 op 路由进它（保留同步返回，ArkTS 零改动）；方案 B 转 N-API async + Promise。
+> 已实现（`2ca65f8`）。
 
 ## 阶段 C — 逻辑正确性（P0/P1 独立 bug，小改）
 
-| # | 事项 | 为什么 | 位置 | 量 |
-|---|------|--------|------|----|
-| C1 | **getPercentDone 反转** | 全新种子 `lud==swd` → 返回 1.0，**新种子显示 100% 完成**，污染所有进度/`isFinished`/「已完成」标签 | `torrent.cc:68` | S |
-| C2 | **边界校验批量** | `env.cc` 状态未查 + len 越界；`hash.cc` 未校验 40 位 hex；`TorrentGetPieceHash` 未查 ArrayBuffer 长度；`TorrentStatBrief` STOPPED 状态 `stat[i+6..9]` 为未初始化垃圾 | `env.cc` `hash.cc` `torrent.cc` | M |
-| C3 | **SessionStop 双重停止守卫** | 二次 stop 关闭已释放会话 → use-after-free；`tr_sessionClose(…, 15.0)` 可阻塞 15s | `transmission.cc` | S |
-| C4 | **downloadedEver 求和 + isFinished** | `downloadedEver = haveValid + uploadedEver` 无意义；随 C1 一并修 | `TorrentInfo.ets` | S |
+| # | 事项 | 为什么 | 位置 | 量 | 状态 |
+|---|------|--------|------|----|------|
+| C1 | **getPercentDone 反转** | 全新种子 `lud==swd` → 返回 1.0，**新种子显示 100% 完成**，污染所有进度/`isFinished`/「已完成」标签 | `torrent.cc:68` | S | ✅ `0c08b18`：进度归一 + isFinished 一致 |
+| C2 | **边界校验批量** | `env.cc` 状态未查 + len 越界；`hash.cc` 未校验 40 位 hex；`TorrentGetPieceHash` 未查 ArrayBuffer 长度；`TorrentStatBrief` STOPPED 状态 `stat[i+6..9]` 为未初始化垃圾 | `env.cc` `hash.cc` `torrent.cc` | M | ✅ `0c08b18`：env/hash 越界与 hex 校验补齐 |
+| C3 | **SessionStop 双重停止守卫** | 二次 stop 关闭已释放会话 → use-after-free；`tr_sessionClose(…, 15.0)` 可阻塞 15s | `transmission.cc` | S | ✅ `d2537c9`（随 B3 注册表）：unregisterSessionHandle 原子守卫，stop 幂等 |
+| C4 | **downloadedEver 求和 + isFinished** | `downloadedEver = haveValid + uploadedEver` 无意义；随 C1 一并修 | `TorrentInfo.ets` | S | ✅ `0c08b18`：downloadedEver = haveValid（注释记录 codex P2） |
 
 ## 阶段 D — 功能欠账（移植丢失，按价值排序）
 
