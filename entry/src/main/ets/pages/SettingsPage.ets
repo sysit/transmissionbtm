@@ -65,6 +65,7 @@ export struct SettingsPage {
   @State blocklistUrl: string = defaultSessionConfig().blocklistUrl;
 
   // ── RPC ────────────────────────────────────────────────────────
+  @State rpcEnabled: boolean = defaultSessionConfig().enableRpc;
   @State rpcPort: string = String(defaultSessionConfig().rpcPort);
   @State rpcAuthentication: boolean = defaultSessionConfig().rpcAuthentication;
   @State rpcUsername: string = defaultSessionConfig().rpcUsername;
@@ -124,6 +125,7 @@ export struct SettingsPage {
       this.blocklistUrl = await pm.getString(PrefKeys.BLOCKLIST_URL, this.blocklistUrl);
 
       // RPC
+      this.rpcEnabled = await pm.getBoolean(PrefKeys.ENABLE_RPC, this.rpcEnabled);
       this.rpcPort = String(await pm.getInt(PrefKeys.RPC_PORT, Number(this.rpcPort)));
       this.rpcAuthentication = await pm.getBoolean(PrefKeys.RPC_AUTHENTICATION, this.rpcAuthentication);
       this.rpcUsername = await pm.getString(PrefKeys.RPC_USERNAME, this.rpcUsername);
@@ -519,34 +521,43 @@ export struct SettingsPage {
   @Builder
   BuildRpcSection() {
     SettingsGroup({ title: 'Remote Control (RPC)' }) {
-      EditSetting({
-        label: 'RPC port',
-        hint: '9091',
-        prefKey: PrefKeys.RPC_PORT,
-        value: $rpcPort,
-        inputType: InputType.Number,
-        valueType: 'number',
-      });
       ToggleSetting({
-        label: 'Authentication',
-        description: 'Require username & password for RPC access',
-        prefKey: PrefKeys.RPC_AUTHENTICATION,
-        checked: $rpcAuthentication,
+        label: 'Enable RPC server',
+        description: 'Off by default — no web UI is bundled. ' +
+          'Enabling binds the RPC port; keep whitelist & auth set.',
+        prefKey: PrefKeys.ENABLE_RPC,
+        checked: $rpcEnabled,
       });
-      if (this.rpcAuthentication) {
+      if (this.rpcEnabled) {
         EditSetting({
-          label: 'Username',
-          hint: 'admin',
-          prefKey: PrefKeys.RPC_USERNAME,
-          value: $rpcUsername,
+          label: 'RPC port',
+          hint: '9091',
+          prefKey: PrefKeys.RPC_PORT,
+          value: $rpcPort,
+          inputType: InputType.Number,
+          valueType: 'number',
         });
-        EditSetting({
-          label: 'Password',
-          hint: '••••••••',
-          prefKey: PrefKeys.RPC_PASSWORD,
-          value: $rpcPassword,
-          inputType: InputType.Password,
+        ToggleSetting({
+          label: 'Authentication',
+          description: 'Require username & password for RPC access',
+          prefKey: PrefKeys.RPC_AUTHENTICATION,
+          checked: $rpcAuthentication,
         });
+        if (this.rpcAuthentication) {
+          EditSetting({
+            label: 'Username',
+            hint: 'admin',
+            prefKey: PrefKeys.RPC_USERNAME,
+            value: $rpcUsername,
+          });
+          EditSetting({
+            label: 'Password',
+            hint: '••••••••',
+            prefKey: PrefKeys.RPC_PASSWORD,
+            value: $rpcPassword,
+            inputType: InputType.Password,
+          });
+        }
       }
     }
   }

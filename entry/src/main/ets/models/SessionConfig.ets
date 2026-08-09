@@ -75,7 +75,10 @@ export function defaultSessionConfig(): SessionConfig {
     blocklistEnabled: false, blocklistUrl: '',
     seedRatioLimit: 2.0, seedRatioLimited: false,
     idleSeedingLimit: 30, idleSeedingLimitEnabled: false,
-    enableRpc: true, enableRpcWhitelist: true,
+    // RPC listener is disabled by default: no web UI exists (ENABLE_WEB=OFF),
+    // so binding 9091 only exposes an unauthenticated control surface.
+    // See docs/11 A2. D7 (web control) would re-enable with auth.
+    enableRpc: false, enableRpcWhitelist: true,
     increaseSoBuf: true, enableSeqDownload: false,
     settingsDir: '/storage/transmission',
   };

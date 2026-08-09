@@ -1,6 +1,7 @@
 // transmissionhm — App entry point (M5)
-// Initializes preferences, starts the background Transmission service,
-// and handles external intents (magnet links, .torrent files).
+// Initializes preferences and handles external intents (magnet links,
+// .torrent files). The background TransmissionService was removed in M7
+// (HarmonyOS NEXT service = system-app-only) — the session runs in-process.
 
 import { UIAbility, Want, AbilityConstant } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
@@ -30,9 +31,6 @@ export default class EntryAbility extends UIAbility {
       hilog.error(0x0001, TAG,
         'Preferences init failed: %{public}s', String(err));
     }
-
-    // Start the background Transmission service
-    this.startTransmissionService();
 
     // Parse external intent if launched via magnet/file URI
     this.pendingTorrentIntent = this.parseIntent(want);
@@ -96,29 +94,6 @@ export default class EntryAbility extends UIAbility {
     }
 
     return { kind: 'unknown', uri: '' };
-  }
-
-  private startTransmissionService(): void {
-    try {
-      const serviceWant: Want = {
-        // P0 fix (codex review): was hardcoded 'com.transmissionhm' — the
-        // real bundle is com.9bt.transmission (AppScope/app.json5), so
-        // startUIServiceExtensionAbility always failed.
-        bundleName: 'com.9bt.transmission',
-        abilityName: 'TransmissionService',
-      };
-      this.context.startUIServiceExtensionAbility(serviceWant)
-        .then(() => {
-          hilog.info(0x0001, TAG, 'TransmissionService started');
-        })
-        .catch((err: Error) => {
-          hilog.error(0x0001, TAG,
-            'Failed to start TransmissionService: %{public}s', String(err));
-        });
-    } catch (err) {
-      hilog.error(0x0001, TAG,
-        'startServiceExtensionAbility failed: %{public}s', String(err));
-    }
   }
 
   onDestroy(): void {
