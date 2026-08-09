@@ -6,17 +6,21 @@ This document maps every feature in **transmissionbtc** (v1.3.10) against a targ
 
 **v1.0 Scope Decision (2026-06-28, revised same day):** The following feature groups are **deferred to v1.1+** to reduce initial delivery scope from ~41-60 days to ~26-40 days:
 
-| Deferred | Original Priority | Reason |
-|----------|-------------------|--------|
-| UPnP/DLNA & SSDP (9 features: 4.1–4.9) | P2–P3 | DLNA Media Server is not core BT functionality |
-| Custom HTTP server + streaming (7 features: 3.1–3.7) | P0–P1 | "Play while downloading" is a nice-to-have; v1.0: download complete files, play via file URI |
-| M3U playlist generation (3.4) | P1 | Primary consumer was DLNA + HTTP streaming; not needed without either |
-| Watch directories (5.12) | P2 | Manual torrent add covers core workflow |
-| Dark theme (5.16) | P2 | Ship one intentional theme first; add dark mode post-v1.0 |
-| Russian localization (5.17) | P3 | v1.0 targets zh-CN / en-US only |
-| RSS feed (5.14) | P3 | Was an empty stub in Android source; never implemented |
-| Alternative web UI (8.3) | P3 | Standard Transmission web UI is sufficient |
-| Storage adapter (bidirectional N-API I/O bridge) | P0 | **Simplified:** v1.0 uses app sandbox + POSIX I/O directly. No FileAccessHelper bridge needed. External storage support deferred to v1.1+ |
+| Deferred | Original Priority | 分类 | Reason |
+|----------|-------------------|------|--------|
+| UPnP/DLNA & SSDP (9 features: 4.1–4.9) | P2–P3 | **移植欠账** | DLNA Media Server is not core BT functionality |
+| Custom HTTP server + streaming (7 features: 3.1–3.7) | P0–P1 | **移植欠账** | "Play while downloading" is a nice-to-have; v1.0: download complete files, play via file URI |
+| M3U playlist generation (3.4) | P1 | **移植欠账** | Primary consumer was DLNA + HTTP streaming; not needed without either |
+| Watch directories (5.12) | P2 | **移植欠账** | Manual torrent add covers core workflow |
+| Dark theme (5.16) | P2 | 对齐（原版也没有） | Ship one intentional theme first; add dark mode post-v1.0 |
+| Russian localization (5.17) | P3 | 对齐（原版也只有 RU+EN） | v1.0 targets zh-CN / en-US only |
+| RSS feed (5.14) | P3 | 对齐（原版也是空桩） | Was an empty stub in Android source; never implemented |
+| Alternative web UI (8.3) | P3 | **移植欠账** | Standard Transmission web UI is sufficient |
+| Storage adapter (bidirectional N-API I/O bridge) | P0 | 简化（架构决策，非欠账） | **Simplified:** v1.0 uses app sandbox + POSIX I/O directly. No FileAccessHelper bridge needed. External storage support deferred to v1.1+ |
+
+> **分类口径**（对齐 docs/10 §3 结论）：**移植欠账** = 原版 transmissionbtc 100% 实现过、可在 HarmonyOS 上补齐的功能（magnet、URL 添加、HTTP 流媒体、UPnP/DLNA、监视目录），延后是**范围决策**而非技术不可行。
+> **系统墙** = consumer HarmonyOS NEXT 上系统应用独占、无论投入多少都跑不起来的项——**开机自启**（需 `install_list_capability` 设备级预置）、**前台服务**（TransmissionService 已删，见 docs/11 E3）。这两项不在上方 feature map 里，因为它们在原版 Android 上根本不存在于这张表。
+> 2026-08-09 更新：magnet（D1 `2c488f4`）与 URL 添加（D2 `2c488f4`）两个移植欠账已补齐，见 docs/11 阶段 D。
 
 **Legend:** ✅ = Present in source / 🔶 = Partial / ❌ = Missing / 🚫 = Deferred to v1.1+
 
@@ -101,7 +105,7 @@ This document maps every feature in **transmissionbtc** (v1.3.10) against a targ
 | 5.3 | Torrent detail expand/collapse | ✅ (TorrentView) | ❌ | **P0** | File tree with per-file progress |
 | 5.4 | Context menu (8 actions) | ✅ (torrent_menu.xml) | ❌ | **P0** | Expand, Play, Pause, Resume, Verify, Set Location, Remove ×2 |
 | 5.5 | Add torrent from file | ✅ (MainActivity → SelectFile → Download) | ❌ | **P0** | File picker |
-| 5.6 | Add torrent from link | ✅ (MainActivity AlertDialog) | ❌ | **P0** | URL or magnet link input |
+| 5.6 | Add torrent from link | ✅ (MainActivity AlertDialog) | ✅ | **P0** | URL or magnet link input. **Done (D1/D2 `2c488f4`)** — AddTorrentPage 3 页签：FILE/MAGNET/URL；原生磁力（BEP9）+ curlDownload 下载 .torrent 到 cache |
 | 5.7 | Add torrent from external intent | ✅ (VIEW intent filters ×5) | ❌ | **P0** | Magnet, .torrent, HTTP schemes |
 | 5.8 | Open torrent for playback | ✅ (OpenTorrentActivity) | ❌ | **P1** | Sequential + wait + auto-open |
 | 5.9 | File selection on add | ✅ (PathItem tree + checkboxes) | ❌ | **P0** | DnD toggle per file |

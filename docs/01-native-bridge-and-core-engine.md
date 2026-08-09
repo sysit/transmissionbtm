@@ -38,10 +38,10 @@ The entire architecture is designed around the constraint that Android's Storage
 | `cpp/env.cc` | 25 | Environment variable set/unset |
 | `cpp/stdredirect.cc` | 48 | stdout/stderr to Android logcat redirection |
 | `CMakeLists.txt` | 75 | Top-level CMake build definition |
-| `cmake/OpenSSL.cmake` | 48 | OpenSSL 1.1.1l ExternalProject build |
-| `cmake/cURL.cmake` | 28 | cURL 7.78.0 ExternalProject build |
+| `cmake/OpenSSL.cmake` | 48 | OpenSSL 3.0.15 ExternalProject build |
+| `cmake/cURL.cmake` | 28 | cURL 8.5.0 ExternalProject build |
 | `cmake/Event.cmake` | 27 | libevent 2.1.12 ExternalProject build |
-| `cmake/Transmission.cmake` | 39 | Transmission (fork) ExternalProject build |
+| `cmake/Transmission.cmake` | 39 | Transmission 4.1 (main) ExternalProject build |
 | `build.gradle` | 162 | Android Gradle build with CMake integration |
 
 ---
@@ -209,11 +209,11 @@ Caches 9 JNI method IDs during `nativeToJavaInit()`:
 ```
 libtransmissionbtc.so (shared, JNI)
   +-- 9 C++ source files (commons, torrent, transmission, native_to_java, hash, sem, curl, env, stdredirect)
-  +-- libtransmission.a (Transmission fork, tag: transmissionbtc)
-  |     +-- libdht.a, libarc4.a, libb64.a, libnatpmp.a, libminiupnpc.a, libutp.a
-  +-- libcurl.a (7.78.0, HTTP/HTTPS/FTP only)
+  +-- libtransmission.a (Transmission 4.1 main)
+  |     +-- libdht.a, libarc4.a, libb64.a, libnatpmp.a, libminiupnpc.a, libutp.a, libpsl.a, libMadlerCrcany.a
+  +-- libcurl.a (8.5.0, HTTP/HTTPS/FTP only)
   +-- libevent.a (2.1.12-stable)
-  +-- libssl.a + libcrypto.a (OpenSSL 1.1.1l, heavily stripped)
+  +-- libssl.a + libcrypto.a (OpenSSL 3.0.15, heavily stripped)
   +-- liblog.so (Android NDK) + libz.so (Android NDK)
 ```
 

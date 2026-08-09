@@ -10,7 +10,8 @@
 
 import { describe, it, expect } from '@ohos/hypium';
 import { TransmissionSession } from '../../../main/ets/models/TransmissionSession';
-import { SessionRunState, SessionState } from '../../../main/ets/models/SessionState';
+// E4 (docs/11): SessionState class deleted — SessionRunState only.
+import { SessionRunState } from '../../../main/ets/models/SessionState';
 
 /**
  * Helper: safely construct a TransmissionSession. Returns null if the
@@ -118,41 +119,6 @@ export default function transmissionSessionTest() {
       // Verify RUNNING is value 2.
       expect(SessionRunState.RUNNING).assertEqual(2);
       // There is no STOPPING between RUNNING and STOPPED.
-    });
-  });
-
-  describe('SessionState', () => {
-    it('initial_state_is_STOPPED', 0, () => {
-      const state = new SessionState();
-      expect(state.state).assertEqual(SessionRunState.STOPPED);
-      expect(state.sessionId).assertEqual(0);
-      expect(state.version).assertEqual('');
-      expect(state.rpcPort).assertEqual(9091);
-      expect(state.peerPort).assertEqual(51413);
-      expect(state.ip).assertEqual('');
-    });
-
-    it('isRunning_returns_false_initially', 0, () => {
-      const state = new SessionState();
-      expect(state.isRunning()).assertFalse();
-    });
-
-    it('isStopped_returns_true_initially', 0, () => {
-      const state = new SessionState();
-      expect(state.isStopped()).assertTrue();
-    });
-
-    it('isRunning_after_state_change', 0, () => {
-      const state = new SessionState();
-      state.state = SessionRunState.RUNNING;
-      expect(state.isRunning()).assertTrue();
-      expect(state.isStopped()).assertFalse();
-    });
-
-    it('isStopped_returns_true_after_stopped_state', 0, () => {
-      const state = new SessionState();
-      state.state = SessionRunState.STOPPED;
-      expect(state.isStopped()).assertTrue();
     });
   });
 
