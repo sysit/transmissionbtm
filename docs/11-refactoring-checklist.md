@@ -57,13 +57,13 @@
 
 | # | 事项 | 现状 / 参照 | 位置 | 量 |
 |---|------|-------------|------|----|
-| D1 | **magnet 添加** | 原版有完整 `torrentMagnetToTorrentFile`（native 元数据下载 + 取消信号量）可参照；我们的页签现在必 PARSE_ERR | native + AddTorrentPage | L |
-| D2 | **URL 直加** | native `curl` 已存在未接线；URL → 下载到 cache → 走现有文件添加路径 | curl.cc → NativeBridge → UI | S |
-| D3 | **唤醒锁进程内复活** | 原版 PowerLock 是下载完整性刚需（无唤醒锁 CPU 挂起）；现 WakeLockManager 纯死 | WakeLockManager → DownloadsPage 会话 | M |
-| D4 | **网络感知复活** | 原版 WiFi/以太网仅限暂停恢复；现 ConnectivityMonitor 纯死（且从未 register） | ConnectivityMonitor | M |
-| D5 | HTTP 流媒体（等片/边下边播/M3U） | 原版旗舰功能，Range + 等片优先级 | 评估 v1.0 范围 | L |
-| D6 | UPnP/DLNA、监视目录 | 原版实现过；监视目录连 Tab 都缺 | v1.1 | L |
-| D7 | Web 控制面 | 依赖 A2 决策：若做，反向把 enableRpc 开回 + 打包轻量 web UI 到 rawfile | rawfile + Web 组件 | L |
+| D1 | **magnet 添加** | ✅ `2c488f4`：`tr_ctorSetMetainfoFromMagnetLink` 原生磁力（BEP9 后台取元数据，立即入列，不再 PARSE_ERR）+ 接受裸 40-hex info-hash；AddTorrentPage 去掉假 resolve spinner | torrent.cc + AddTorrentPage | L |
+| D2 | **URL 直加** | ✅ `2c488f4`：`curlDownload` 经 NativeBridge 接线 → AddTorrentPage URL 页签 → 下载到 cache → 走现有文件路径；原生强制 http(s)://（拒绝 file:// 任意写） | curl.cc → NativeBridge → UI | S |
+| D3 | **唤醒锁进程内复活** | ✅ `34a0333`：DownloadsPage 1s 轮询按 `hasDownloadingTorrents`（含 CHECK/Wait）变化态 acquire/release BACKGROUND 锁；KEEP_BACKGROUND_RUNNING 权限已在 module.json5，设备拒绝时降级记日志不崩 | WakeLockManager → DownloadsPage 会话 | M |
+| D4 | **网络感知复活** | ✅ `34a0333`：DownloadsPage 会话启动后注册 ConnectivityMonitor，lost→`suspend(true)`/available→`suspend(false)`（`tr_sessionSetPaused`），netPaused 转换守卫；wifi_only 偏好门控保留 | ConnectivityMonitor → DownloadsPage | M |
+| D5 | HTTP 流媒体（等片/边下边播/M3U） | **决策：延后 v1.1+（已评估）**。无 HttpServerService/任何流媒体代码；L 级旗舰（HTTP Range/Content-Range + 顺序优先级）；CLAUDE.md:94 已列 v1.1+。`torrentGetPiece`/`torrentSetPiecesHiPri` 保留为预留（E1） | 评估 v1.0 范围 → v1.1+ | L |
+| D6 | UPnP/DLNA、监视目录 | **决策：v1.1+**（清单自定）；CLAUDE.md:94 已延后（UPnP/DLNA/SSDP、Watch Dirs） | v1.1 | L |
+| D7 | Web 控制面 | **决策：不做（v1.0 内）**。依赖 A2=`enableRpc=false`；开回 RPC 撤销安全基线，且无 Web 组件打开入口。若未来 v2 恢复，需逆向开 enableRpc + rawfile 打包轻量 web UI | rawfile + Web 组件 | L |
 
 ## 阶段 E — 死代码收口
 
