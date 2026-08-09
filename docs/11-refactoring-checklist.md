@@ -69,11 +69,11 @@
 
 | # | 事项 | 决策 |
 |---|------|------|
-| E1 | 12 个死 N-API 方法分类 | **预留型先别删**（对应原版功能）：curlDownload / torrentGetPiece / torrentGetPieceHash / torrentSetPiecesHiPri / torrentFindFile —— 先接线（D1/D2/D5）或加「预留」注释。**纯残留可删**：semCreate/Destroy/Post、envUnset、stdRedirect、hashLength、hashGetTorrentHash |
-| E2 | WakeLockManager / ConnectivityMonitor | 按 D3/D4 决策：复活则接线，否则删除 |
-| E3 | TransmissionService.ets | 已从 module.json5 移除，标「废弃」或删（与 A3 联动） |
-| E4 | SessionState 未消费 | `@Provide` 注入了但无页面消费：删或接线（顶栏会话状态） |
-| E5 | EntryBackupAbility 桩 | 15 行日志桩：删或保留 |
+| E1 | 12 个死 N-API 方法分类 | ✅ 删 7 纯残留：sem.cc（semCreate/Destroy/Post）整删、stdredirect.cc（stdRedirect）整删、envUnset、hashLength、hashGetTorrentHash；注册 + CMakeLists 同步。**留 4 预留**：torrentGetPiece / torrentGetPieceHash / torrentSetPiecesHiPri / torrentFindFile 加 RESERVED 注释（D5 流媒体/预览储备）。curlDownload 已在 D2 接线，非死 | 
+| E2 | WakeLockManager / ConnectivityMonitor | ✅ 随 D3/D4 复活接线（`34a0333`），保留 |
+| E3 | TransmissionService.ets | ✅ 已删除：系统独占能力（consumer 设备不可运行），exports（SessionEventType/EventListener）无人 import，其 wake-lock/connectivity 逻辑已由 D3/D4 进程内接管（DownloadsPage） |
+| E4 | SessionState 未消费 | ✅ 删 `SessionState` 类 + Index `@Provide sessionState`（全树无 @Consume）；`SessionRunState` 保留（TransmissionSession 在用） |
+| E5 | EntryBackupAbility 桩 | **保留**：已注册的系统备份扩展点（module.json5:51），15 行日志桩无害 |
 
 ## 阶段 F — 文档校准
 

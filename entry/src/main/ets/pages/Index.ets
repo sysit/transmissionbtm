@@ -2,8 +2,6 @@
 //
 // App shell with Navigation + bottom tab bar.
 // Four tabs: Downloads, Settings, Proxy, About.
-// Uses @Provide sessionState so child pages can observe
-// TransmissionService lifecycle without prop drilling.
 //
 // Architecture:
 //   Navigation (host)
@@ -14,7 +12,6 @@
 //       └── TabContent → AboutPage
 
 import { Colors, FontSize, Spacing, Duration } from '../utils/constants';
-import { SessionState } from '../models/SessionState';
 import { DownloadsPage } from './DownloadsPage';
 import { SettingsPage } from './SettingsPage';
 import { ProxyPage } from './ProxyPage';
@@ -23,7 +20,6 @@ import { AboutPage } from './AboutPage';
 @Entry
 @Component
 struct Index {
-  @Provide sessionState: SessionState = new SessionState();
   @Provide('navPathStack') navPathStack: NavPathStack = new NavPathStack();
   @State currentTab: number = 0;
 

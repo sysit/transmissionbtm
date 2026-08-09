@@ -7,10 +7,11 @@
 //   STARTING → RUNNING ↔ SUSPENDED → STOPPED
 //
 // Callers:
-//   TransmissionService — owns the primary session (start/stop/suspend)
-//   DownloadsPage — reads torrent list, issues torrent actions
+//   DownloadsPage — owns the primary session (start/stop/suspend; D3 wake
+//     lock, D4 connectivity, network-loss pause/resume)
 //   FileTreePage — reads file list for a torrent
 //   AddTorrentPage — adds a new torrent to the session
+//   (TransmissionService was deleted in E3 — system-app-only on HarmonyOS NEXT)
 
 import { NativeBridge } from '../bridge/NativeBridge';
 import { SessionConfig, EncryptionMode } from './SessionConfig';
