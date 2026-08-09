@@ -77,12 +77,12 @@
 
 ## 阶段 F — 文档校准
 
-| # | 事项 |
-|---|------|
-| F1 | CLAUDE.md 失实计数：~21→**30** 个 ets、12→**10** 个 cpp、40→**42** 方法、compatibleSdk 实为 **6.1.1(24)**、third_party_stubs.cc 已不存在、删除「所有 codex 发现已修复」措辞 |
-| F2 | docs/01 引擎版本过时：OpenSSL 3.0.15 / curl 8.5.0 / Transmission 4.1 |
-| F3 | docs/06「v1.1 延后」重标注：**移植欠账**（magnet/流媒体/UPnP/监视目录/URL 添加）vs **系统墙**（开机自启/前台服务） |
-| F4 | 本清单链接进 docs/09、docs/10 |
+| # | 事项 | 结果 |
+|---|------|------|
+| F1 | CLAUDE.md 失实计数：~21→**30** 个 ets、12→**10** 个 cpp、40→**42** 方法、compatibleSdk 实为 **6.1.1(24)**、third_party_stubs.cc 已不存在、删除「所有 codex 发现已修复」措辞 | ✅ `3aee5f5`：实为 **33 ets / 8 cpp / 35 native 方法 / 32 NativeBridge 方法**，SDK 版本、third_party_stubs.cc、磁力欠账(DONE) 全部校准 |
+| F2 | docs/01 引擎版本过时：OpenSSL 3.0.15 / curl 8.5.0 / Transmission 4.1 | ✅ `3aee5f5`：cmake 表 + 依赖树版本号全部修正，另补 libpsl.a / libMadlerCrcany.a |
+| F3 | docs/06「v1.1 延后」重标注：**移植欠账**（magnet/流媒体/UPnP/监视目录/URL 添加）vs **系统墙**（开机自启/前台服务） | ✅ `3aee5f5`：延后表加「分类」列 + 表下结论注；5.6 URL/magnet 添加标为完成（D1/D2） |
+| F4 | 本清单链接进 docs/09、docs/10 | ✅ 已在（docs/09:11-12、docs/10:157），核验无悬挂链接 |
 
 ---
 
@@ -98,5 +98,5 @@
 ## 验证基线
 
 - 每阶段后：`./hvigorw assembleHap --mode module -p product=default -p buildMode=debug --no-daemon`
-- 真机回归：`assembleHap -p module=entry@ohosTest` + `hdc install` + `aa test`（**231 用例**，重点 7.1 会话 / 7.2 添加+列表 / 7.8 DnD / 7.9 并发 / 7.11 迁移 / 7.12 删除）
+- 真机回归：`assembleHap -p module=entry@ohosTest` + `hdc install` + `aa test`（**222 用例** — E4 删 SessionState 类后随删 10 个死用例，重点 7.1 会话 / 7.2 添加+列表 / 7.8 DnD / 7.9 并发 / 7.11 迁移 / 7.12 删除）
 - 安全项：A2 后 `hdc shell` 确认 9091 不再监听
