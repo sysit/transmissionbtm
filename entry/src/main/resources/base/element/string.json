@@ -1,0 +1,52 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "HarmonyOS BitTorrent Client"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "transmissionBT main ability"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "transmissionBT"
+    },
+    {
+      "name": "perm_internet_reason",
+      "value": "BitTorrent P2P transfers require network access"
+    },
+    {
+      "name": "perm_background_reason",
+      "value": "Continue downloading torrents in background"
+    },
+    {
+      "name": "perm_network_info_reason",
+      "value": "Detect WiFi/Ethernet connectivity for auto-suspend on mobile data"
+    },
+    {
+      "name": "perm_boot_completed_reason",
+      "value": "Auto-start download service after device reboot"
+    },
+    {
+      "name": "perm_notification_reason",
+      "value": "Show persistent notification with download status"
+    },
+    {
+      "name": "tab_downloads",
+      "value": "Downloads"
+    },
+    {
+      "name": "tab_settings",
+      "value": "Settings"
+    },
+    {
+      "name": "tab_proxy",
+      "value": "Proxy"
+    },
+    {
+      "name": "tab_about",
+      "value": "About"
+    }
+  ]
+}

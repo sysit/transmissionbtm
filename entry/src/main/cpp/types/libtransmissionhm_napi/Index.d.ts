@@ -1,0 +1,127 @@
+// transmissionhm — N-API type declarations (M1 full bridge)
+// All 41 methods exported from libtransmissionhm_napi.so.
+// Signatures match C++ N-API exports exactly (ground truth: napi_get_cb_info arg extraction).
+
+/**
+ * Native module type declarations for libtransmissionhm_napi.so.
+ * Import via: import native from 'libtransmissionhm_napi.so';
+ */
+declare module 'libtransmissionhm_napi.so' {
+  // ── Version ──────────────────────────────────────────
+  function getVersion(): string;
+
+  // ── Session lifecycle ────────────────────────────────
+  function transmissionVersion(): string;
+  function sessionStart(
+    configDir: string,
+    downloadsDir: string,
+    encrMode: number,
+    enableRpc: boolean,
+    rpcPort: number,
+    enableAuth: boolean,
+    username: string,
+    password: string,
+    enableRpcWhitelist: boolean,
+    rpcWhitelist: string,
+    settingsJson?: string
+  ): BigInt;  // tr_session* pointer as uint64 BigInt
+  function sessionStop(session: BigInt, configDir: string): void;
+  function sessionSuspend(session: BigInt, suspend: boolean): void;
+  function hasDownloadingTorrents(session: BigInt): boolean;
+  function listTorrentNames(session: BigInt): string[];
+  function getEncryptionMode(session: BigInt): number;
+
+  // ── Torrent CRUD ─────────────────────────────────────
+  /** Returns: 0=OK, 1=PARSE_ERR, 2=DUPLICATE, 3=OK_DELETE */
+  function torrentAdd(
+    session: BigInt,
+    path: string,
+    downloadDir: string | null,   // P0 fix: string, not ArrayBuffer (native uses getStringUtf8); null = session default
+    setDelete: boolean,
+    sequential: boolean,
+    unwantedIndexes: ArrayBuffer | null,  // Int32Array as ArrayBuffer
+    hashOut: ArrayBuffer | null,          // 20-byte buffer for info hash
+    paused?: boolean                      // true = stop immediately after creation
+  ): number;
+  function torrentRemove(session: BigInt, torrentId: number, removeData: boolean): void;
+  function torrentStart(session: BigInt, torrentId: number): void;
+  function torrentStop(session: BigInt, torrentId: number): void;
+  function torrentVerify(session: BigInt, torrentId: number): void;
+
+  // ── Torrent file listing ─────────────────────────────
+  /** List files from a .torrent file (no session needed). */
+  function torrentListFilesFromFile(path: string): string[];
+  /** List files from an active torrent. */
+  function torrentListFiles(session: BigInt, torrentId: number): string[];
+
+  // ── Torrent queries ──────────────────────────────────
+  /** Returns torrentId or -1 if not found. hash must be 20-byte ArrayBuffer. */
+  function torrentFindByHash(session: BigInt, hash: ArrayBuffer): number;
+  function torrentGetName(session: BigInt, torrentId: number): string;
+  /** Writes 20-byte SHA1 info hash into hashOut. */
+  function torrentGetHash(session: BigInt, torrentId: number, hashOut: ArrayBuffer): void;
+  /** Writes 20-byte SHA1 piece hash into hashOut. piece is BigInt piece index. */
+  function torrentGetPieceHash(session: BigInt, torrentId: number, piece: BigInt, hashOut: ArrayBuffer): void;
+  /** Prioritize piece range. first/last are BigInt piece indices. */
+  function torrentSetPiecesHiPri(session: BigInt, torrentId: number, firstPiece: BigInt, lastPiece: BigInt): void;
+
+  // ── File operations ──────────────────────────────────
+  /** Find on-disk file path by file index. Returns path string or null. */
+  function torrentFindFile(session: BigInt, torrentId: number, fileIndex: number): string;
+  /** Get logical file name from torrent metadata. */
+  function torrentGetFileName(session: BigInt, torrentId: number, fileIndex: number): string;
+  /** Get detailed file stat. Returns ArrayBuffer of int64 values:
+   *   [0]=pieceSize, [1]=fileLength, [2]=byteOffset, [3]=firstPiece,
+   *   [4]=lastPiece, [5]=status(0=normal,1=complete,2=dnd),
+   *   then piece availability bitfield (64 pieces per int64). */
+  function torrentGetFileStat(session: BigInt, torrentId: number, fileIndex: number): ArrayBuffer;
+  /** Read piece data from cache. dst is target buffer, offset/len within piece. */
+  function torrentGetPiece(session: BigInt, torrentId: number, pieceIndex: BigInt, dst: ArrayBuffer, offset: number, len: number): void;
+
+  // ── Torrent statistics ───────────────────────────────
+  /** Returns ArrayBuffer of int64 values: [id, status, progress, sizeWhenDone,
+   *   leftUntilDone, uploaded, peersUp, peersDown, speedUp, speedDown] × N torrents. */
+  function torrentStatBrief(session: BigInt): ArrayBuffer;
+
+  // ── Torrent error / control ──────────────────────────
+  /** Get torrent error string (empty if no error). */
+  function torrentGetError(session: BigInt, torrentId: number): string;
+  /** Set files as "do not download". fileIndices is ArrayBuffer of int32 indices. */
+  function torrentSetDnd(session: BigInt, torrentId: number, fileIndices: ArrayBuffer, dnd: boolean): void;
+  /** Move torrent data to a new directory. */
+  function torrentSetLocation(session: BigInt, torrentId: number, newDir: string): void;
+  /** Force a manual tracker announce (tr_torrentManualUpdate). */
+  function torrentReannounce(session: BigInt, torrentId: number): void;
+
+  // ── Hash utilities ───────────────────────────────────
+  function hashLength(): number;                             // Returns SHA_DIGEST_LENGTH (20)
+  function hashBytesToString(hash: ArrayBuffer): string;    // Binary → hex string
+  function hashStringToBytes(hashStr: string): ArrayBuffer; // Hex string → 20-byte buffer
+  function hashGetTorrentHash(torrentPath: string): ArrayBuffer;  // Extract info hash from .torrent
+
+  // ── Semaphore (cross-thread coordination) ─────────────
+  function semCreate(): BigInt;     // Returns BigInt pointer to POSIX sem_t
+  function semDestroy(sem: BigInt): void;
+  function semPost(sem: BigInt): void;
+
+  // ── Environment variables ────────────────────────────
+  function envSet(name: string, value?: string): void;
+  function envUnset(name: string): void;
+
+  // ── Stdio redirection ────────────────────────────────
+  function stdRedirect(): void;
+
+  // ── HTTP download (libcurl) ──────────────────────────
+  function curlDownload(url: string, dst: string, timeout: number): void;
+
+  // ── ThreadSafeFunction callbacks ─────────────────────
+  /** Initialize TSFN callbacks. Takes up to 4 ArkTS callback functions:
+   *  onTorrentChanged, onTorrentStopped, onSessionChanged, onAltSpeedChanged */
+  function nativeToArktsInit(
+    onTorrentChanged?: (...args: Object[]) => void,
+    onTorrentStopped?: (...args: Object[]) => void,
+    onSessionChanged?: (...args: Object[]) => void,
+    onAltSpeedChanged?: (...args: Object[]) => void
+  ): void;
+  function nativeToArktsRelease(): void;
+}

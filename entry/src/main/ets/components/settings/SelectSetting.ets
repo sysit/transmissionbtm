@@ -1,0 +1,119 @@
+// transmissionhm — Select Setting Component (M2)
+//
+// Tappable row showing label + current selection. On tap, shows a
+// dialog with all options. Persists the selected index via
+// PreferencesManager.
+
+import { Colors, FontSize, Spacing } from '../../utils/constants';
+import { PreferencesManager } from '../../models/Preferences';
+
+@Component
+export struct SelectSetting {
+  @Prop label: string = '';
+  @Prop options: string[] = [];
+  @Prop prefKey: string = '';
+  @Link selectedIndex: number;
+  /** Persist type: 'int' stores the index, 'string' stores optionValues[idx]. */
+  @Prop valueType: string = 'int';
+  /** When valueType='string', these values are persisted instead of the index. */
+  @Prop optionValues: string[] = [];
+
+  private dialogController: CustomDialogController | null = null;
+
+  aboutToAppear(): void {
+    this.dialogController = new CustomDialogController({
+      builder: SelectOptionDialog({
+        title: this.label,
+        options: this.options,
+        selectedIndex: $selectedIndex,
+        prefKey: this.prefKey,
+        valueType: this.valueType,
+        optionValues: this.optionValues,
+      }),
+      autoCancel: true,
+      alignment: DialogAlignment.Center,
+    });
+  }
+
+  build() {
+    Row() {
+      Text(this.label)
+        .fontSize(FontSize.BODY)
+        .fontColor(Colors.TEXT)
+        .layoutWeight(1);
+
+      Text(this.options[this.selectedIndex] ?? '')
+        .fontSize(FontSize.CAPTION)
+        .fontColor(Colors.DOWNLOAD)
+        .fontWeight(FontWeight.Medium);
+    }
+    .width('100%')
+    .padding({
+      left: Spacing.LG,
+      right: Spacing.LG,
+      top: Spacing.MD,
+      bottom: Spacing.MD,
+    })
+    .onClick(() => {
+      if (this.dialogController) {
+        this.dialogController.open();
+      }
+    });
+  }
+}
+
+// ── Internal Option Dialog ────────────────────────────────────────
+
+@CustomDialog
+struct SelectOptionDialog {
+  controller: CustomDialogController;
+  @Prop title: string = '';
+  @Prop options: string[] = [];
+  @Link selectedIndex: number;
+  @Prop prefKey: string = '';
+  @Prop valueType: string = 'int';
+  @Prop optionValues: string[] = [];
+
+  build() {
+    Column() {
+      Text(this.title)
+        .fontSize(FontSize.HEADLINE)
+        .fontColor(Colors.TEXT)
+        .fontWeight(FontWeight.Medium)
+        .margin({ bottom: Spacing.LG });
+
+      ForEach(this.options, (option: string, index: number) => {
+        Button(option)
+          .type(ButtonType.Normal)
+          .fontSize(FontSize.BODY)
+          .fontColor(index === this.selectedIndex ? '#ffffff' : Colors.TEXT)
+          .backgroundColor(index === this.selectedIndex ? Colors.DOWNLOAD : Colors.ELEVATED)
+          .width('100%')
+          .margin({ bottom: Spacing.SM })
+          .onClick(() => {
+            this.selectedIndex = index;
+            if (this.prefKey) {
+              if (this.valueType === 'string' && index < this.optionValues.length) {
+                PreferencesManager.getInstance().setString(this.prefKey, this.optionValues[index]);
+              } else {
+                PreferencesManager.getInstance().setInt(this.prefKey, index);
+              }
+            }
+            this.controller?.close();
+          });
+      });
+
+      Button('Cancel')
+        .type(ButtonType.Normal)
+        .fontSize(FontSize.CAPTION)
+        .fontColor(Colors.TEXT_SECONDARY)
+        .backgroundColor(Colors.ELEVATED)
+        .width('100%')
+        .margin({ top: Spacing.SM })
+        .onClick(() => {
+          this.controller?.close();
+        });
+    }
+    .padding(Spacing.XL);
+  }
+}

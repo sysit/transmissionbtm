@@ -1,0 +1,1017 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TransmissionHM — UI Demo</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  /* ===== Reset & Base ===== */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { font-size: 16px; -webkit-font-smoothing: antialiased; }
+  body {
+    font-family: var(--thm-font-ui);
+    background: #060709;
+    color: var(--thm-text);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    padding: 24px;
+  }
+
+  /* ===== Phone Frame ===== */
+  .phone-frame {
+    width: 390px;
+    max-width: 100%;
+    height: 844px;
+    max-height: 90vh;
+    background: var(--thm-bg);
+    border-radius: 28px;
+    overflow: hidden;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 0 0 2px #1a1d24, 0 0 0 6px #0d0f12, 0 20px 60px rgba(0,0,0,0.7);
+  }
+
+  /* ===== Status Bar ===== */
+  .status-bar {
+    height: 36px;
+    padding: 0 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: var(--thm-text-xs);
+    color: var(--thm-text-secondary);
+    flex-shrink: 0;
+  }
+  .status-bar .time { font-weight: 600; }
+  .status-bar .icons { display: flex; gap: 6px; align-items: center; }
+
+  /* ===== App Header ===== */
+  .app-header {
+    height: var(--thm-header-h);
+    padding: 0 var(--thm-space-4);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .app-header h1 {
+    font-size: var(--thm-text-lg);
+    font-weight: 700;
+    letter-spacing: -0.3px;
+  }
+  .app-header .service-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--thm-text-xs);
+    color: var(--thm-text-secondary);
+    background: var(--thm-surface);
+    padding: 5px 10px;
+    border-radius: 20px;
+    border: 1px solid var(--thm-border);
+  }
+  .service-badge .dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--thm-seed);
+    box-shadow: 0 0 6px var(--thm-seed);
+  }
+  .service-badge .dot.off { background: var(--thm-error); box-shadow: 0 0 6px var(--thm-error); }
+
+  /* ===== Global Stats Bar ===== */
+  .global-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    margin: 0 var(--thm-space-4);
+    background: var(--thm-border);
+    border-radius: var(--thm-radius);
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  .global-stats .stat {
+    background: var(--thm-surface);
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .global-stats .stat .icon { font-size: 13px; opacity: 0.7; }
+  .global-stats .stat .val {
+    font-family: var(--thm-font-mono);
+    font-size: var(--thm-text-sm);
+    font-weight: 600;
+  }
+  .global-stats .stat .lbl {
+    font-size: var(--thm-text-xs);
+    color: var(--thm-text-tertiary);
+    margin-left: auto;
+  }
+  .global-stats .dl .val { color: var(--thm-download); }
+  .global-stats .ul .val { color: var(--thm-seed); }
+
+  /* ===== Content Area ===== */
+  .content {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--thm-space-3) var(--thm-space-4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--thm-space-2);
+    scroll-behavior: smooth;
+  }
+  .content::-webkit-scrollbar { width: 3px; }
+  .content::-webkit-scrollbar-thumb { background: var(--thm-border); border-radius: 3px; }
+
+  /* ===== Page (hidden/shown by tab) ===== */
+  .page { display: none; flex-direction: column; gap: var(--thm-space-2); }
+  .page.active { display: flex; }
+
+  /* ===== Torrent Card ===== */
+  .torrent-card {
+    background: var(--thm-surface);
+    border: 1px solid var(--thm-border);
+    border-radius: var(--thm-radius);
+    overflow: hidden;
+    transition: border-color var(--thm-duration-fast);
+    cursor: pointer;
+    user-select: none;
+  }
+  .torrent-card:active { border-color: var(--thm-border-strong); }
+  .torrent-card.expanded { border-color: var(--thm-border-strong); }
+
+  .torrent-card .card-main {
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  /* Top row: icon + name + speed */
+  .torrent-card .top-row { display: flex; align-items: flex-start; gap: 10px; }
+  .torrent-card .status-icon {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    margin-top: 4px;
+    flex-shrink: 0;
+  }
+  .status-icon.download { background: var(--thm-download); box-shadow: 0 0 8px rgba(59,130,246,0.5); }
+  .status-icon.seed     { background: var(--thm-seed);     box-shadow: 0 0 8px rgba(34,197,94,0.5); }
+  .status-icon.paused   { background: var(--thm-paused); }
+  .status-icon.queued   { background: var(--thm-queued); }
+  .status-icon.error    { background: var(--thm-error); }
+
+  .torrent-card .info { flex: 1; min-width: 0; }
+  .torrent-card .name {
+    font-size: var(--thm-text-sm);
+    font-weight: 600;
+    line-height: 1.3;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    word-break: break-all;
+  }
+  .torrent-card .meta {
+    font-size: var(--thm-text-xs);
+    color: var(--thm-text-tertiary);
+    margin-top: 2px;
+    font-family: var(--thm-font-mono);
+  }
+  .torrent-card .speed {
+    font-family: var(--thm-font-mono);
+    font-size: var(--thm-text-sm);
+    font-weight: 600;
+    text-align: right;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .speed.dl { color: var(--thm-download); }
+  .speed.ul { color: var(--thm-seed); }
+
+  /* Progress bar */
+  .torrent-card .progress-row { display: flex; align-items: center; gap: 10px; }
+  .torrent-card .progress-bar {
+    flex: 1;
+    height: 4px;
+    background: var(--thm-bg);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .torrent-card .progress-fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.6s var(--thm-ease-out);
+  }
+  .progress-fill.dl { background: linear-gradient(90deg, var(--thm-download), #60a5fa); }
+  .progress-fill.sd { background: linear-gradient(90deg, var(--thm-seed), #4ade80); }
+  .progress-fill.pa { background: var(--thm-paused); }
+  .progress-fill.er { background: var(--thm-error); }
+  .torrent-card .pct {
+    font-family: var(--thm-font-mono);
+    font-size: var(--thm-text-xs);
+    font-weight: 600;
+    color: var(--thm-text-secondary);
+    width: 40px;
+    text-align: right;
+  }
+
+  /* Bottom stats row */
+  .torrent-card .stats-row {
+    display: flex;
+    gap: 16px;
+    font-size: var(--thm-text-xs);
+    color: var(--thm-text-tertiary);
+  }
+  .torrent-card .stats-row span { font-family: var(--thm-font-mono); }
+  .torrent-card .stats-row .peers { color: var(--thm-text-secondary); }
+
+  /* ===== Expanded Detail ===== */
+  .torrent-detail {
+    display: none;
+    border-top: 1px solid var(--thm-border);
+    background: var(--thm-bg-raised);
+  }
+  .torrent-card.expanded .torrent-detail { display: block; }
+
+  /* Action chips */
+  .detail-actions {
+    display: flex;
+    gap: 4px;
+    padding: 10px 14px;
+    flex-wrap: wrap;
+    border-bottom: 1px solid var(--thm-border);
+  }
+  .detail-actions .act {
+    font-size: var(--thm-text-xs);
+    padding: 6px 10px;
+    border-radius: var(--thm-radius-sm);
+    background: var(--thm-surface);
+    border: 1px solid var(--thm-border);
+    color: var(--thm-text-secondary);
+    cursor: pointer;
+    transition: all var(--thm-duration-fast);
+    white-space: nowrap;
+    font-family: var(--thm-font-ui);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .detail-actions .act:active { background: var(--thm-border); color: var(--thm-text); }
+  .detail-actions .act.danger:active { background: rgba(239,68,68,0.15); color: var(--thm-error); }
+
+  /* File tree */
+  .file-tree { padding: 6px 0; }
+  .file-tree .file-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    font-size: var(--thm-text-sm);
+    border-bottom: 1px solid rgba(255,255,255,0.02);
+    cursor: pointer;
+    transition: background var(--thm-duration-fast);
+  }
+  .file-row:active { background: var(--thm-surface); }
+  .file-row .file-icon { font-size: 14px; flex-shrink: 0; }
+  .file-row .file-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--thm-text-xs); }
+  .file-row .file-size {
+    font-family: var(--thm-font-mono);
+    font-size: var(--thm-text-xs);
+    color: var(--thm-text-tertiary);
+    flex-shrink: 0;
+  }
+  .file-row .file-pct {
+    font-family: var(--thm-font-mono);
+    font-size: var(--thm-text-xs);
+    width: 36px;
+    text-align: right;
+    flex-shrink: 0;
+  }
+  .file-row .mini-bar {
+    width: 40px;
+    height: 3px;
+    background: var(--thm-bg);
+    border-radius: 2px;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  .file-row .mini-bar-fill {
+    height: 100%;
+    border-radius: 2px;
+    background: var(--thm-download);
+  }
+  .file-row .mini-bar-fill.done { background: var(--thm-seed); }
+
+  /* ===== FAB ===== */
+  .fab {
+    position: absolute;
+    bottom: 80px;
+    right: 20px;
+    width: 48px; height: 48px;
+    border-radius: 50%;
+    background: var(--thm-base-accent-2);
+    color: white;
+    border: none;
+    font-size: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 10;
+    box-shadow: 0 4px 16px rgba(37,99,235,0.4);
+    transition: transform var(--thm-duration-fast), box-shadow var(--thm-duration-fast);
+  }
+  .fab:active { transform: scale(0.94); box-shadow: 0 2px 8px rgba(37,99,235,0.3); }
+
+  /* ===== Bottom Tab Bar ===== */
+  .tab-bar {
+    height: var(--thm-tab-bar-h);
+    display: flex;
+    border-top: 1px solid var(--thm-border);
+    background: var(--thm-surface);
+    flex-shrink: 0;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .tab-bar .tab {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    font-size: 10px;
+    color: var(--thm-text-tertiary);
+    cursor: pointer;
+    transition: color var(--thm-duration-fast);
+    border: none;
+    background: none;
+    font-family: var(--thm-font-ui);
+    -webkit-tap-highlight-color: transparent;
+  }
+  .tab-bar .tab .tab-icon { font-size: 18px; transition: transform var(--thm-duration-fast); }
+  .tab-bar .tab.active { color: var(--thm-accent); }
+  .tab-bar .tab.active .tab-icon { transform: scale(1.1); }
+
+  /* ===== Settings Page ===== */
+  .settings-group {
+    background: var(--thm-surface);
+    border: 1px solid var(--thm-border);
+    border-radius: var(--thm-radius);
+    overflow: hidden;
+  }
+  .settings-group .sect-title {
+    font-size: var(--thm-text-xs);
+    color: var(--thm-text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    padding: 12px 14px 6px;
+    font-weight: 600;
+  }
+  .settings-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--thm-border);
+    font-size: var(--thm-text-sm);
+  }
+  .settings-item:last-child { border-bottom: none; }
+  .settings-item .si-label { flex: 1; }
+  .settings-item .si-sub {
+    font-size: var(--thm-text-xs);
+    color: var(--thm-text-tertiary);
+    margin-top: 1px;
+  }
+  .toggle {
+    width: 44px; height: 26px;
+    background: var(--thm-border);
+    border-radius: 13px;
+    position: relative;
+    cursor: pointer;
+    transition: background var(--thm-duration-fast);
+    flex-shrink: 0;
+  }
+  .toggle.on { background: var(--thm-base-accent-2); }
+  .toggle::after {
+    content: '';
+    position: absolute;
+    width: 22px; height: 22px;
+    background: white;
+    border-radius: 50%;
+    top: 2px; left: 2px;
+    transition: transform var(--thm-duration-fast) var(--thm-ease-out);
+  }
+  .toggle.on::after { transform: translateX(18px); }
+  .si-select {
+    font-size: var(--thm-text-sm);
+    color: var(--thm-accent);
+    font-family: var(--thm-font-ui);
+    background: none;
+    border: none;
+    text-align: right;
+    cursor: pointer;
+  }
+  .si-value {
+    font-family: var(--thm-font-mono);
+    font-size: var(--thm-text-xs);
+    color: var(--thm-text-secondary);
+  }
+
+  /* ===== Proxy Page ===== */
+  .proxy-card {
+    background: var(--thm-surface);
+    border: 1px solid var(--thm-border);
+    border-radius: var(--thm-radius);
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .proxy-card label {
+    font-size: var(--thm-text-xs);
+    color: var(--thm-text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .proxy-card input {
+    width: 100%;
+    padding: 10px 12px;
+    background: var(--thm-bg);
+    border: 1px solid var(--thm-border);
+    border-radius: var(--thm-radius-sm);
+    color: var(--thm-text);
+    font-size: var(--thm-text-sm);
+    font-family: var(--thm-font-mono);
+    outline: none;
+    transition: border-color var(--thm-duration-fast);
+  }
+  .proxy-card input:focus { border-color: var(--thm-accent); }
+  .proxy-card .field { display: flex; flex-direction: column; gap: 6px; }
+
+  /* ===== About Page ===== */
+  .about-card {
+    background: var(--thm-surface);
+    border: 1px solid var(--thm-border);
+    border-radius: var(--thm-radius);
+    padding: 24px 14px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+  .about-card .logo {
+    width: 56px; height: 56px;
+    background: var(--thm-base-accent-2);
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    margin-bottom: 8px;
+  }
+  .about-card .app-name { font-size: var(--thm-text-lg); font-weight: 700; }
+  .about-card .version {
+    font-family: var(--thm-font-mono);
+    font-size: var(--thm-text-xs);
+    color: var(--thm-text-tertiary);
+  }
+  .about-card .env {
+    margin-top: 12px;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 6px 16px;
+    font-size: var(--thm-text-xs);
+    text-align: left;
+    width: 100%;
+    max-width: 260px;
+  }
+  .about-card .env .ek { color: var(--thm-text-tertiary); }
+  .about-card .env .ev { font-family: var(--thm-font-mono); color: var(--thm-text-secondary); }
+
+  /* ===== Modal Overlay ===== */
+  .modal-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    display: none;
+    align-items: flex-end;
+    justify-content: center;
+    z-index: 20;
+    border-radius: 28px;
+    overflow: hidden;
+  }
+  .modal-overlay.show { display: flex; }
+
+  .modal-sheet {
+    width: 100%;
+    background: var(--thm-surface-raised);
+    border-radius: 18px 18px 0 0;
+    padding: 20px 16px 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    animation: slideUp var(--thm-duration-slow) var(--thm-ease-out);
+  }
+  @keyframes slideUp {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
+  }
+  .modal-sheet h3 {
+    font-size: var(--thm-text-lg);
+    font-weight: 700;
+    text-align: center;
+  }
+  .modal-sheet .add-option {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px;
+    background: var(--thm-surface);
+    border: 1px solid var(--thm-border);
+    border-radius: var(--thm-radius);
+    cursor: pointer;
+    transition: border-color var(--thm-duration-fast);
+    font-size: var(--thm-text-sm);
+  }
+  .add-option:active { border-color: var(--thm-accent); }
+  .add-option .ao-icon {
+    width: 36px; height: 36px;
+    background: var(--thm-bg);
+    border-radius: var(--thm-radius-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    flex-shrink: 0;
+  }
+  .add-option .ao-label { font-weight: 600; }
+  .add-option .ao-desc { font-size: var(--thm-text-xs); color: var(--thm-text-tertiary); margin-top: 2px; }
+
+  .modal-sheet .cancel-btn {
+    width: 100%;
+    padding: 12px;
+    background: var(--thm-surface);
+    border: 1px solid var(--thm-border);
+    border-radius: var(--thm-radius);
+    color: var(--thm-text-secondary);
+    font-size: var(--thm-text-base);
+    cursor: pointer;
+    font-family: var(--thm-font-ui);
+  }
+
+  /* ===== Context Menu ===== */
+  .context-menu {
+    position: absolute;
+    background: var(--thm-surface-raised);
+    border: 1px solid var(--thm-border-strong);
+    border-radius: var(--thm-radius);
+    padding: 4px;
+    z-index: 15;
+    min-width: 160px;
+    box-shadow: var(--thm-shadow-lg);
+    display: none;
+    flex-direction: column;
+  }
+  .context-menu.show { display: flex; }
+  .context-menu .ctx-item {
+    padding: 10px 12px;
+    font-size: var(--thm-text-sm);
+    border-radius: var(--thm-radius-sm);
+    cursor: pointer;
+    color: var(--thm-text-secondary);
+    border: none;
+    background: none;
+    text-align: left;
+    font-family: var(--thm-font-ui);
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .ctx-item:active { background: var(--thm-surface); color: var(--thm-text); }
+  .ctx-item.danger:active { background: rgba(239,68,68,0.12); color: var(--thm-error); }
+
+  /* ===== Toast ===== */
+  .toast {
+    position: absolute;
+    bottom: 100px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--thm-surface-raised);
+    border: 1px solid var(--thm-border);
+    padding: 10px 18px;
+    border-radius: 20px;
+    font-size: var(--thm-text-sm);
+    z-index: 30;
+    opacity: 0;
+    transition: opacity var(--thm-duration-normal);
+    pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<div class="phone-frame" id="app">
+
+  <!-- Status Bar -->
+  <div class="status-bar">
+    <span class="time">9:41</span>
+    <span class="icons">●●●●○ ▮▮▮ 88%</span>
+  </div>
+
+  <!-- App Header -->
+  <div class="app-header">
+    <h1>TransmissionHM</h1>
+    <div class="service-badge" id="serviceBadge" onclick="toggleService()">
+      <span class="dot" id="serviceDot"></span>
+      <span id="serviceLabel">Running</span>
+    </div>
+  </div>
+
+  <!-- Global Stats -->
+  <div class="global-stats" id="globalStats">
+    <div class="stat dl"><span class="icon">↓</span><span class="val" id="globalDl">3.2 MB/s</span><span class="lbl">下载</span></div>
+    <div class="stat ul"><span class="icon">↑</span><span class="val" id="globalUl">512 KB/s</span><span class="lbl">上传</span></div>
+  </div>
+
+  <!-- Content -->
+  <div class="content" id="content">
+
+    <!-- Tab: Downloads -->
+    <div class="page active" id="page-downloads"></div>
+
+    <!-- Tab: Settings -->
+    <div class="page" id="page-settings">
+      <div class="settings-group">
+        <div class="sect-title">下载</div>
+        <div class="settings-item">
+          <div><div class="si-label">下载路径</div><div class="si-sub" id="dlPath">/storage/downloads</div></div>
+          <span class="si-value">更改</span>
+        </div>
+        <div class="settings-item">
+          <span class="si-label">最大活跃下载数</span>
+          <span class="si-value">5</span>
+        </div>
+        <div class="settings-item">
+          <span class="si-label">全局最大连接数</span>
+          <span class="si-value">200</span>
+        </div>
+      </div>
+
+      <div class="settings-group">
+        <div class="sect-title">速度</div>
+        <div class="settings-item">
+          <span class="si-label">下载限速 (KB/s)</span>
+          <span class="si-value">0 (不限)</span>
+        </div>
+        <div class="settings-item">
+          <span class="si-label">上传限速 (KB/s)</span>
+          <span class="si-value">0 (不限)</span>
+        </div>
+        <div class="settings-item">
+          <span class="si-label">备用速度模式</span>
+          <div class="toggle" onclick="this.classList.toggle('on')"></div>
+        </div>
+      </div>
+
+      <div class="settings-group">
+        <div class="sect-title">网络</div>
+        <div class="settings-item">
+          <div><div class="si-label">随机端口</div><div class="si-sub">启动时随机选择端口</div></div>
+          <div class="toggle on" onclick="this.classList.toggle('on')"></div>
+        </div>
+        <div class="settings-item">
+          <span class="si-label">监听端口</span>
+          <span class="si-value">51413</span>
+        </div>
+        <div class="settings-item">
+          <div><div class="si-label">加密模式</div></div>
+          <select class="si-select">
+            <option>Prefer</option>
+            <option>Allow</option>
+            <option>Require</option>
+          </select>
+        </div>
+        <div class="settings-item">
+          <div><div class="si-label">仅 WiFi / 以太网</div><div class="si-sub">移动数据时自动暂停</div></div>
+          <div class="toggle on" onclick="this.classList.toggle('on')"></div>
+        </div>
+      </div>
+
+      <div class="settings-group">
+        <div class="sect-title">Web 界面</div>
+        <div class="settings-item">
+          <div><div class="si-label">RPC 端口</div></div>
+          <span class="si-value">9091</span>
+        </div>
+        <div class="settings-item">
+          <div><div class="si-label">RPC 认证</div></div>
+          <div class="toggle" onclick="this.classList.toggle('on')"></div>
+        </div>
+        <div class="settings-item">
+          <div><div class="si-label">IP 白名单</div></div>
+          <span class="si-value">127.0.0.1, 192.168.*.*</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab: Proxy -->
+    <div class="page" id="page-proxy">
+      <div class="proxy-card">
+        <div class="settings-item" style="padding:0;border:none;">
+          <span class="si-label">启用代理</span>
+          <div class="toggle" id="proxyToggle" onclick="this.classList.toggle('on'); updateProxyFields()"></div>
+        </div>
+        <div class="field">
+          <label>类型</label>
+          <select class="si-select" style="text-align:left;padding:10px 12px;background:var(--thm-bg);border:1px solid var(--thm-border);border-radius:var(--thm-radius-sm);width:100%;">
+            <option>HTTP</option>
+            <option>HTTPS</option>
+          </select>
+        </div>
+        <div class="field"><label>主机</label><input type="text" placeholder="proxy.example.com" disabled id="proxyHost"></div>
+        <div class="field"><label>端口</label><input type="text" placeholder="8080" disabled id="proxyPort"></div>
+      </div>
+    </div>
+
+    <!-- Tab: About -->
+    <div class="page" id="page-about">
+      <div class="about-card">
+        <div class="logo">⬇</div>
+        <div class="app-name">TransmissionHM</div>
+        <div class="version">v1.0.0 · harmonyos-arm64-v8a</div>
+        <div class="env">
+          <span class="ek">引擎</span><span class="ev">libtransmission 4.0.6</span>
+          <span class="ek">OpenSSL</span><span class="ev">3.2.0</span>
+          <span class="ek">libcurl</span><span class="ev">8.5.0</span>
+          <span class="ek">libevent</span><span class="ev">2.1.12</span>
+          <span class="ek">N-API</span><span class="ev">OpenHarmony 5.0</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- FAB -->
+  <button class="fab" id="fab" onclick="openAddModal()">+</button>
+
+  <!-- Bottom Tab Bar -->
+  <div class="tab-bar">
+    <button class="tab active" data-tab="downloads" onclick="switchTab('downloads', this)">
+      <span class="tab-icon">⬇</span> 下载
+    </button>
+    <button class="tab" data-tab="settings" onclick="switchTab('settings', this)">
+      <span class="tab-icon">⚙</span> 设置
+    </button>
+    <button class="tab" data-tab="proxy" onclick="switchTab('proxy', this)">
+      <span class="tab-icon">🔀</span> 代理
+    </button>
+    <button class="tab" data-tab="about" onclick="switchTab('about', this)">
+      <span class="tab-icon">ℹ</span> 关于
+    </button>
+  </div>
+
+  <!-- Context Menu -->
+  <div class="context-menu" id="contextMenu">
+    <button class="ctx-item" onclick="ctxAction('expand')">📂 展开详情</button>
+    <button class="ctx-item" onclick="ctxAction('play')">▶ 打开播放</button>
+    <button class="ctx-item" onclick="ctxAction('pause')">⏸ 暂停</button>
+    <button class="ctx-item" onclick="ctxAction('resume')">▶ 继续</button>
+    <button class="ctx-item" onclick="ctxAction('verify')">🔍 校验数据</button>
+    <button class="ctx-item" onclick="ctxAction('relocate')">📁 移动位置</button>
+    <button class="ctx-item danger" onclick="ctxAction('remove')">🗑 删除种子</button>
+    <button class="ctx-item danger" onclick="ctxAction('removeData')">🗑 删除种子+数据</button>
+  </div>
+
+  <!-- Add Torrent Modal -->
+  <div class="modal-overlay" id="addModal" onclick="closeAddModal(event)">
+    <div class="modal-sheet" onclick="event.stopPropagation()">
+      <h3>添加种子</h3>
+      <div class="add-option" onclick="showToast('文件选择器已打开')">
+        <div class="ao-icon">📁</div>
+        <div><div class="ao-label">从文件</div><div class="ao-desc">选择 .torrent 文件</div></div>
+      </div>
+      <div class="add-option" onclick="showMagnetInput()">
+        <div class="ao-icon">🔗</div>
+        <div><div class="ao-label">从链接</div><div class="ao-desc">磁力链接或 HTTP 地址</div></div>
+      </div>
+      <div class="add-option" id="magnetInputRow" style="display:none;flex-direction:column;gap:8px;">
+        <input type="text" placeholder="magnet:?xt=urn:btih:..." style="width:100%;padding:10px 12px;background:var(--thm-bg);border:1px solid var(--thm-border);border-radius:var(--thm-radius-sm);color:var(--thm-text);font-size:var(--thm-text-xs);font-family:var(--thm-font-mono);outline:none;">
+        <button style="width:100%;padding:10px;background:var(--thm-base-accent-2);color:white;border:none;border-radius:var(--thm-radius-sm);font-weight:600;cursor:pointer;font-family:var(--thm-font-ui);">解析链接</button>
+      </div>
+      <button class="cancel-btn" onclick="closeAddModal()">取消</button>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast"></div>
+
+</div>
+
+<script>
+// ============================================================
+// State
+// ============================================================
+const torrents = [
+  { id: 1, name: 'Debian 12.8.0 amd64 DVD ISO', status: 'download', progress: 0.72, size: '3.7 GB', dl: '3.2 MB/s', ul: '128 KB/s', eta: '4m 12s', seeds: 124, leech: 37, added: '2026-06-28 14:22', files: [
+    { name: 'debian-12.8.0-amd64-DVD-1.iso', size: '3.7 GB', pct: 72, done: false },
+  ]},
+  { id: 2, name: 'Arch Linux 2026.06.01 x86_64 ISO', status: 'seed',   progress: 1.0,  size: '1.1 GB', dl: '0 B/s',  ul: '512 KB/s', eta: '—', seeds: 0, leech: 5, added: '2026-06-25 09:15', files: [
+    { name: 'archlinux-2026.06.01-x86_64.iso', size: '1.1 GB', pct: 100, done: true },
+  ]},
+  { id: 3, name: 'Ubuntu 26.04 LTS Desktop ISO', status: 'paused', progress: 0.45, size: '5.6 GB', dl: '0 B/s',  ul: '0 B/s',  eta: '—', seeds: 89, leech: 0, added: '2026-06-20 18:40', files: [
+    { name: 'ubuntu-26.04-desktop-amd64.iso', size: '5.6 GB', pct: 45, done: false },
+  ]},
+  { id: 4, name: 'Fedora 42 Workstation Live ISO', status: 'queued', progress: 0.0,  size: '2.1 GB', dl: '0 B/s',  ul: '0 B/s',  eta: '—', seeds: 0, leech: 0, added: '2026-06-28 16:05', files: [
+    { name: 'Fedora-Workstation-Live-x86_64-42.iso', size: '2.1 GB', pct: 0, done: false },
+  ]},
+  { id: 5, name: 'Kali Linux 2026.2 Installer ISO', status: 'error',  progress: 0.33, size: '3.2 GB', dl: '0 B/s',  ul: '0 B/s',  eta: '—', seeds: 0, leech: 0, added: '2026-06-27 22:10', files: [
+    { name: 'kali-linux-2026.2-installer-amd64.iso', size: '3.2 GB', pct: 33, done: false },
+  ]},
+];
+const statusLabels = { download:'下载中', seed:'做种中', paused:'已暂停', queued:'排队中', error:'错误' };
+const statusCls    = { download:'dl', seed:'sd', paused:'pa', queued:'pa', error:'er' };
+const statusIcon   = { download:'download', seed:'seed', paused:'paused', queued:'queued', error:'error' };
+let serviceRunning = true;
+let contextTorrentId = null;
+
+// ============================================================
+// Render
+// ============================================================
+function renderTorrents() {
+  const container = document.getElementById('page-downloads');
+  container.innerHTML = torrents.map(t => {
+    const cls = statusCls[t.status];
+    const iconCls = statusIcon[t.status];
+    return `
+    <div class="torrent-card" id="card-${t.id}" data-id="${t.id}">
+      <div class="card-main" onclick="toggleExpand(${t.id})" oncontextmenu="openContext(event, ${t.id}); return false;">
+        <div class="top-row">
+          <div class="status-icon ${iconCls}"></div>
+          <div class="info">
+            <div class="name">${t.name}</div>
+            <div class="meta">${t.size} · ${statusLabels[t.status]} · ${t.added}</div>
+          </div>
+          <div class="speed ${t.status === 'seed' ? 'ul' : 'dl'}">${t.dl !== '0 B/s' ? '↓'+t.dl : t.ul !== '0 B/s' ? '↑'+t.ul : ''}</div>
+        </div>
+        <div class="progress-row">
+          <div class="progress-bar"><div class="progress-fill ${cls}" style="width:${t.progress*100}%"></div></div>
+          <div class="pct">${Math.round(t.progress*100)}%</div>
+        </div>
+        <div class="stats-row">
+          <span>种子 <b class="peers">${t.seeds}</b></span>
+          <span>下载中 <b class="peers">${t.leech}</b></span>
+          <span>剩余 ${t.eta}</span>
+        </div>
+      </div>
+      <div class="torrent-detail">
+        <div class="detail-actions">
+          <button class="act" onclick="event.stopPropagation(); showToast('开始播放')">▶ 播放</button>
+          <button class="act" onclick="event.stopPropagation(); togglePause(${t.id})">⏯ ${t.status==='paused'?'继续':'暂停'}</button>
+          <button class="act" onclick="event.stopPropagation(); showToast('开始校验')">🔍 校验</button>
+          <button class="act danger" onclick="event.stopPropagation(); removeTorrent(${t.id}, false)">🗑 删种</button>
+          <button class="act danger" onclick="event.stopPropagation(); removeTorrent(${t.id}, true)">🗑 删种+数据</button>
+        </div>
+        <div class="file-tree">
+          ${t.files.map(f => `
+          <div class="file-row">
+            <span class="file-icon">${f.done ? '✅' : '📄'}</span>
+            <span class="file-name">${f.name}</span>
+            <div class="mini-bar"><div class="mini-bar-fill ${f.done ? 'done' : ''}" style="width:${f.pct}%"></div></div>
+            <span class="file-pct">${f.pct}%</span>
+            <span class="file-size">${f.size}</span>
+          </div>`).join('')}
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function updateGlobalStats() {
+  let dl = 0, ul = 0;
+  torrents.forEach(t => {
+    if (t.status === 'download' && t.dl) dl += parseFloat(t.dl) || 0;
+    if (t.status === 'seed' && t.ul) ul += parseFloat(t.ul) || 0;
+  });
+  document.getElementById('globalDl').textContent = dl > 0 ? dl.toFixed(1) + ' MB/s' : '0 B/s';
+  document.getElementById('globalUl').textContent = ul > 0 ? ul.toFixed(1) + ' KB/s' : '0 B/s';
+}
+
+// ============================================================
+// Actions
+// ============================================================
+function toggleExpand(id) {
+  document.getElementById('card-'+id).classList.toggle('expanded');
+}
+
+function openContext(e, id) {
+  e.preventDefault();
+  e.stopPropagation();
+  contextTorrentId = id;
+  const menu = document.getElementById('contextMenu');
+  menu.style.top = Math.min(e.clientY - 60, 500) + 'px';
+  menu.style.left = Math.min(e.clientX - 80, 220) + 'px';
+  menu.classList.add('show');
+  setTimeout(() => document.addEventListener('click', closeContext, {once:true}), 50);
+}
+function closeContext() { document.getElementById('contextMenu').classList.remove('show'); contextTorrentId = null; }
+
+function ctxAction(action) {
+  const id = contextTorrentId;
+  closeContext();
+  if (!id) return;
+  switch(action) {
+    case 'expand': toggleExpand(id); break;
+    case 'pause': case 'resume': togglePause(id); break;
+    case 'play': showToast('正在打开播放器...'); break;
+    case 'verify': showToast('正在校验数据...'); break;
+    case 'relocate': showToast('请选择新位置'); break;
+    case 'remove': removeTorrent(id, false); break;
+    case 'removeData': removeTorrent(id, true); break;
+  }
+}
+
+function togglePause(id) {
+  const t = torrents.find(x => x.id === id);
+  if (!t) return;
+  t.status = t.status === 'paused' ? (t.progress >= 1 ? 'seed' : 'download') : 'paused';
+  if (t.status !== 'download') { t.dl = '0 B/s'; t.ul = '0 B/s'; }
+  if (t.status === 'download') t.dl = '1.8 MB/s';
+  if (t.status === 'seed') t.ul = '256 KB/s';
+  renderTorrents();
+  updateGlobalStats();
+  if (document.getElementById('card-'+id)) document.getElementById('card-'+id).classList.add('expanded');
+}
+
+function removeTorrent(id, withData) {
+  const idx = torrents.findIndex(x => x.id === id);
+  if (idx === -1) return;
+  const name = torrents[idx].name;
+  torrents.splice(idx, 1);
+  renderTorrents();
+  updateGlobalStats();
+  showToast(withData ? `已删除种子 + 数据: ${name.substring(0,30)}...` : `已删除种子: ${name.substring(0,30)}...`);
+}
+
+function toggleService() {
+  serviceRunning = !serviceRunning;
+  const dot = document.getElementById('serviceDot');
+  const label = document.getElementById('serviceLabel');
+  if (serviceRunning) { dot.classList.remove('off'); label.textContent = 'Running'; }
+  else { dot.classList.add('off'); label.textContent = 'Stopped'; }
+  showToast(serviceRunning ? '服务已启动' : '服务已停止');
+}
+
+// ============================================================
+// Navigation
+// ============================================================
+function switchTab(tab, el) {
+  document.querySelectorAll('.tab-bar .tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById('page-'+tab).classList.add('active');
+  document.getElementById('fab').style.display = tab === 'downloads' ? 'flex' : 'none';
+  document.getElementById('globalStats').style.display = tab === 'downloads' ? 'grid' : 'none';
+  closeContext();
+}
+
+// ============================================================
+// Add Modal
+// ============================================================
+function openAddModal() { document.getElementById('addModal').classList.add('show'); }
+function closeAddModal(e) {
+  if (e && e.target !== document.getElementById('addModal')) return;
+  document.getElementById('addModal').classList.remove('show');
+  document.getElementById('magnetInputRow').style.display = 'none';
+}
+function showMagnetInput() { document.getElementById('magnetInputRow').style.display = 'flex'; }
+
+function updateProxyFields() {
+  const on = document.getElementById('proxyToggle').classList.contains('on');
+  document.getElementById('proxyHost').disabled = !on;
+  document.getElementById('proxyPort').disabled = !on;
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._timeout);
+  t._timeout = setTimeout(() => t.classList.remove('show'), 1800);
+}
+
+// ============================================================
+// Init
+// ============================================================
+renderTorrents();
+updateGlobalStats();
+</script>
+</body>
+</html>

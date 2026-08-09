@@ -1,0 +1,97 @@
+{
+  "module": {
+    "name": "entry",
+    "type": "entry",
+    "description": "$string:module_desc",
+    "mainElement": "EntryAbility",
+    "deviceTypes": [
+      "phone",
+      "tablet",
+      "2in1"
+    ],
+    "deliveryWithInstall": true,
+    "installationFree": false,
+    "pages": "$profile:main_pages",
+    "abilities": [
+      {
+        "name": "EntryAbility",
+        "srcEntry": "./ets/entryability/EntryAbility.ets",
+        "description": "$string:EntryAbility_desc",
+        "icon": "$media:layered_image",
+        "label": "$string:EntryAbility_label",
+        "startWindowIcon": "$media:startIcon",
+        "startWindowBackground": "$color:start_window_background",
+        "exported": true,
+        "skills": [
+          {
+            "entities": [
+              "entity.system.home"
+            ],
+            "actions": [
+              "ohos.want.action.home"
+            ]
+          },
+          {
+            "actions": [
+              "ohos.want.action.viewData"
+            ],
+            "uris": [
+              { "scheme": "magnet" },
+              { "scheme": "file", "type": "application/x-bittorrent" },
+              { "scheme": "https", "type": "application/x-bittorrent" },
+              { "scheme": "http", "type": "application/x-bittorrent" },
+              { "scheme": "content", "type": "application/x-bittorrent" }
+            ]
+          }
+        ]
+      }
+    ],
+    "extensionAbilities": [
+      {
+        "name": "EntryBackupAbility",
+        "srcEntry": "./ets/entrybackupability/EntryBackupAbility.ets",
+        "type": "backup",
+        "exported": false,
+        "metadata": [
+          {
+            "name": "ohos.extension.backup",
+            "resource": "$profile:backup_config"
+          }
+        ]
+      }
+      // NOTE: TransmissionService (type: "service") is REMOVED. On HarmonyOS
+      // NEXT, ServiceExtensionAbility is system-app-only: declaring it fails
+      // install with `code:9568344 install parse profile prop check error`
+      // unless the device's /system/etc/app/install_list_capability.json
+      // whitelists the app signature (allowAppUsePrivilegeExtension). The
+      // consumer Pura 80 (4VM0125513000074) has /system mounted erofs ro +
+      // SELinux — the whitelist is not modifiable (no root, remount blocked).
+      // The native session runs in-process from DownloadsPage instead (see
+      // DownloadsPage.ets). Re-enable only on a device where the capability
+      // can be provisioned.
+      // {
+      //   "name": "TransmissionService",
+      //   "srcEntry": "./ets/services/TransmissionService.ets",
+      //   "type": "service",
+      //   "exported": false
+      // },
+    ],
+    "requestPermissions": [
+      {
+        "name": "ohos.permission.INTERNET",
+        "reason": "$string:perm_internet_reason",
+        "usedScene": { "abilities": ["EntryAbility"], "when": "always" }
+      },
+      {
+        "name": "ohos.permission.KEEP_BACKGROUND_RUNNING",
+        "reason": "$string:perm_background_reason",
+        "usedScene": { "abilities": ["EntryAbility"], "when": "always" }
+      },
+      {
+        "name": "ohos.permission.GET_NETWORK_INFO",
+        "reason": "$string:perm_network_info_reason",
+        "usedScene": { "abilities": ["EntryAbility"], "when": "always" }
+      }
+    ]
+  }
+}

@@ -1,0 +1,76 @@
+// transmissionhm — N-API module registration
+// M0: skeleton with getVersion(). M1: full 40-method bridge.
+//
+// All 9 Register* functions are declared here and called from Init().
+// When a submodule's source file is omitted from CMakeLists.txt (M0),
+// its Register* function is replaced with a no-op stub below.
+
+#include <napi/native_api.h>
+#include <hilog/log.h>
+
+#undef LOG_DOMAIN
+#undef LOG_TAG
+#define LOG_DOMAIN 0x0001
+#define LOG_TAG "transmissionhm_napi"
+
+// ── Submodule declarations (extern "C", defined in respective .cc files) ──
+extern "C" {
+void RegisterStdRedirect(napi_env env, napi_value exports);
+void RegisterHash(napi_env env, napi_value exports);
+void RegisterEnv(napi_env env, napi_value exports);
+void RegisterSem(napi_env env, napi_value exports);
+void RegisterCurl(napi_env env, napi_value exports);
+void RegisterNativeToArkts(napi_env env, napi_value exports);
+void RegisterCommons(napi_env env, napi_value exports);
+void RegisterTransmission(napi_env env, napi_value exports);
+void RegisterTorrent(napi_env env, napi_value exports);
+}
+
+// ── getVersion() — always available ────────────────────────────────
+static napi_value GetVersion(napi_env env, napi_callback_info info) {
+  (void)info;
+  napi_value result;
+  napi_create_string_utf8(env, "0.1.0-m6", NAPI_AUTO_LENGTH, &result);
+  return result;
+}
+
+// ── Init: register all submodules ──────────────────────────────────
+EXTERN_C_START
+static napi_value Init(napi_env env, napi_value exports) {
+  OH_LOG_INFO(LOG_APP, "transmissionhm_napi: module initializing");
+
+  // Core (always available)
+  napi_property_descriptor coreDesc[] = {
+    {"getVersion", nullptr, GetVersion, nullptr, nullptr, nullptr, napi_default, nullptr}
+  };
+  napi_define_properties(env, exports, sizeof(coreDesc) / sizeof(coreDesc[0]), coreDesc);
+
+  // Submodules (each Register* adds its functions to exports)
+  RegisterStdRedirect(env, exports);
+  RegisterEnv(env, exports);
+  RegisterSem(env, exports);
+  RegisterHash(env, exports);
+  RegisterCurl(env, exports);
+  RegisterNativeToArkts(env, exports);
+  RegisterCommons(env, exports);
+  RegisterTransmission(env, exports);
+  RegisterTorrent(env, exports);
+
+  OH_LOG_INFO(LOG_APP, "transmissionhm_napi: module initialized");
+  return exports;
+}
+EXTERN_C_END
+
+static napi_module demoModule = {
+  1,                       // nm_version
+  0,                       // nm_flags
+  nullptr,                 // nm_filename
+  Init,                    // nm_register_func
+  "transmissionhm_napi",   // nm_modname
+  nullptr,                 // nm_priv
+  {0},                     // reserved
+};
+
+extern "C" __attribute__((constructor)) void RegisterEntryModule(void) {
+  napi_module_register(&demoModule);
+}

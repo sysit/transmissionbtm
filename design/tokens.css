@@ -1,0 +1,100 @@
+/* ============================================================
+   TransmissionHM — Design Tokens
+   Direction: Industrial Precision
+   ============================================================
+
+   Hierarchy:
+   --thm-*     → public API (use these in components)
+   --thm-base-* → primitive values (do not use directly)
+   ============================================================ */
+
+:root {
+  /* ---- Palette: Dark Industrial Foundation ---- */
+  --thm-base-bg:        #0b0d10;
+  --thm-base-bg-raised: #111318;
+  --thm-base-surface:   #181b21;
+  --thm-base-surface-2: #1e2129;
+  --thm-base-border:    #292c35;
+  --thm-base-border-2:  #333740;
+
+  /* ---- Palette: Text ---- */
+  --thm-base-text:      #e4e6ec;
+  --thm-base-text-2:    #9ca0ab;
+  --thm-base-text-3:    #5f636f;
+
+  /* ---- Palette: Semantic Status ---- */
+  --thm-base-download:  #3b82f6;
+  --thm-base-seed:      #22c55e;
+  --thm-base-paused:    #f59e0b;
+  --thm-base-error:     #ef4444;
+  --thm-base-queued:    #6366f1;
+
+  /* ---- Palette: Accent ---- */
+  --thm-base-accent:    #60a5fa;
+  --thm-base-accent-2:  #2563eb;
+
+  /* ---- Surfaces ---- */
+  --thm-surface:          var(--thm-base-surface);
+  --thm-surface-raised:   var(--thm-base-surface-2);
+  --thm-bg:              var(--thm-base-bg);
+  --thm-bg-raised:       var(--thm-base-bg-raised);
+
+  /* ---- Text ---- */
+  --thm-text:             var(--thm-base-text);
+  --thm-text-secondary:   var(--thm-base-text-2);
+  --thm-text-tertiary:    var(--thm-base-text-3);
+
+  /* ---- Borders ---- */
+  --thm-border:           var(--thm-base-border);
+  --thm-border-strong:    var(--thm-base-border-2);
+  --thm-radius-sm:        6px;
+  --thm-radius:           10px;
+  --thm-radius-lg:        14px;
+
+  /* ---- Status Colors ---- */
+  --thm-download:         var(--thm-base-download);
+  --thm-seed:             var(--thm-base-seed);
+  --thm-paused:           var(--thm-base-paused);
+  --thm-error:            var(--thm-base-error);
+  --thm-queued:           var(--thm-base-queued);
+
+  /* ---- Typography ---- */
+  --thm-font-ui:          "HarmonyOS Sans", "Inter", system-ui, -apple-system, sans-serif;
+  --thm-font-mono:        "JetBrains Mono", "HarmonyOS Sans Mono", "SF Mono", ui-monospace, monospace;
+
+  /* Type scale (1.25 ratio) */
+  --thm-text-xs:          0.75rem;
+  --thm-text-sm:          0.8125rem;
+  --thm-text-base:        0.9375rem;
+  --thm-text-lg:          1.125rem;
+  --thm-text-xl:          1.375rem;
+  --thm-text-2xl:         1.75rem;
+
+  /* ---- Spacing (4px base) ---- */
+  --thm-space-1:  4px;
+  --thm-space-2:  8px;
+  --thm-space-3:  12px;
+  --thm-space-4:  16px;
+  --thm-space-5:  20px;
+  --thm-space-6:  24px;
+  --thm-space-8:  32px;
+  --thm-space-10: 40px;
+  --thm-space-12: 48px;
+
+  /* ---- Motion ---- */
+  --thm-duration-fast:    150ms;
+  --thm-duration-normal:  250ms;
+  --thm-duration-slow:    400ms;
+  --thm-ease-out:         cubic-bezier(0.16, 1, 0.3, 1);
+  --thm-ease-in-out:      cubic-bezier(0.65, 0, 0.35, 1);
+
+  /* ---- Shadows ---- */
+  --thm-shadow-sm:  0 1px 2px rgba(0,0,0,0.4);
+  --thm-shadow:     0 4px 12px rgba(0,0,0,0.5);
+  --thm-shadow-lg:  0 8px 30px rgba(0,0,0,0.6);
+
+  /* ---- Layout ---- */
+  --thm-tab-bar-h:  56px;
+  --thm-header-h:   52px;
+  --thm-max-w:      480px;
+}
