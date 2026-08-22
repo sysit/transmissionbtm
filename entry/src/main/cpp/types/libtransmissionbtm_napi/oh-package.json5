@@ -1,5 +1,5 @@
 {
-  "name": "libtransmissionhm_napi.so",
+  "name": "libtransmissionbtm_napi.so",
   "version": "0.1.0",
   "description": "N-API native module type declarations",
   "main": "",

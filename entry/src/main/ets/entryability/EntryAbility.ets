@@ -1,4 +1,4 @@
-// transmissionhm — App entry point (M5)
+// transmissionbtm — App entry point (M5)
 // Initializes preferences and handles external intents (magnet links,
 // .torrent files). The background TransmissionService was removed in M7
 // (HarmonyOS NEXT service = system-app-only) — the session runs in-process.
@@ -7,8 +7,9 @@ import { UIAbility, Want, AbilityConstant } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
 import { PreferencesManager } from '../models/Preferences';
+import { HukProxyCipher } from '../security/HukProxyCipher';
 
-const TAG = 'transmissionhm';
+const TAG = 'transmissionbtm';
 
 /** Parsed external intent for torrent adding. */
 export interface TorrentIntent {
@@ -29,11 +30,35 @@ export default class EntryAbility extends UIAbility {
       hilog.info(0x0001, TAG, 'Preferences initialized');
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'Preferences init failed: %{public}s', String(err));
+        'Preferences init failed: %{private}s', String(err));
     }
+
+    // Inject the HUKS proxy-password cipher + run a startup self-test.
+    // Fire-and-forget: the cipher is injected synchronously on the first tick,
+    // so it is in place before any page reads proxy_password. selfTest() proves
+    // the AES-256-GCM round-trip on THIS device via a hilog OK/FAIL line.
+    this.setupProxyCipher();
 
     // Parse external intent if launched via magnet/file URI
     this.pendingTorrentIntent = this.parseIntent(want);
+  }
+
+  /**
+   * Install the on-device HUKS cipher for the proxy password, then log whether
+   * a real AES-256-GCM encrypt→decrypt round-trip succeeds. This substitutes
+   * for the SIGABRT-blocked aa test runner: `aa start` + hilog 'HUKS selfTest OK'
+   * is the proof the GCM tag/IV/alias contract works on this device.
+   */
+  private async setupProxyCipher(): Promise<void> {
+    try {
+      const cipher = new HukProxyCipher();
+      PreferencesManager.getInstance().setPasswordCipher(cipher);
+      const ok = await cipher.selfTest();
+      hilog.info(0x0001, TAG, 'HUKS selfTest %{public}s', ok ? 'OK' : 'FAIL');
+    } catch (err) {
+      hilog.error(0x0001, TAG,
+        'HUKS cipher setup failed: %{private}s', String(err));
+    }
   }
 
   /**
@@ -90,7 +115,7 @@ export default class EntryAbility extends UIAbility {
       }
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'parseIntent failed: %{public}s', String(err));
+        'parseIntent failed: %{private}s', String(err));
     }
 
     return { kind: 'unknown', uri: '' };
@@ -106,7 +131,7 @@ export default class EntryAbility extends UIAbility {
     windowStage.loadContent('pages/Index', (err) => {
       if (err.code) {
         hilog.error(0x0001, TAG,
-          'Failed to load the content. Cause: %{public}s', JSON.stringify(err));
+          'Failed to load the content. Cause: %{private}s', JSON.stringify(err));
         return;
       }
       hilog.info(0x0001, TAG, 'Succeeded in loading the content.');

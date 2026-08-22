@@ -1,4 +1,4 @@
-// transmissionhm — Torrent CRUD + statistics (N-API)
+// transmissionbtm — Torrent CRUD + statistics (N-API)
 // Adapted from transmissionbtc torrent.cc (JNI → N-API)
 // Updated for Transmission 4.1 C++ API (2026-07-12)
 // 20 exported functions
@@ -25,7 +25,7 @@
 #undef LOG_DOMAIN
 #undef LOG_TAG
 #define LOG_DOMAIN 0x0001
-#define LOG_TAG "transmissionhm"
+#define LOG_TAG "transmissionbtm"
 
 // ── Local helpers ───────────────────────────────────────────────────
 static bool getBoolNapi(napi_env env, napi_value val) {
@@ -113,9 +113,25 @@ static void *torrentAddFunc(tr_session *s, void *d, Err *err) {
   if (tor != nullptr) {
     // Fresh torrent added → success (0), or OK_DELETE (3) if source deleted.
     ad->err = ad->deleteSource ? 3 : 0;
+    // TEMP DIAG: log the actual pause/start state around the explicit start.
+    bool ctorPaused = false;
+    bool ctorHasPaused = tr_ctorGetPaused(ad->ctor, TR_FORCE, &ctorPaused);
+    OH_LOG_Print(LOG_APP, LOG_INFO, LOG_DOMAIN, LOG_TAG,
+                 "[DBG] addfunc paused=%{public}d ctorHasPaused=%{public}d ctorPaused=%{public}d shouldPauseAdded=%{public}d preActivity=%{public}d",
+                 ad->paused ? 1 : 0, ctorHasPaused ? 1 : 0, ctorPaused ? 1 : 0,
+                 s->shouldPauseAddedTorrents() ? 1 : 0, (int)tor->activity());
+    // Explicitly drive the start state so a freshly-added torrent begins
+    // downloading (or stays paused) per the `paused` flag, instead of relying
+    // on the session's start-added-torrents setting — which left a just-added
+    // torrent sitting in PAUSED state.
     if (ad->paused) {
       tr_torrentStop(tor);
+    } else {
+      tr_torrentStart(tor);
     }
+    OH_LOG_Print(LOG_APP, LOG_INFO, LOG_DOMAIN, LOG_TAG,
+                 "[DBG] addfunc postActivity=%{public}d isRunning=%{public}d",
+                 (int)tor->activity(), tor->is_running() ? 1 : 0);
   } else if (dupTor != nullptr) {
     // Duplicate: report DUPLICATE (2). The OK_DELETE (3) case applies only
     // when every file is unwanted AND delete-source is set (source removed).
@@ -171,6 +187,11 @@ static napi_value TorrentAdd(napi_env env, napi_callback_info info) {
   napi_value args[8];
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
 
+  if (argc < 2) {
+    napi_throw_error(env, nullptr, "Expected at least 2 arguments: session, torrent path/uri");
+    return nullptr;
+  }
+
   // D1 (docs/11): build a magnet ctor when the input is a magnet URI or a
   // bare 40-hex info-hash; otherwise fall through to the file-based path.
   tr_ctor *ctor = nullptr;
@@ -201,7 +222,9 @@ static napi_value TorrentAdd(napi_env env, napi_callback_info info) {
 
   if (!isNapiNull(env, args[2])) {
     char *downloadDir = getStringUtf8(env, args[2]);
-    tr_ctorSetDownloadDir(ctor, TR_FORCE, downloadDir);
+    if (downloadDir != nullptr) {
+      tr_ctorSetDownloadDir(ctor, TR_FORCE, downloadDir);
+    }
     free(downloadDir);
   }
 
@@ -209,6 +232,14 @@ static napi_value TorrentAdd(napi_env env, napi_callback_info info) {
   bool sequential = getBoolNapi(env, args[4]);
   (void)sequential;
   bool paused = (argc >= 8) ? getBoolNapi(env, args[7]) : false;
+
+  // Force the initial run state on the ctor itself (TR_FORCE), matching the
+  // upstream RPC path (rpcimpl.cc tr_ctorSetPaused(ctor, TR_FORCE, val)).
+  // Without this, tr_torrentNew falls back to
+  // session->shouldPauseAddedTorrents() (torrent-ctor.cc TR_FALLBACK), which
+  // left freshly-added torrents PAUSED even though torrentAddFunc called
+  // tr_torrentStart(). TR_FORCE makes the ctor's paused flag authoritative.
+  tr_ctorSetPaused(ctor, TR_FORCE, paused);
 
   tr_file_index_t idxLen = 0;
   tr_file_index_t *wantedFiles = nullptr;
@@ -297,7 +328,33 @@ static napi_value TorrentRemove(napi_env env, napi_callback_info info) {
         name##Func, (void *)(intptr_t)id); \
     napi_value r; napi_get_undefined(env, &r); return r; \
   }
-DEF_TORRENT_OP(TorrentStart,  tr_torrentStart)
+// Custom TorrentStart that logs engine state before/after tr_torrentStart,
+// so we can see exactly what an explicit start does to a fresh torrent.
+static void *TorrentStartFunc(tr_session *s, void *d, Err *err) {
+  tr_torrent *tor = findTorrentById(s, (int)(intptr_t)d, err);
+  if (!tor) return nullptr;
+  auto logState = [&](const char *tag) {
+    auto dir = tor->queue_direction();
+    auto errs = std::string(tor->error().errmsg());
+    OH_LOG_Print(LOG_APP, LOG_INFO, LOG_DOMAIN, LOG_TAG,
+                 "[DBG] start %{public}s id=%{public}d act=%{public}d run=%{public}d queued=%{public}d dir=%{public}d total=%{public}lld localerr=%{public}d err='%{public}s'",
+                 tag, tr_torrentId(tor), (int)tor->activity(), tor->is_running()?1:0,
+                 tor->is_queued(dir)?1:0, (int)dir, (long long)tor->size_when_done(),
+                 tor->error().is_local_error()?1:0, errs.c_str());
+  };
+  logState("BEFORE");
+  tr_torrentStart(tor);
+  logState("AFTER");
+  return nullptr;
+}
+static napi_value TorrentStart(napi_env env, napi_callback_info info) {
+  size_t argc = 2; napi_value args[2];
+  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+  int32_t id = getInt32Napi(env, args[1]);
+  runInTransmissionThread(__FILE__, __LINE__, env, args[0],
+      TorrentStartFunc, (void *)(intptr_t)id);
+  napi_value r; napi_get_undefined(env, &r); return r;
+}
 DEF_TORRENT_OP(TorrentStop,   tr_torrentStop)
 DEF_TORRENT_OP(TorrentVerify, tr_torrentVerify)
 
@@ -345,6 +402,7 @@ static void *torrentListFilesFunc(tr_session *s, void *d, Err *err) {
   ld->count = (int)tor->file_count();
   if (!ld->count) return nullptr;
   ld->names = (char **) malloc(ld->count * sizeof(char *));
+  if (!ld->names) { ld->count = 0; return nullptr; }
   for (int i = 0; i < ld->count; i++) {
     auto f = tr_torrentFile(tor, (tr_file_index_t)i);
     ld->names[i] = strdup(f.name);
@@ -376,9 +434,9 @@ static napi_value TorrentFindByHash(napi_env env, napi_callback_info info) {
   size_t argc = 2; napi_value args[2];
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
   FindByHashData d;
-  void *data; size_t len;
-  napi_get_arraybuffer_info(env, args[1], &data, &len);
-  if (len < SHA_DIGEST_LENGTH) {
+  void *data = nullptr; size_t len = 0;
+  napi_status status = napi_get_arraybuffer_info(env, args[1], &data, &len);
+  if (status != napi_ok || data == nullptr || len < SHA_DIGEST_LENGTH) {
     napi_throw_error(env, nullptr, "Hash buffer too small, need 20 bytes");
     return nullptr;
   }
@@ -417,9 +475,9 @@ static void *torrentGetHashFunc(tr_session *s, void *d, Err *err) {
 static napi_value TorrentGetHash(napi_env env, napi_callback_info info) {
   size_t argc = 3; napi_value args[3];
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-  void *hashBuf; size_t hashBufLen;
-  napi_get_arraybuffer_info(env, args[2], &hashBuf, &hashBufLen);
-  if (hashBufLen < SHA_DIGEST_LENGTH) {
+  void *hashBuf = nullptr; size_t hashBufLen = 0;
+  napi_status status = napi_get_arraybuffer_info(env, args[2], &hashBuf, &hashBufLen);
+  if (status != napi_ok || hashBuf == nullptr || hashBufLen < SHA_DIGEST_LENGTH) {
     napi_throw_error(env, nullptr, "Hash buffer too small, need 20 bytes");
     return nullptr;
   }
@@ -433,7 +491,7 @@ typedef struct { int32_t id; int64_t idx; uint8_t *hash; } GetPieceHashData;
 static void *torrentGetPieceHashFunc(tr_session *s, void *d, Err *err) {
   auto *ph = (GetPieceHashData *) d;
   tr_torrent *tor = findTorrentById(s, ph->id, err);
-  if (tor && ph->idx < (int64_t)tor->piece_count()) {
+  if (tor && ph->idx >= 0 && ph->idx < (int64_t)tor->piece_count()) {
     // 4.1: tor->piece_hash(idx) is public
     auto const &pieceHash = tor->piece_hash((tr_piece_index_t)ph->idx);
     memcpy(ph->hash, std::data(pieceHash), SHA_DIGEST_LENGTH);
@@ -679,12 +737,12 @@ static void *torrentGetPieceFunc(tr_session *s, void *d, Err *err) {
 static napi_value TorrentGetPiece(napi_env env, napi_callback_info info) {
   size_t argc = 6; napi_value args[6];
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-  void *dst; size_t dstLen;
-  napi_get_arraybuffer_info(env, args[3], &dst, &dstLen);
+  void *dst = nullptr; size_t dstLen = 0;
+  napi_status status = napi_get_arraybuffer_info(env, args[3], &dst, &dstLen);
   int32_t len = getInt32Napi(env, args[5]);
   // P1 fix (codex review): reject a destination buffer smaller than the
   // requested length before the native func writes into it.
-  if (dst == nullptr || len < 0 || dstLen < (size_t)len) {
+  if (status != napi_ok || dst == nullptr || len < 0 || dstLen < (size_t)len) {
     napi_throw_error(env, nullptr, "Destination buffer too small for piece data");
     return nullptr;
   }
@@ -703,7 +761,10 @@ static void *torrentStatBriefFunc(tr_session *s, void *d, Err *err) {
   int n = (int)s->torrents().size();
   int sl = n * 10;
   if (!sb->stat || sl != sb->statLen) {
-    sb->stat = (int64_t *) malloc(sizeof(int64_t) * sl);
+    int64_t *newStat = (int64_t *) malloc(sizeof(int64_t) * sl);
+    if (!newStat) { sb->statLen = 0; return nullptr; }
+    if (sb->alloc) free(sb->stat);
+    sb->stat = newStat;
     sb->statLen = sl;
     sb->alloc = true;
   }
@@ -711,6 +772,15 @@ static void *torrentStatBriefFunc(tr_session *s, void *d, Err *err) {
   for (auto tor : s->torrents()) {
     i += 10;
     auto st = tor->activity();
+    { // [DBG] live engine state per poll
+      auto dir = tor->queue_direction();
+      auto errs = std::string(tor->error().errmsg());
+      OH_LOG_Print(LOG_APP, LOG_INFO, LOG_DOMAIN, LOG_TAG,
+                   "[DBG] stat id=%{public}d act=%{public}d run=%{public}d queued=%{public}d dir=%{public}d total=%{public}lld left=%{public}lld localerr=%{public}d err='%{public}s'",
+                   tr_torrentId(tor), (int)st, tor->is_running()?1:0, tor->is_queued(dir)?1:0,
+                   (int)dir, (long long)tor->size_when_done(), (long long)tor->left_until_done(),
+                   tor->error().is_local_error()?1:0, errs.c_str());
+    }
     sb->stat[i] = tr_torrentId(tor);
     sb->stat[i + 3] = tor->size_when_done();
     sb->stat[i + 4] = tor->left_until_done();
@@ -759,6 +829,9 @@ static napi_value TorrentStatBrief(napi_env env, napi_callback_info info) {
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
   StatBriefData d = {nullptr, 0, false};
   runInTransmissionThread(__FILE__, __LINE__, env, args[0], torrentStatBriefFunc, &d);
+  if (d.stat == nullptr || d.statLen == 0) {
+    napi_value r; napi_get_null(env, &r); return r;
+  }
   napi_value r; void *out;
   napi_create_arraybuffer(env, d.statLen * sizeof(int64_t), &out, &r);
   memcpy(out, d.stat, d.statLen * sizeof(int64_t));
@@ -780,6 +853,30 @@ static napi_value TorrentGetError(napi_env env, napi_callback_info info) {
       torrentGetErrorFunc, (void *)(intptr_t)tid);
   if (!errStr) { napi_value r; napi_get_null(env, &r); return r; }
   napi_value r = newStringUtf8(env, errStr); free(errStr); return r;
+}
+
+// ── torrentState (diagnostic: live engine state) ────────────────────
+static void *torrentStateFunc(tr_session *s, void *d, Err *err) {
+  tr_torrent *tor = findTorrentById(s, (int)(intptr_t)d, err);
+  if (!tor) return strdup("notfound");
+  auto dir = tor->queue_direction();
+  auto errs = std::string(tor->error().errmsg());
+  char buf[256];
+  snprintf(buf, sizeof(buf),
+           "act=%d run=%d queued=%d dir=%d total=%lld left=%lld localerr=%d err='%s'",
+           (int)tor->activity(), tor->is_running()?1:0, tor->is_queued(dir)?1:0, (int)dir,
+           (long long)tor->size_when_done(), (long long)tor->left_until_done(),
+           tor->error().is_local_error()?1:0, errs.c_str());
+  return strdup(buf);
+}
+static napi_value TorrentState(napi_env env, napi_callback_info info) {
+  size_t argc = 2; napi_value args[2];
+  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+  int32_t tid = getInt32Napi(env, args[1]);
+  char *state = (char *) runInTransmissionThread(__FILE__, __LINE__, env, args[0],
+      torrentStateFunc, (void *)(intptr_t)tid);
+  if (!state) { napi_value r; napi_get_null(env, &r); return r; }
+  napi_value r = newStringUtf8(env, state); free(state); return r;
 }
 
 // ── torrentSetDnd ───────────────────────────────────────────────────
@@ -805,7 +902,9 @@ static napi_value TorrentSetDnd(napi_env env, napi_callback_info info) {
   }
   d.count = (tr_file_index_t)(idxByteLen / sizeof(int32_t));
   d.files = (tr_file_index_t *) malloc(d.count * sizeof(tr_file_index_t));
-  if (d.files && d.count > 0) {
+  if (!d.files) {
+    d.count = 0;
+  } else if (d.count > 0) {
     int32_t *src = (int32_t *) idxData;
     for (tr_file_index_t i = 0; i < d.count; i++)
       d.files[i] = (tr_file_index_t) src[i];
@@ -826,7 +925,12 @@ static void *torrentSetLocationFunc(tr_session *s, void *d, Err *err) {
 static napi_value TorrentSetLocation(napi_env env, napi_callback_info info) {
   size_t argc = 3; napi_value args[3];
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-  SetLocationData d = {getInt32Napi(env, args[1]), getStringUtf8(env, args[2])};
+  char *path = getStringUtf8(env, args[2]);
+  if (path == nullptr) {
+    napi_throw_error(env, nullptr, "Destination path must be a non-empty string");
+    return nullptr;
+  }
+  SetLocationData d = {getInt32Napi(env, args[1]), path};
   runInTransmissionThread(__FILE__, __LINE__, env, args[0], torrentSetLocationFunc, &d);
   free((void *) d.path);
   napi_value r; napi_get_undefined(env, &r); return r;
@@ -869,6 +973,7 @@ void RegisterTorrent(napi_env env, napi_value exports) {
     {"torrentGetPiece",          nullptr, TorrentGetPiece,          nullptr, nullptr, nullptr, napi_default, nullptr},
     {"torrentStatBrief",         nullptr, TorrentStatBrief,         nullptr, nullptr, nullptr, napi_default, nullptr},
     {"torrentGetError",          nullptr, TorrentGetError,          nullptr, nullptr, nullptr, napi_default, nullptr},
+    {"torrentState",             nullptr, TorrentState,             nullptr, nullptr, nullptr, napi_default, nullptr},
     {"torrentSetDnd",            nullptr, TorrentSetDnd,            nullptr, nullptr, nullptr, napi_default, nullptr},
     {"torrentSetLocation",       nullptr, TorrentSetLocation,       nullptr, nullptr, nullptr, napi_default, nullptr},
     {"torrentReannounce",        nullptr, TorrentReannounce,        nullptr, nullptr, nullptr, napi_default, nullptr}

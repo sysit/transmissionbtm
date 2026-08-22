@@ -1,4 +1,4 @@
-// transmissionhm — Hash utilities (N-API)
+// transmissionbtm — Hash utilities (N-API)
 // Adapted from transmissionbtc hash.cc (JNI → N-API)
 //
 // Key changes:
@@ -57,6 +57,10 @@ static napi_value HashStringToBytes(napi_env env, napi_callback_info info) {
   napi_value args[1];
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
 
+  if (argc < 1) {
+    napi_throw_error(env, nullptr, "Expected 1 argument: hash string");
+    return nullptr;
+  }
   char *hashString = getStringUtf8(env, args[0]);
   if (hashString == nullptr) {
     napi_throw_error(env, nullptr, "Invalid hash string argument");

@@ -1,4 +1,4 @@
-// transmissionhm — C++ native test entry point
+// transmissionbtm — C++ native test entry point
 // Runs all registered tests and reports results.
 //
 // Integration: compiled into a .so loaded by ohosTest test runner.
@@ -13,7 +13,7 @@
 
 // Called by ohosTest ArkTS runner via N-API to execute all tests.
 extern "C" int run_native_tests() {
-  printf("\n=== transmissionhm C++ Native Tests ===\n\n");
+  printf("\n=== transmissionbtm C++ Native Tests ===\n\n");
 
   // Test registration happens via static initializers (TEST macro).
   // Each test_*.cc file's registrars run before this function.

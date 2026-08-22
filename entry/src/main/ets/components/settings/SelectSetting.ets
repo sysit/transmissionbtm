@@ -1,4 +1,4 @@
-// transmissionhm — Select Setting Component (M2)
+// transmissionbtm — Select Setting Component (M2)
 //
 // Tappable row showing label + current selection. On tap, shows a
 // dialog with all options. Persists the selected index via

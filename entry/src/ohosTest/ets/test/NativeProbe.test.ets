@@ -1,9 +1,9 @@
-// transmissionhm — Native probe test (M7 E2E prep)
+// transmissionbtm — Native probe test (M7 E2E prep)
 //
 // DECISIVE probe: unlike the defensive unit tests that skip when the
 // native .so is unavailable, this test asserts on REAL native return
 // values. It answers one question: can the ohosTest process load
-// libtransmissionhm_napi.so and call the native bridge in-process?
+// libtransmissionbtm_napi.so and call the native bridge in-process?
 //
 // If the .so is bundled into the test HAP (externalNativeOptions on the
 // ohosTest target) this passes and in-process E2E functional tests are

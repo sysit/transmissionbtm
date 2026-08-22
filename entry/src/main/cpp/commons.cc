@@ -1,4 +1,4 @@
-// transmissionhm — Common utilities for N-API native bridge
+// transmissionbtm — Common utilities for N-API native bridge
 // Adapted from transmissionbtc commons.cc (JNI → N-API)
 // Updated for Transmission 4.1 C++ API (2026-07-12)
 //

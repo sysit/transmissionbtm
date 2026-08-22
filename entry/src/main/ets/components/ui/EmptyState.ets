@@ -1,4 +1,4 @@
-// transmissionhm — EmptyState component
+// transmissionbtm — EmptyState component
 
 import { Colors, Spacing } from '../../utils/constants';
 

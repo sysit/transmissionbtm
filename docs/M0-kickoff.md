@@ -81,7 +81,7 @@ static napi_module demoModule = {
     .nm_flags = 0,
     .nm_filename = nullptr,
     .nm_register_func = Init,
-    .nm_modname = "transmissionhm_napi",
+    .nm_modname = "transmissionbtm_napi",
     .nm_priv = nullptr,
     .reserved = { 0 },
 };
@@ -93,7 +93,7 @@ extern "C" __attribute__((constructor)) void RegisterEntryModule(void) {
 
 - [ ] 2.1 创建 `entry/src/main/cpp/napi_init.cpp`
 - [ ] 2.2 配置 `entry/src/main/cpp/CMakeLists.txt`
-- [ ] 2.3 ArkTS 侧调用: `import native from 'libtransmissionhm_napi.so'` → `native.getVersion()`
+- [ ] 2.3 ArkTS 侧调用: `import native from 'libtransmissionbtm_napi.so'` → `native.getVersion()`
 - [ ] 2.4 验证: 模拟器上看到 "0.1.0"
 
 ### 2.2 日志适配
@@ -110,7 +110,7 @@ extern "C" __attribute__((constructor)) void RegisterEntryModule(void) {
 
 ```cmake
 cmake_minimum_required(VERSION 3.16)
-project(transmissionhm_napi)
+project(transmissionbtm_napi)
 
 find_library(napi-lib napi ${OHOS_NDK_HOME})
 
@@ -119,12 +119,12 @@ set(CURL_DIR    ${CMAKE_SOURCE_DIR}/third_party/curl)
 set(EVENT_DIR   ${CMAKE_SOURCE_DIR}/third_party/libevent)
 set(TR_DIR      ${CMAKE_SOURCE_DIR}/third_party/transmission)
 
-add_library(transmissionhm_napi SHARED
+add_library(transmissionbtm_napi SHARED
     napi_init.cpp
     # M1 添加: commons.cc, transmission.cc, torrent.cc, ...
 )
 
-target_link_libraries(transmissionhm_napi
+target_link_libraries(transmissionbtm_napi
     ${napi-lib}
     ${OPENSSL_DIR}/libssl.a ${OPENSSL_DIR}/libcrypto.a
     ${CURL_DIR}/libcurl.a
@@ -137,7 +137,7 @@ target_link_libraries(transmissionhm_napi
 - [ ] 3.1 创建 CMakeLists.txt
 - [ ] 3.2 配置 `build-profile.json5` 中 native 构建参数
 - [ ] 3.3 完整构建: `hvigor assembleHap` → 生成 .hap
-- [ ] 3.4 验证: .hap 中包含 `libtransmissionhm_napi.so`
+- [ ] 3.4 验证: .hap 中包含 `libtransmissionbtm_napi.so`
 
 ---
 
@@ -176,7 +176,7 @@ entry/src/main/cpp/
 - [ ] DevEco Studio 工程可编译
 - [ ] 空 ArkUI 页面部署到模拟器/真机
 - [ ] 4 个第三方库全部交叉编译成功
-- [ ] `libtransmissionhm_napi.so` 包含在 .hap 中
+- [ ] `libtransmissionbtm_napi.so` 包含在 .hap 中
 - [ ] `getVersion()` 可从 ArkTS 调用并返回字符串
 - [ ] libtransmission 日志出现在 hilog
 - [ ] CMake 构建无警告无错误

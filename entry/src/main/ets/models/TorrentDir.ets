@@ -1,4 +1,4 @@
-// transmissionhm — TorrentDir domain model
+// transmissionbtm — TorrentDir domain model
 //
 // Represents a directory node in the torrent file tree.
 // Aggregates stats (size, completed bytes) recursively from children.

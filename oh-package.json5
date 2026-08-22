@@ -1,6 +1,6 @@
 {
   "modelVersion": "6.1.0",
-  "description": "transmissionBT — HarmonyOS BitTorrent Client",
+  "description": "transmissionbtm — HarmonyOS BitTorrent Client",
   "dependencies": {
   },
   "devDependencies": {

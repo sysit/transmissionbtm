@@ -1,10 +1,10 @@
-# transmissionhm — Native build configuration
+# transmissionbtm — Native build configuration
 # M1: full 40-method N-API bridge with all third-party libraries.
 # M0 → M1 switch completed 2026-06-28.
 # Third-party sub-deps cross-compiled 2026-06-28.
 
 cmake_minimum_required(VERSION 3.16)
-project(transmissionhm_napi)
+project(transmissionbtm_napi)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -27,19 +27,19 @@ set(SOURCES
 )
 
 # ── Build target ──────────────────────────────────────────────
-add_library(transmissionhm_napi SHARED ${SOURCES})
+add_library(transmissionbtm_napi SHARED ${SOURCES})
 
 # ── Compile defs ──────────────────────────────────────────────
-target_compile_definitions(transmissionhm_napi PRIVATE
+target_compile_definitions(transmissionbtm_napi PRIVATE
     M1_FULL_BRIDGE
     __TRANSMISSION__
 )
 
-target_compile_options(transmissionhm_napi PRIVATE
+target_compile_options(transmissionbtm_napi PRIVATE
     -include ${THIRD_PARTY}/transmission/include/transmission/oh-compat.h
 )
 
-target_include_directories(transmissionhm_napi PRIVATE
+target_include_directories(transmissionbtm_napi PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${THIRD_PARTY}/fmt/include
     ${THIRD_PARTY}/dht/include
@@ -54,7 +54,7 @@ target_include_directories(transmissionhm_napi PRIVATE
 
 # ── M1 link: OH system libs + all cross-compiled static libs ──
 # Order: own sources → transmission → sub-deps → curl → libevent → openssl → system
-target_link_libraries(transmissionhm_napi
+target_link_libraries(transmissionbtm_napi
     ${NAPI_LIB}
     ${HILOG_LIB}
     ${ZLIB_LIB}

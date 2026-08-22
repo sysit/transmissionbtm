@@ -1,4 +1,4 @@
-// transmissionhm — PrefKeys and encryption mode mapping tests
+// transmissionbtm — PrefKeys and encryption mode mapping tests
 //
 // Pure logic tests — no async store operations.
 // PreferencesManager async methods are tested via integration tests.

@@ -1,4 +1,4 @@
-// transmissionhm — unit tests for hash utilities (tr_binary_to_hex, tr_hex_to_binary)
+// transmissionbtm — unit tests for hash utilities (tr_binary_to_hex, tr_hex_to_binary)
 // These functions operate on byte arrays — no N-API dependency needed.
 #include "test_utils.h"
 #include <cstring>

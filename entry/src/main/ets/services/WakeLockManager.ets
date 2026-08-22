@@ -1,4 +1,4 @@
-// transmissionhm — Wake Lock Manager (M4)
+// transmissionbtm — Wake Lock Manager (M4)
 //
 // Wrapper around @ohos.runningLock to prevent the system from suspending
 // the process during active downloads. Acquired when any torrent is
@@ -45,7 +45,7 @@ export class WakeLockManager {
         'Wake lock acquired: %{public}s', reason);
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'Failed to acquire wake lock: %{public}s', String(err));
+        'Failed to acquire wake lock: %{private}s', String(err));
     }
   }
 
@@ -64,7 +64,7 @@ export class WakeLockManager {
       hilog.info(0x0001, TAG, 'Wake lock released');
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'Failed to release wake lock: %{public}s', String(err));
+        'Failed to release wake lock: %{private}s', String(err));
     }
   }
 

@@ -1,4 +1,4 @@
-// transmissionhm — StatChip (label + value badge)
+// transmissionbtm — StatChip (label + value badge)
 
 import { Colors } from '../../utils/constants';
 

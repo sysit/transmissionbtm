@@ -1,14 +1,18 @@
-// transmissionhm — DownloadsPage (main torrent list with 1s polling)
+// transmissionbtm — DownloadsPage (main torrent list with 1s polling)
 //
-// Manages a TransmissionSession, polls for torrent stats every second,
-// and renders a list of TorrentCard items. Provides a FAB to add torrents
-// and navigation to the AddTorrentPage.
+// Renders the torrent list and owns the overlay navigation (add / file-tree /
+// context menu). Session side-effects (lifecycle, polling, wake lock,
+// connectivity, torrent actions) are delegated to SessionController; this page
+// keeps only the ArkUI @State and subscribes via the controller's
+// onTorrents()/onLoading() callbacks. Sandbox path resolution and Save-to-Files
+// stay here because they use the UI context (getContext) and the file picker.
 
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { TorrentInfo } from '../models/TorrentInfo';
-import { TransmissionSession } from '../models/TransmissionSession';
-import { defaultSessionConfig, SessionConfig } from '../models/SessionConfig';
-import { fileIo as fs } from '@kit.CoreFileKit';
+import { SessionConfig } from '../models/SessionConfig';
+import { PreferencesManager, PrefKeys } from '../models/Preferences';
+import { picker, fileIo as fs } from '@kit.CoreFileKit';
+import { promptAction } from '@kit.ArkUI';
 import { TorrentCard } from '../components/torrent/TorrentCard';
 import { TorrentContextMenu, TorrentAction } from '../components/torrent/TorrentContextMenu';
 import { AddTorrentPage } from './AddTorrentPage';
@@ -18,6 +22,7 @@ import { formatSpeed } from '../utils/format';
 import { Colors, FontSize, Spacing, Radius } from '../utils/constants';
 import { WakeLockManager } from '../services/WakeLockManager';
 import { ConnectivityMonitor } from '../services/ConnectivityMonitor';
+import { SessionController } from '../services/SessionController';
 
 const TAG = 'DownloadsPage';
 
@@ -31,47 +36,51 @@ export struct DownloadsPage {
   @State fileTreeTorrentName: string = '';
   @State showContextMenu: boolean = false;
   @State contextMenuTorrent: TorrentInfo | null = null;
-  private session: TransmissionSession = new TransmissionSession();
-  private pollTimer: number = -1;
-  private wakeLock: WakeLockManager = new WakeLockManager();
-  private wakeLockActive: boolean = false;
-  private connectivity: ConnectivityMonitor | null = null;
-  private netPaused: boolean = false;
+  // Owns the session lifecycle, 1s poll, D3 wake lock, D4 connectivity monitor,
+  // and torrent CRUD. Wake lock + connectivity factory are supplied here (they
+  // need device-only @kit modules); host tests omit them.
+  private controller: SessionController = new SessionController(
+    // session defaults to a real TransmissionSession
+    undefined,
+    new WakeLockManager(),
+    (onAvailable: () => void, onLost: () => void) =>
+      new ConnectivityMonitor(onAvailable, onLost)
+  );
+  // Resolved sandbox download dir (set in applySandboxPaths). Native libtransmission
+  // writes torrent data here; the "Save to Files" action copies completed files from
+  // here into the public Download dir via the picker.
+  private sessionDownloadDir: string = '';
 
   aboutToAppear(): void {
     hilog.info(0x0001, TAG, 'DownloadsPage aboutToAppear');
+    this.controller.onTorrents = (list: TorrentInfo[]) => { this.torrents = list; };
+    this.controller.onLoading = (loading: boolean) => { this.isLoading = loading; };
     this.initSession();
   }
 
   aboutToDisappear(): void {
-    this.stopPolling();
-    // D3/D4 (docs/11): release the wake lock and unregister the connectivity
-    // monitor before tearing the session down.
-    this.wakeLock.release();
-    this.wakeLockActive = false;
-    if (this.connectivity !== null) {
-      this.connectivity.destroy().then(() => {});
-      this.connectivity = null;
-    }
-    this.netPaused = false;
-    this.stopSession();
+    // D3/D4 (docs/11): controller.stop() releases the wake lock, unregisters the
+    // connectivity monitor, stops polling, and tears the session down.
+    this.controller.stop();
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // Session lifecycle
+  // Session lifecycle (the controller owns the live session; the page resolves
+  // the sandbox paths it needs before handing config to start())
   // ═══════════════════════════════════════════════════════════════════
 
   private async initSession(): Promise<void> {
     try {
-      const config = defaultSessionConfig();
+      // Read the persisted settings (Speed, Proxy, peer port, encryption, DHT/PEX,
+      // blocklist, RPC, seeding limits) so the Settings/Proxy pages actually drive
+      // the live engine. applySandboxPaths then overrides the three directory
+      // fields to the app sandbox (those /storage/... defaults don't exist on device).
+      const config = await PreferencesManager.getInstance().getSessionConfig();
       this.applySandboxPaths(config);
-      await this.session.start(config);
-      hilog.info(0x0001, TAG, 'Session started, id=%{public}d', this.session.sessionId);
-      this.refreshTorrents();
-      this.startPolling();
-      this.startConnectivityMonitor();
+      this.sessionDownloadDir = config.downloadDir;
+      await this.controller.start(config);
     } catch (e) {
-      hilog.error(0x0001, TAG, 'Session start failed: %{public}s', String(e));
+      hilog.error(0x0001, TAG, 'Session start failed: %{private}s', String(e));
       this.isLoading = false;
     }
   }
@@ -86,7 +95,7 @@ export struct DownloadsPage {
     const filesDir = getContext(this).filesDir;
     config.downloadDir = `${filesDir}/downloads`;
     config.incompleteDir = `${filesDir}/downloads/.incomplete`;
-    config.settingsDir = `${filesDir}/transmission`;
+    config.settingsDir = `${filesDir}/transmissionbtm`;
     this.ensureDir(config.downloadDir);
     this.ensureDir(config.incompleteDir);
     this.ensureDir(config.settingsDir);
@@ -100,164 +109,132 @@ export struct DownloadsPage {
     }
   }
 
-  private stopSession(): void {
-    try {
-      this.session.stop();
-      hilog.info(0x0001, TAG, 'Session stopped');
-    } catch (e) {
-      hilog.error(0x0001, TAG, 'Session stop failed: %{public}s', String(e));
-    }
-  }
-
-  private startPolling(): void {
-    this.pollTimer = setInterval(() => {
-      this.refreshTorrents();
-    }, 1000);
-  }
-
-  private stopPolling(): void {
-    if (this.pollTimer >= 0) {
-      clearInterval(this.pollTimer);
-      this.pollTimer = -1;
-    }
-  }
-
   // ═══════════════════════════════════════════════════════════════════
-  // Data refresh
-  // ═══════════════════════════════════════════════════════════════════
-
-  private refreshTorrents(): void {
-    try {
-      this.torrents = this.session.getAllTorrents();
-    } catch (e) {
-      // Session may not be active — keep existing list
-    }
-    this.isLoading = false;
-    this.updateWakeLock();
-  }
-
-  /**
-   * D3 (docs/11): revive the wake lock into the session poll.
-   * The M4 WakeLockManager existed but was never acquired anywhere, so the CPU
-   * could suspend mid-transfer. Track the native hasDownloadingTorrents state
-   * (covers DOWNLOAD/DOWNLOAD_WAIT/CHECK/CHECK_WAIT) and acquire/release the
-   * BACKGROUND running lock only on transitions, so a 1s poll never spams
-   * runningLock.create().
-   */
-  private updateWakeLock(): void {
-    let active: boolean = false;
-    try {
-      active = this.session.hasDownloadingTorrents();
-    } catch (e) {
-      // Session may not be active — treat as idle
-    }
-    if (active && !this.wakeLockActive) {
-      this.wakeLockActive = true;
-      this.wakeLock.acquire('active torrent transfer').then(() => {});
-    } else if (!active && this.wakeLockActive) {
-      this.wakeLockActive = false;
-      this.wakeLock.release();
-    }
-  }
-
-  /**
-   * D4 (docs/11): revive the connectivity monitor into the live session.
-   * The M4 ConnectivityMonitor existed but was never registered anywhere, so
-   * the session never paused/resumed on network loss. Wire it to the session
-   * suspend/resume primitives (tr_sessionSetPaused). The monitor itself gates
-   * on the wifi_only preference; base network loss always suspends.
-   */
-  private startConnectivityMonitor(): void {
-    if (this.connectivity !== null) {
-      return;
-    }
-    const monitor: ConnectivityMonitor = new ConnectivityMonitor(
-      () => { this.onNetworkAvailable(); },
-      () => { this.onNetworkLost(); }
-    );
-    this.connectivity = monitor;
-    monitor.start().then(() => {});
-  }
-
-  private onNetworkAvailable(): void {
-    if (this.netPaused) {
-      hilog.info(0x0001, TAG, 'Network restored — resuming session');
-      this.netPaused = false;
-      try {
-        this.session.suspend(false);
-      } catch (e) {
-        hilog.error(0x0001, TAG, 'Session resume failed: %{public}s', String(e));
-      }
-    }
-  }
-
-  private onNetworkLost(): void {
-    if (!this.netPaused) {
-      hilog.info(0x0001, TAG, 'Network lost — suspending session');
-      this.netPaused = true;
-      try {
-        this.session.suspend(true);
-      } catch (e) {
-        hilog.error(0x0001, TAG, 'Session suspend failed: %{public}s', String(e));
-      }
-    }
-  }
-
-  // ═══════════════════════════════════════════════════════════════════
-  // Torrent actions
+  // Torrent actions (delegated to the controller; only UI state stays here)
   // ═══════════════════════════════════════════════════════════════════
 
   private onPause(t: TorrentInfo): void {
-    try {
-      this.session.stopTorrent(t.id);
-    } catch (e) {
-      hilog.error(0x0001, TAG, 'Pause failed for %{public}d: %{public}s',
-        t.id, String(e));
-    }
+    this.controller.pause(t.id);
   }
 
   private onResume(t: TorrentInfo): void {
-    try {
-      this.session.startTorrent(t.id);
-    } catch (e) {
-      hilog.error(0x0001, TAG, 'Resume failed for %{public}d: %{public}s',
-        t.id, String(e));
-    }
+    this.controller.resume(t.id);
   }
 
   private onRemove(t: TorrentInfo): void {
-    try {
-      this.session.removeTorrent(t.id, false);
-      // Remove from local list immediately for UI responsiveness
-      this.torrents = this.torrents.filter((x: TorrentInfo) => x.id !== t.id);
-    } catch (e) {
-      hilog.error(0x0001, TAG, 'Remove failed for %{public}d: %{public}s',
-        t.id, String(e));
-    }
+    this.controller.remove(t.id);
   }
 
   private onVerify(t: TorrentInfo): void {
-    try {
-      this.session.verifyTorrent(t.id);
-    } catch (e) {
-      hilog.error(0x0001, TAG, 'Verify failed for %{public}d: %{public}s',
-        t.id, String(e));
-    }
+    this.controller.verify(t.id);
   }
 
   private onReannounce(t: TorrentInfo): void {
-    try {
-      this.session.reannounceTorrent(t.id);
-    } catch (e) {
-      hilog.error(0x0001, TAG, 'Reannounce failed for %{public}d: %{public}s',
-        t.id, String(e));
-    }
+    this.controller.reannounce(t.id);
   }
 
   private onShowFiles(t: TorrentInfo): void {
     this.fileTreeTorrentId = t.id;
     this.fileTreeTorrentName = t.name;
     this.showFileTree = true;
+  }
+
+  /**
+   * D5 (docs/11): export a torrent's downloaded data into the user-visible
+   * public Download directory.
+   *
+   * HarmonyOS NEXT grants NO shared-dir write permission to a consumer app on
+   * a phone (READ_WRITE_DOWNLOAD_DIRECTORY resolves to authResults=2). The
+   * browser model applies instead: libtransmission writes into the app sandbox
+   * (a real POSIX path) and we publish completed files to Download via
+   * DocumentViewPicker.save() DOWNLOAD mode — returns a write-granted
+   * `Download/<bundle>/` dir URI that needs NO permission and IS user-visible.
+   */
+  private async onSaveToFiles(t: TorrentInfo): Promise<void> {
+    try {
+      // Reuse the persisted publish folder picked in Settings, if any; otherwise
+      // prompt once via the system DOWNLOAD-mode picker.
+      let dirUri = await PreferencesManager.getInstance().getString(PrefKeys.PUBLISH_DIR, '');
+      if (!dirUri) {
+        const dp = new picker.DocumentViewPicker();
+        const opts = new picker.DocumentSaveOptions();
+        opts.pickerMode = picker.DocumentPickerMode.DOWNLOAD;
+        const uris: string[] = await dp.save(opts);
+        if (!uris || uris.length === 0) {
+          return; // picker dismissed
+        }
+        dirUri = uris[0];
+      }
+      const files = this.controller.listFiles(t.id);
+      let copied = 0;
+      for (let i = 0; i < files.length; i++) {
+        const f = files[i];
+        if (f.isDirectory) {
+          continue;
+        }
+        // Torrent file names are untrusted .torrent metadata. Sanitize the
+        // relative path so a malicious name can't escape the download dir
+        // (read via buildSandboxFilePath) or the publish dir (write baseName).
+        const safeRel = this.sanitizeRelPath(f.name);
+        if (!safeRel) {
+          continue; // traversal / malformed / empty — skip this file
+        }
+        const segs = safeRel.split('/');
+        const safeBase = segs[segs.length - 1];
+        const srcAbs = this.buildSandboxFilePath(safeRel);
+        if (!fs.accessSync(srcAbs)) {
+          continue; // not yet on disk (still downloading / in incomplete dir)
+        }
+        fs.copyFileSync(srcAbs, `${dirUri}/${safeBase}`);
+        copied++;
+      }
+      promptAction.showToast({
+        message: copied > 0
+          ? `已保存 ${copied} 个文件到 Download`
+          : '没有可复制的文件(尚未下载完成)',
+        duration: 2000,
+      });
+    } catch (e) {
+      hilog.error(0x0001, TAG, 'Save to Files failed: %{private}s', String(e));
+      promptAction.showToast({
+        message: `保存失败: ${String(e)}`,
+        duration: 2000,
+      });
+    }
+  }
+
+  /** Absolute sandbox path for a downloadDir-relative file name. Returns ''
+   *  (caller must guard) if the name escapes the sandbox via path traversal. */
+  private buildSandboxFilePath(torrentRelPath: string): string {
+    const safe = this.sanitizeRelPath(torrentRelPath);
+    if (!safe) {
+      return '';
+    }
+    return `${this.sessionDownloadDir}/${safe}`;
+  }
+
+  /**
+   * Sanitize a torrent-relative file path against path traversal.
+   * Torrent file names are untrusted (come from .torrent metadata). Strips
+   * leading separators, collapses '.'/empty segments, and rejects '..' — which
+   * would let a malicious torrent escape the download or publish dir.
+   * Returns a clean relative path, or null if unusable (empty/traversal).
+   */
+  private sanitizeRelPath(relPath: string): string | null {
+    const p = relPath.replace(/\\/g, '/').replace(/^\/+/, '');
+    const segments = p.split('/');
+    const out: string[] = [];
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i];
+      if (seg === '' || seg === '.') {
+        continue; // collapse empty / self segments
+      }
+      if (seg === '..') {
+        return null; // traversal — reject the whole path
+      }
+      out.push(seg);
+    }
+    return out.length > 0 ? out.join('/') : null;
   }
 
   private onContextMenuAction(action: TorrentAction): void {
@@ -278,12 +255,7 @@ export struct DownloadsPage {
         this.onRemove(t);
         break;
       case TorrentAction.REMOVE_WITH_DATA:
-        try {
-          this.session.removeTorrent(t.id, true);
-          this.torrents = this.torrents.filter((x: TorrentInfo) => x.id !== t.id);
-        } catch (e) {
-          hilog.error(0x0001, TAG, 'Remove with data failed: %{public}s', String(e));
-        }
+        this.controller.removeWithData(t.id);
         break;
       case TorrentAction.VERIFY:
         this.onVerify(t);
@@ -294,6 +266,9 @@ export struct DownloadsPage {
       case TorrentAction.SHOW_FILES:
         this.onShowFiles(t);
         break;
+      case TorrentAction.SAVE_TO_FILES:
+        this.onSaveToFiles(t);
+        break;
       case TorrentAction.SHOW_DETAIL:
         // Toggle expanded state — handled by TorrentCard internally
         break;
@@ -302,7 +277,7 @@ export struct DownloadsPage {
 
   private onTorrentAdded(): void {
     this.showAddPage = false;
-    this.refreshTorrents();
+    this.controller.reload();
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -345,7 +320,7 @@ export struct DownloadsPage {
       if (this.showContextMenu && this.contextMenuTorrent !== null) {
         TorrentContextMenu({
           torrent: this.contextMenuTorrent,
-          sessionId: this.session.sessionId,
+          sessionId: this.controller.sessionId,
           isVisible: this.showContextMenu,
           onAction: (action: TorrentAction, _torrent: TorrentInfo) => {
             this.onContextMenuAction(action);
@@ -444,7 +419,7 @@ export struct DownloadsPage {
         ListItem() {
           TorrentCard({
             torrent: torrent,
-            sessionId: this.session.sessionId,
+            sessionId: this.controller.sessionId,
             onPause: () => { this.onPause(torrent); },
             onResume: () => { this.onResume(torrent); },
             onRemove: () => { this.onRemove(torrent); },
@@ -494,7 +469,7 @@ export struct DownloadsPage {
   buildFileTreeOverlay() {
     FileTreePage({
       torrentId: this.fileTreeTorrentId,
-      sessionId: this.session.sessionId,
+      sessionId: this.controller.sessionId,
       torrentName: this.fileTreeTorrentName,
       onBack: () => { this.showFileTree = false; },
     });
@@ -503,7 +478,7 @@ export struct DownloadsPage {
   @Builder
   buildAddPageOverlay() {
     AddTorrentPage({
-      sessionId: this.session.sessionId,
+      sessionId: this.controller.sessionId,
       downloadDir: this.getDefaultDownloadDir(),
       onTorrentAdded: () => { this.onTorrentAdded(); },
       onCancel: () => { this.showAddPage = false; },

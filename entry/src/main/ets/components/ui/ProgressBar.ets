@@ -1,4 +1,4 @@
-// transmissionhm — ProgressBar component
+// transmissionbtm — ProgressBar component
 
 import { Colors } from '../../utils/constants';
 

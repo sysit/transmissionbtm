@@ -34,7 +34,9 @@ describe('defaultSessionConfig', () => {
   });
 
   it('has correct RPC defaults', () => {
-    expect(cfg.enableRpc).toBe(true);
+    // RPC listener is off by default: no web UI (ENABLE_WEB=OFF), so binding
+    // 9091 only exposes an unauthenticated control surface (SessionConfig.ets).
+    expect(cfg.enableRpc).toBe(false);
     expect(cfg.enableRpcWhitelist).toBe(true);
     expect(cfg.rpcWhitelist).toBe('127.0.0.1');
     expect(cfg.rpcAuthentication).toBe(false);

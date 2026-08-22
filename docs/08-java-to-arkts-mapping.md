@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document provides a class-by-class mapping from **transmissionbtc** Java source to the target **transmissionhm** ArkTS implementation. Every Java class is accounted for: rewritten, discarded, or replaced by OH platform APIs.
+This document provides a class-by-class mapping from **transmissionbtc** Java source to the target **transmissionbtm** ArkTS implementation. Every Java class is accounted for: rewritten, discarded, or replaced by OH platform APIs.
 
 **Legend:**
 - ✍️ **Rewrite** — Logic ported to ArkTS

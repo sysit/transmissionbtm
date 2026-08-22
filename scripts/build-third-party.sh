@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# transmissionhm — Cross-compile third-party libraries for OH arm64-v8a
+# transmissionbtm — Cross-compile third-party libraries for OH arm64-v8a
 #
 # Build order:
 #   1. OpenSSL 3.0.15 (LTS) — dependency for curl, libevent, transmission
@@ -57,7 +57,7 @@ OPENSSL_VERSION="3.0.15"
 CURL_VERSION="8.5.0"
 LIBEVENT_VERSION="2.1.12-stable"
 
-echo "=== transmissionhm third-party build ==="
+echo "=== transmissionbtm third-party build ==="
 echo "  Target:   ${TARGET}"
 echo "  Sysroot:  ${OH_SYSROOT}"
 echo "  CC:       ${CC}"

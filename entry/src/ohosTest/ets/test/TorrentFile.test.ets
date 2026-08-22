@@ -1,4 +1,4 @@
-// transmissionhm — TorrentFile domain model tests
+// transmissionbtm — TorrentFile domain model tests
 //
 // Tests FilePriority enum, TorrentFile.fromNative() factory, percentComplete
 // getter, isDirectory, and structural defaults. No native calls.
@@ -106,7 +106,7 @@ export default function torrentFileTest(): void {
   describe('TorrentFile.fromNative', () => {
     it('fromNative_maps_all_fields_correctly', 0, (): void => {
       const raw: RawFileEntry = makeRawEntry(0, 'video.mp4', 10000, 7200, true, 0);
-      const f: TorrentFile = TorrentFile.fromNative(raw, 1, 42, 5);
+      const f: TorrentFile = TorrentFile.fromNative(raw);
       expect(f.index).assertEqual(0);
       expect(f.name).assertEqual('video.mp4');
       expect(f.path).assertEqual('video.mp4');
@@ -118,21 +118,21 @@ export default function torrentFileTest(): void {
 
     it('fromNative_path_equals_name_for_nested_files', 0, (): void => {
       const raw: RawFileEntry = makeRawEntry(5, 'sub/dir/file.txt', 200, 50, true, 1);
-      const f: TorrentFile = TorrentFile.fromNative(raw, 1, 42, 10);
+      const f: TorrentFile = TorrentFile.fromNative(raw);
       expect(f.name).assertEqual('sub/dir/file.txt');
       expect(f.path).assertEqual('sub/dir/file.txt');
     });
 
     it('fromNative_SKIP_priority_mapped_correctly', 0, (): void => {
       const raw: RawFileEntry = makeRawEntry(3, 'skipme.bin', 100, 0, false, -1);
-      const f: TorrentFile = TorrentFile.fromNative(raw, 1, 42, 4);
+      const f: TorrentFile = TorrentFile.fromNative(raw);
       expect(f.wanted).assertFalse();
       expect(f.priority).assertEqual(FilePriority.SKIP);
     });
 
     it('fromNative_HIGH_priority_mapped_correctly', 0, (): void => {
       const raw: RawFileEntry = makeRawEntry(2, 'important.txt', 500, 500, true, 1);
-      const f: TorrentFile = TorrentFile.fromNative(raw, 1, 42, 3);
+      const f: TorrentFile = TorrentFile.fromNative(raw);
       expect(f.priority).assertEqual(FilePriority.HIGH);
     });
 
@@ -141,7 +141,7 @@ export default function torrentFileTest(): void {
       const raw: RawFileEntry = {
         index: 1, name: 'file.bin', size: 100, priority: 0,
       };
-      const f: TorrentFile = TorrentFile.fromNative(raw, 1, 1, 1);
+      const f: TorrentFile = TorrentFile.fromNative(raw);
       expect(f.bytesCompleted).assertEqual(0);
     });
 
@@ -150,7 +150,7 @@ export default function torrentFileTest(): void {
         index: 0, name: 'file.bin', size: 100,
         bytesCompleted: 50, priority: 0,
       };
-      const f: TorrentFile = TorrentFile.fromNative(raw, 1, 1, 1);
+      const f: TorrentFile = TorrentFile.fromNative(raw);
       expect(f.wanted).assertTrue();
     });
   });

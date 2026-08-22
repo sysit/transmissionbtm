@@ -1,4 +1,4 @@
-// transmissionhm — Format utilities unit tests
+// transmissionbtm — Format utilities unit tests
 //
 // All format functions are pure logic (no N-API calls). Tests verify
 // exact output strings against the decimal-unit (1000) convention.

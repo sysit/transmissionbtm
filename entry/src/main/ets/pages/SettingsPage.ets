@@ -1,4 +1,4 @@
-// transmissionhm — SettingsPage (M6)
+// transmissionbtm — SettingsPage (M6)
 //
 // Scrollable settings list with grouped sections. All settings apply
 // immediately via the M2 components (ToggleSetting, EditSetting,
@@ -17,7 +17,11 @@ import { SettingsGroup } from '../components/settings/SettingsGroup';
 import { ToggleSetting } from '../components/settings/ToggleSetting';
 import { EditSetting } from '../components/settings/EditSetting';
 import { SelectSetting } from '../components/settings/SelectSetting';
-import { BrowsePathView } from '../components/settings/BrowsePathView';
+import { SettingsLoadingState } from '../components/settings/SettingsLoadingState';
+import { SettingsErrorBanner } from '../components/settings/SettingsErrorBanner';
+import { SettingsResetDialog } from '../components/settings/SettingsResetDialog';
+import { SandboxSettingRow } from '../components/settings/SandboxSettingRow';
+import { PublishFolderRow } from '../components/settings/PublishFolderRow';
 import { PreferencesManager, PrefKeys } from '../models/Preferences';
 import { defaultSessionConfig } from '../models/SessionConfig';
 import { hilog } from '@kit.PerformanceAnalysisKit';
@@ -32,11 +36,10 @@ export struct SettingsPage {
   @State showResetDialog: boolean = false;
 
   // ── Downloads ──────────────────────────────────────────────────
-  @State downloadDir: string = defaultSessionConfig().downloadDir;
-  @State incompleteDir: string = defaultSessionConfig().incompleteDir;
   @State startAddedTorrents: boolean = defaultSessionConfig().startAddedTorrents;
   @State renamePartialFiles: boolean = defaultSessionConfig().renamePartialFiles;
   @State trashOriginalTorrentFile: boolean = defaultSessionConfig().trashOriginalTorrentFile;
+  @State publishDir: string = '';
 
   // ── Speed ──────────────────────────────────────────────────────
   @State speedLimitDownEnabled: boolean = defaultSessionConfig().speedLimitDownEnabled;
@@ -91,11 +94,10 @@ export struct SettingsPage {
       const pm = PreferencesManager.getInstance();
 
       // Downloads
-      this.downloadDir = await pm.getString(PrefKeys.DOWNLOAD_DIR, this.downloadDir);
-      this.incompleteDir = await pm.getString(PrefKeys.INCOMPLETE_DIR, this.incompleteDir);
       this.startAddedTorrents = await pm.getBoolean(PrefKeys.START_ADDED_TORRENTS, this.startAddedTorrents);
       this.renamePartialFiles = await pm.getBoolean(PrefKeys.RENAME_PARTIAL_FILES, this.renamePartialFiles);
       this.trashOriginalTorrentFile = await pm.getBoolean(PrefKeys.TRASH_ORIGINAL_TORRENT_FILE, this.trashOriginalTorrentFile);
+      this.publishDir = await pm.getString(PrefKeys.PUBLISH_DIR, '');
 
       // Speed
       this.speedLimitDownEnabled = await pm.getBoolean(PrefKeys.SPEED_LIMIT_DOWN_ENABLED, this.speedLimitDownEnabled);
@@ -139,10 +141,16 @@ export struct SettingsPage {
     } catch (err) {
       this.loadError = 'Failed to load settings. Using defaults.';
       hilog.error(0x0001, TAG,
-        'loadPreferences failed: %{public}s', String(err));
+        'loadPreferences failed: %{private}s', String(err));
     } finally {
       this.isLoading = false;
     }
+  }
+
+  /** Actual sandbox download dir; the engine always writes here (see
+   * DownloadsPage.applySandboxPaths), regardless of any user-chosen path. */
+  private getSandboxDir(): string {
+    return `${getContext(this).filesDir}/downloads`;
   }
 
   private async onResetDefaults(): Promise<void> {
@@ -153,7 +161,7 @@ export struct SettingsPage {
       hilog.info(0x0001, TAG, 'Settings reset to defaults');
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'resetToDefaults failed: %{public}s', String(err));
+        'resetToDefaults failed: %{private}s', String(err));
     }
   }
 
@@ -173,7 +181,7 @@ export struct SettingsPage {
           });
 
         if (this.isLoading) {
-          this.BuildLoadingState();
+          SettingsLoadingState();
         } else {
           this.BuildContent();
         }
@@ -184,7 +192,10 @@ export struct SettingsPage {
 
       // Reset confirmation dialog
       if (this.showResetDialog) {
-        this.BuildResetDialog();
+        SettingsResetDialog({
+          onConfirm: () => { this.onResetDefaults(); },
+          onCancel: () => { this.showResetDialog = false; },
+        });
       }
     }
     .width('100%')
@@ -192,28 +203,11 @@ export struct SettingsPage {
   }
 
   @Builder
-  BuildLoadingState() {
-    Column() {
-      LoadingProgress()
-        .width(40)
-        .height(40)
-        .color(Colors.DOWNLOAD);
-      Text('Loading settings...')
-        .fontSize(FontSize.CAPTION)
-        .fontColor(Colors.TEXT_SECONDARY)
-        .margin({ top: Spacing.MD });
-    }
-    .width('100%')
-    .layoutWeight(1)
-    .justifyContent(FlexAlign.Center);
-  }
-
-  @Builder
   BuildContent() {
     Column() {
       // Error banner
       if (this.loadError.length > 0) {
-        this.BuildErrorBanner();
+        SettingsErrorBanner({ error: this.loadError });
       }
 
       // Scrollable settings body
@@ -236,69 +230,6 @@ export struct SettingsPage {
     .width('100%');
   }
 
-  @Builder
-  BuildErrorBanner() {
-    Row() {
-      Text('⚠ ' + this.loadError)
-        .fontSize(FontSize.CAPTION)
-        .fontColor(Colors.ERROR)
-        .layoutWeight(1);
-    }
-    .width('100%')
-    .padding({ left: Spacing.LG, right: Spacing.LG, top: Spacing.SM, bottom: Spacing.MD })
-    .backgroundColor(Colors.ELEVATED)
-    .border({
-      width: { bottom: 1 },
-      color: Colors.ERROR,
-    });
-  }
-
-  @Builder
-  BuildResetDialog() {
-    Column() {
-      Column() {
-        Text('Reset to Defaults')
-          .fontSize(FontSize.HEADLINE)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(Colors.TEXT)
-          .margin({ bottom: Spacing.MD });
-
-        Text('This will reset all settings to their factory defaults. This action cannot be undone.')
-          .fontSize(FontSize.CAPTION)
-          .fontColor(Colors.TEXT_SECONDARY)
-          .margin({ bottom: Spacing.LG });
-
-        Row() {
-          Button('Cancel')
-            .fontSize(FontSize.CAPTION)
-            .fontColor(Colors.TEXT_SECONDARY)
-            .backgroundColor(Colors.ELEVATED)
-            .layoutWeight(1)
-            .onClick(() => { this.showResetDialog = false; });
-
-          Button('Reset')
-            .fontSize(FontSize.CAPTION)
-            .fontColor('#ffffff')
-            .backgroundColor(Colors.ERROR)
-            .layoutWeight(1)
-            .margin({ left: Spacing.MD })
-            .onClick(() => { this.onResetDefaults(); });
-        }
-        .width('100%');
-      }
-      .padding(Spacing.XL)
-      .borderRadius(Radius.LG)
-      .backgroundColor(Colors.SURFACE);
-    }
-    .width('100%')
-    .height('100%')
-    .justifyContent(FlexAlign.Center)
-    .alignItems(HorizontalAlign.Center)
-    .padding(Spacing.XL)
-    .backgroundColor('rgba(0,0,0,0.6)')
-    .onClick(() => { this.showResetDialog = false; });
-  }
-
   // ═══════════════════════════════════════════════════════════════
   // Downloads Section
   // ═══════════════════════════════════════════════════════════════
@@ -306,13 +237,27 @@ export struct SettingsPage {
   @Builder
   BuildDownloadsSection() {
     SettingsGroup({ title: 'Downloads' }) {
-      BrowsePathView({ label: 'Download dir', path: $downloadDir });
-      EditSetting({
-        label: 'Incomplete dir',
-        hint: '/storage/downloads/.incomplete',
-        prefKey: PrefKeys.INCOMPLETE_DIR,
-        value: $incompleteDir,
-      });
+      // Download & incomplete dirs are read-only (see getSandboxDir). HarmonyOS
+      // NEXT sandboxes third-party apps; the engine needs a real POSIX path, so
+      // DownloadsPage.applySandboxPaths() overrides the session dirs to the app
+      // filesDir. A folder picked here would be silently ignored — show the real
+      // sandbox path, and publish finished data via the torrent "Save to Files".
+      SandboxSettingRow({ label: 'Download dir', value: this.getSandboxDir() });
+      SandboxSettingRow({ label: 'Incomplete dir', value: this.getSandboxDir() + '/.incomplete' });
+      PublishFolderRow({ publishDir: $publishDir });
+      Row() {
+        Text('Downloads are written to the app sandbox (the engine needs a real POSIX path, '
+          + 'and HarmonyOS NEXT gives a phone app no shared-dir write). Pick a "Publish folder" '
+          + 'above, or use the torrent "Save to Files" action, to copy finished files into a '
+          + 'system-visible Download folder.')
+          .fontSize(FontSize.CAPTION)
+          .fontColor(Colors.TEXT_SECONDARY)
+          .layoutWeight(1)
+          .padding({ right: Spacing.SM });
+      }
+      .width('100%')
+      .padding({ left: Spacing.LG, right: Spacing.LG, top: 2, bottom: Spacing.MD });
+
       ToggleSetting({
         label: 'Start when added',
         description: 'Begin downloading torrents immediately',

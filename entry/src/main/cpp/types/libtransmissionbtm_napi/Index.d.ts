@@ -1,12 +1,12 @@
-// transmissionhm — N-API type declarations (M1 full bridge)
-// All 41 methods exported from libtransmissionhm_napi.so.
+// transmissionbtm — N-API type declarations (M1 full bridge)
+// All 41 methods exported from libtransmissionbtm_napi.so.
 // Signatures match C++ N-API exports exactly (ground truth: napi_get_cb_info arg extraction).
 
 /**
- * Native module type declarations for libtransmissionhm_napi.so.
- * Import via: import native from 'libtransmissionhm_napi.so';
+ * Native module type declarations for libtransmissionbtm_napi.so.
+ * Import via: import native from 'libtransmissionbtm_napi.so';
  */
-declare module 'libtransmissionhm_napi.so' {
+declare module 'libtransmissionbtm_napi.so' {
   // ── Version ──────────────────────────────────────────
   function getVersion(): string;
 

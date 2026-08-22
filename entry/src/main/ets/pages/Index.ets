@@ -1,4 +1,4 @@
-// transmissionhm — MainPage (M6)
+// transmissionbtm — MainPage (M6)
 //
 // App shell with Navigation + bottom tab bar.
 // Four tabs: Downloads, Settings, Proxy, About.

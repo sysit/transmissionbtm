@@ -1,10 +1,9 @@
-// transmissionhm — TorrentInfo domain model
+// transmissionbtm — TorrentInfo domain model
 //
 // Represents a single torrent loaded in the libtransmission session.
 // Mapped from the stat array returned by native torrentStatBrief().
 // Also parsed from the JSON returned by native listTorrentNames().
 
-import { NativeBridge } from '../bridge/NativeBridge';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 
 /**
@@ -197,91 +196,6 @@ export class TorrentInfo {
       result.push(info);
     }
     return result;
-  }
-
-  /**
-   * Fetch all torrents for a session via NativeBridge.
-   * Convenience method — equivalent to TorrentInfo.fromNativeJson(bridge.listTorrentNames(sid)).
-   */
-  static fetchAll(sessionId: number): TorrentInfo[] {
-    const bridge = NativeBridge.getInstance();
-    try {
-      // listTorrentNames() returns string[]; join with \n for fromNativeJson
-      const raw: string[] = bridge.listTorrentNames(sessionId);
-      return TorrentInfo.fromNativeJson(raw.join('\n'));
-    } catch (e) {
-      return [];
-    }
-  }
-
-  /**
-   * Refresh this torrent's stats from the native side.
-   * Updates all stat fields in-place from the current native statArray.
-   */
-  refreshStats(sessionId: number): void {
-    const bridge = NativeBridge.getInstance();
-    try {
-      // torrentStatBrief() returns ArrayBuffer of int64 values (10 per torrent).
-      // Scan for this.id within the multi-torrent buffer.
-      const buf: ArrayBuffer = bridge.torrentStatBrief(sessionId);
-      if (!buf || buf.byteLength < 80) {
-        return; // Need at least 10 int64 = 80 bytes
-      }
-      const view = new BigInt64Array(buf);
-      const STRIDE = 10;
-      const count = Math.floor(view.length / STRIDE);
-      let found = false;
-
-      for (let t = 0; t < count; t++) {
-        const base = t * STRIDE;
-        if (Number(view[base]) !== this.id) {
-          continue;
-        }
-        found = true;
-        const totalLength: number = Number(view[base + 3]);
-        const remainingLength: number = Number(view[base + 4]);
-
-        this.status = Number(view[base + 1]) as TorrentStatus;
-        this.percentComplete = Number(view[base + 2]) / 100;
-        this.totalSize = totalLength;
-        this.uploadedEver = Number(view[base + 5]);
-        this.peersConnected = Number(view[base + 6]);
-        this.peersTotal = Number(view[base + 7]);
-        this.rateUpload = Number(view[base + 8]);
-        this.rateDownload = Number(view[base + 9]);
-
-        this.haveValid = totalLength - remainingLength;
-        this.percentDone = totalLength > 0
-          ? this.haveValid / totalLength
-          : 0;
-        // P2 fix (codex review): was `haveValid + uploadedEver` — nonsense sum.
-        this.downloadedEver = this.haveValid;
-        this.error = this.status === TorrentStatus.ERROR
-          ? TorrentError.LOCAL_ERROR : TorrentError.OK;
-        break;
-      }
-
-      if (!found) {
-        // Torrent may have been removed from the session
-        this.status = TorrentStatus.STOPPED;
-        this.errorString = 'Torrent not found in session';
-        return;
-      }
-
-      // Also refresh name and hash in case they changed
-      const hashBytes: Uint8Array = bridge.torrentGetHash(sessionId, this.id);
-      if (hashBytes && hashBytes.length > 0) {
-        this.hashString = bridge.hashBytesToString(hashBytes);
-      }
-      const name: string = bridge.torrentGetName(sessionId, this.id);
-      if (name && name.length > 0) {
-        this.name = name;
-      }
-    } catch (e) {
-      hilog.error(0x0001, 'TorrentInfo',
-        'refreshStats(%{public}d) failed: %{public}s', this.id, String(e));
-      this.errorString = 'Stats refresh failed';
-    }
   }
 
   /** Serialize to a plain object for persistence or debugging. */

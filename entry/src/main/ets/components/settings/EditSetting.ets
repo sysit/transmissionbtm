@@ -1,4 +1,4 @@
-// transmissionhm — Edit Setting Component (M2)
+// transmissionbtm — Edit Setting Component (M2)
 //
 // Tappable row showing label + current value. On tap, opens a dialog
 // with a TextInput for editing. Persists via PreferencesManager.

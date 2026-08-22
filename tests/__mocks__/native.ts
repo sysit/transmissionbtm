@@ -1,4 +1,4 @@
-// Mock for libtransmissionhm_napi.so
+// Mock for libtransmissionbtm_napi.so
 // N-API native module is unavailable in Node.js vitest runtime.
 // All methods return sensible defaults for unit testing.
 

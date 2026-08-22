@@ -1,4 +1,4 @@
-// transmissionhm — ProxyPage (M6)
+// transmissionbtm — ProxyPage (M6)
 //
 // HTTP/HTTPS proxy configuration for all BitTorrent traffic.
 // When proxy is enabled, the native engine routes connections
@@ -54,7 +54,7 @@ export struct ProxyPage {
         PrefKeys.PROXY_PASSWORD, this.proxyPassword);
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'loadPreferences failed: %{public}s', String(err));
+        'loadPreferences failed: %{private}s', String(err));
     } finally {
       this.isLoading = false;
     }

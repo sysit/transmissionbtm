@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# transmissionhm — hvigorw wrapper
+# transmissionbtm — hvigorw wrapper
 # Delegates to DevEco Studio bundled hvigor (v6.24.3) + Node (v18.20.1).
 
 DEVECO_HOME="/Applications/DevEco-Studio.app/Contents"

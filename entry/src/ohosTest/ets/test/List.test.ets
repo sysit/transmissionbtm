@@ -1,4 +1,4 @@
-// transmissionhm — Test suite entry point
+// transmissionbtm — Test suite entry point
 //
 // Imports and runs all test suites. Each suite is a default-export
 // function containing one or more describe() blocks.

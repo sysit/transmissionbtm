@@ -1,4 +1,4 @@
-// transmissionhm — Environment variable access (N-API)
+// transmissionbtm — Environment variable access (N-API)
 // Adapted from transmissionbtc env.cc (JNI → N-API)
 // OH musl: setenv/unsetenv work directly — no adaptation needed.
 

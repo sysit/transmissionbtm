@@ -1,4 +1,4 @@
-// transmissionhm — TorrentContextMenu (action sheet for torrent operations)
+// transmissionbtm — TorrentContextMenu (action sheet for torrent operations)
 //
 // Provides a modal action sheet with all available torrent operations.
 // Actions are conditionally shown based on torrent state (pause vs resume).
@@ -15,6 +15,7 @@ export enum TorrentAction {
   VERIFY = 'verify',
   REANNOUNCE = 'reannounce',
   SHOW_FILES = 'show_files',
+  SAVE_TO_FILES = 'save_to_files',
   SHOW_DETAIL = 'show_detail',
 }
 
@@ -25,7 +26,10 @@ export type TorrentActionCallback = (action: TorrentAction, torrent: TorrentInfo
 export struct TorrentContextMenu {
   @Prop torrent: TorrentInfo;
   @Prop sessionId: number = 0;
-  @State isVisible: boolean = false;
+  // @Link (not @State): visibility is owned by the parent's showContextMenu —
+  // with @State, reopening after a dismiss left it stuck false, so the menu
+  // wouldn't re-appear. @Link gives a single two-way source of truth.
+  @Link isVisible: boolean;
   onAction?: TorrentActionCallback;
 
   /** Show the context menu programmatically. */
@@ -106,6 +110,9 @@ export struct TorrentContextMenu {
 
       // Show Files
       this.MenuItem('📁', 'Show Files', TorrentAction.SHOW_FILES, Colors.TEXT);
+
+      // Save to Files (export completed data into public Download via picker)
+      this.MenuItem('⬇', 'Save to Files', TorrentAction.SAVE_TO_FILES, Colors.DOWNLOAD);
 
       // Remove
       this.MenuItem('✕', 'Remove', TorrentAction.REMOVE, Colors.ERROR);

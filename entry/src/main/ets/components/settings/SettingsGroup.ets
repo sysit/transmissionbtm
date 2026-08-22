@@ -1,4 +1,4 @@
-// transmissionhm — Settings Group Container (M2)
+// transmissionbtm — Settings Group Container (M2)
 //
 // Groups related settings under a section header. Uses @BuilderParam
 // so callers can slot arbitrary child content inside the card.

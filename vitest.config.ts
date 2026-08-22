@@ -12,8 +12,9 @@ export default defineConfig({
   resolve: {
     extensions: ['.ets', '.ts', '.js', '.mjs', '.cjs'],
     alias: {
-      'libtransmissionhm_napi.so': resolve(MOCKS_DIR, 'native.ts'),
+      'libtransmissionbtm_napi.so': resolve(MOCKS_DIR, 'native.ts'),
       '@kit.PerformanceAnalysisKit': resolve(MOCKS_DIR, 'hilog.ts'),
+      '@kit.ArkData': resolve(MOCKS_DIR, 'arkdata.ts'),
     },
   },
   plugins: [

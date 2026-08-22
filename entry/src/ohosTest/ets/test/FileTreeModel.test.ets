@@ -1,4 +1,4 @@
-// transmissionhm — FileTreeModel.buildTree() and TorrentDir tests
+// transmissionbtm — FileTreeModel.buildTree() and TorrentDir tests
 //
 // Pure logic tests for the recursive file tree builder.
 // Cross-referenced against transmissionbtc PathItem.split() and

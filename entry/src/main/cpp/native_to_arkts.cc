@@ -1,4 +1,4 @@
-// transmissionhm — C→ArkTS callbacks via ThreadSafeFunction
+// transmissionbtm — C→ArkTS callbacks via ThreadSafeFunction
 // Adapted from transmissionbtc native_to_java.cc (JNI → N-API TSFN)
 //
 // Key changes:
@@ -24,7 +24,7 @@
 #undef LOG_DOMAIN
 #undef LOG_TAG
 #define LOG_DOMAIN 0x0001
-#define LOG_TAG "transmissionhm-cb"
+#define LOG_TAG "transmissionbtm-cb"
 
 // ── TSFN handles + release tracking ─────────────────────────────────
 static napi_threadsafe_function tsfnTorrentChanged = nullptr;

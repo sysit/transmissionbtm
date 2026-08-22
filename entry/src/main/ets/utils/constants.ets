@@ -1,4 +1,4 @@
-// transmissionhm — Design token constants (ArkTS compatible)
+// transmissionbtm — Design token constants (ArkTS compatible)
 //
 // Design tokens drive all visual styling. Components reference these
 // rather than hardcoding values, enabling consistent theming.
@@ -103,8 +103,8 @@ export class Duration {
 // ═══════════════════════════════════════════════════════════════════
 
 export class AppConstants {
-  static readonly APP_NAME: string = 'transmissionhm';
-  static readonly APP_VERSION: string = '0.1.0-m1';
+  static readonly APP_NAME: string = 'transmissionbtm';
+  static readonly APP_VERSION: string = '0.1.0-m6';
   static readonly BUILD_DATE: string = '2026-06-28';
   static readonly BUILD_MILESTONE: string = 'M6';
   static readonly RPC_DEFAULT_PORT: number = 9091;

@@ -1,4 +1,4 @@
-// transmissionhm — ToggleSetting component interface tests
+// transmissionbtm — ToggleSetting component interface tests
 //
 // @Component structs cannot be instantiated in unit tests (they require
 // the ArkUI render pipeline). These tests serve as compile-time interface

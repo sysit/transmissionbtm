@@ -2,11 +2,11 @@
 
 ## Overview
 
-This document reconstructs the architecture of **transmissionbtc** (v1.3.10) and maps it to the target **transmissionhm** HarmonyOS architecture. The decision has been made to **discard all Java code** and rewrite the entire application layer in **ArkTS + ArkUI**, keeping only the C/C++ native layer (adapted via N-API).
+This document reconstructs the architecture of **transmissionbtc** (v1.3.10) and maps it to the target **transmissionbtm** HarmonyOS architecture. The decision has been made to **discard all Java code** and rewrite the entire application layer in **ArkTS + ArkUI**, keeping only the C/C++ native layer (adapted via N-API).
 
 ### Rewrite Scope
 
-| Layer | transmissionbtc | transmissionhm | Action |
+| Layer | transmissionbtc | transmissionbtm | Action |
 |-------|----------------|----------------|--------|
 | UI | Java + XML (DataBinding) | ArkUI declarative | **Rewrite** |
 | Torrent Model | Java classes (Torrent, TorrentFile, etc.) | ArkTS classes | **Rewrite** |
@@ -330,7 +330,7 @@ Media Player: opens file via URI
 
 ## 8. Platform API Summary
 
-| Concern | Android (transmissionbtc) | HarmonyOS (transmissionhm) |
+| Concern | Android (transmissionbtc) | HarmonyOS (transmissionbtm) |
 |---------|--------------------------|---------------------------|
 | Language | Java + Kotlin (compatible) | ArkTS |
 | UI Framework | XML + DataBinding + AppCompat | ArkUI declarative |

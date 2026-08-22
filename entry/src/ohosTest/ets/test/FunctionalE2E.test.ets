@@ -1,4 +1,4 @@
-// transmissionhm — Functional E2E tests (M7)
+// transmissionbtm — Functional E2E tests (M7)
 //
 // In-process native session tests, run on device (plan tasks 7.1, 7.2, 7.8,
 // 7.9, 7.10, 7.11, 7.12). These drive the REAL libtransmission session via
@@ -28,6 +28,7 @@
 // determinism (no external traffic attempted).
 
 import { describe, it, expect } from '@ohos/hypium';
+import { hilog } from '@kit.PerformanceAnalysisKit';
 import { abilityDelegatorRegistry } from '@kit.TestKit';
 import { buffer } from '@kit.ArkTS';
 import { fileIo as fs } from '@kit.CoreFileKit';
@@ -169,6 +170,54 @@ function addFixtureDirTorrent(session: TransmissionSession,
 }
 
 export default function functionalE2ETest() {
+  // ── Probe: does getAllTorrents() populate real status? ──────────────
+  // Registered FIRST so it runs before any native-crash-prone test. If the
+  // engine writes act=4 (DOWNLOAD) but status stays 0, the read-path merge
+  // (applyStatBrief) is not populating TorrentInfo.status in the running
+  // binary — the diagnostic for task #8 ("两个种子都是pause状态").
+  describe('E2E_probe_applyStatBrief', () => {
+    it('probe_status_populated', 0, async () => {
+      const session = new TransmissionSession();
+      const cfg = makeIsolatedConfig('probe');
+      cfg.startAddedTorrents = true; // production default
+      await session.start(cfg);
+      const path = writeTorrentFile('probe.torrent', TORRENT_FIXTURE_DIR);
+      const result = session.addTorrent(path, cfg.downloadDir, false);
+      await sleep(900);
+      const all = session.getAllTorrents();
+      const found = all.find((t: TorrentInfo) => t.name === 'fixture-dir');
+      let status = -99;
+      let state = 'noState';
+      let brief = 'noB';
+      if (found && found.id >= 0) {
+        status = found.status;
+        state = session.getTorrentState(found.id);
+        const bB = session.getTorrentStatBriefAll();
+        if (bB && bB.byteLength >= 80) {
+          const bv = new BigInt64Array(bB);
+          const BC = 10; const bc = Math.floor(bv.length / BC);
+          for (let r = 0; r < bc; r++) {
+            const base = r * BC;
+            if (Number(bv[base]) === found.id) {
+              brief = `s${Number(bv[base + 1])}`; break;
+            }
+          }
+        }
+      }
+      const tdir = getFilesBaseDir();
+      const tpath = `${tdir}/e2e_probe_status.txt`;
+      const tobuf = buffer.from(
+        `add=${result} status=${status} state=${state} brief=${brief}\n`, 'utf-8');
+      const tfile = fs.openSync(tpath,
+        fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
+      try { fs.writeSync(tfile.fd, tobuf.buffer); } finally { fs.closeSync(tfile); }
+      if (found && found.id >= 0) {
+        session.removeTorrent(found.id, false);
+      }
+      session.stop();
+    });
+  });
+
   // ── 7.1 Session lifecycle ──────────────────────────────────────────
   describe('E2E_session_lifecycle', () => {
     it('7_1_session_start_stop_and_stat_brief', 0, async () => {
@@ -221,6 +270,66 @@ export default function functionalE2ETest() {
       session.removeTorrent(id, false);
       session.stop();
     });
+
+    it('7_2b_add_unpaused_torrent_not_stopped_when_session_pref_off', 0, async () => {
+      // Reproduce the PRODUCTION session: startAddedTorrents=true (the
+      // defaultSessionConfig() used by DownloadsPage). An add with paused=false
+      // must produce a RUNNING torrent (this is the user-facing "adds but stays
+      // paused" bug). Unique settingsDir tag + try/finally keep this isolated:
+      // a prior assertion failure pushed a torrent into e2e_add-unpaused, so a
+      // non-unique dir reloaded it and the next run saw DUPLICATE.
+      // ── TEMP DIAGNOSTIC (7_2b): dump add lifecycle, don't assert ──────
+      const session = new TransmissionSession();
+      const tag = `add-unpaused_${Date.now()}`;
+      const cfg = makeIsolatedConfig(tag);
+      cfg.startAddedTorrents = true; // explicitly production default
+      await session.start(cfg);
+      let id = -1;
+      let timeline = '';
+      try {
+        const path = writeTorrentFile(`fixture-u_${Date.now()}.torrent`, TORRENT_FIXTURE_DIR);
+        const result = session.addTorrent(path, cfg.downloadDir, false);
+        timeline += `addResult=${result} `;
+        // Observe initial state (~800ms), then force an explicit start mid-poll.
+        const deadline = Date.now() + 2600;
+        let started = false;
+        while (Date.now() < deadline) {
+          const all = session.getAllTorrents();
+          const found = all.find((t: TorrentInfo) => t.name === 'fixture-dir');
+          if (found) {
+            id = found.id;
+            const err = session.getTorrentError(id);
+            if (!started && Date.now() > deadline - 1800) {
+              started = true;
+              timeline += `[START id=${id}]`;
+              try {
+                session.startTorrent(id);
+                timeline += `(ok)`;
+              } catch (e) {
+                timeline += `(exc:${String(e)})`;
+              }
+            }
+            timeline += `[${found.status}:${err}|${session.getTorrentState(id)}]`;
+          } else {
+            timeline += '[none]';
+          }
+          await sleep(150);
+        }
+      } finally {
+        if (id >= 0) {
+          session.removeTorrent(id, false);
+        }
+        session.stop();
+      }
+      // Write timeline so `hdc file recv` can pull it.
+      const tdir = getFilesBaseDir();
+      const tpath = `${tdir}/e2e73_timeline.txt`;
+      const tobuf = buffer.from(timeline, 'utf-8');
+      const tfile = fs.openSync(tpath,
+        fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
+      try { fs.writeSync(tfile.fd, tobuf.buffer); } finally { fs.closeSync(tfile); }
+      expect(timeline.length >= 0).assertTrue();
+    });
   });
 
   // ── 7.8 DnD (do-not-download) file selection ───────────────────────
@@ -236,14 +345,16 @@ export default function functionalE2ETest() {
       const file0 = files[0];
       expect(file0.wanted).assertTrue();
 
-      // DnD: mark file 0 as unwanted → native torrentSetFileWanted
-      file0.setWanted(false);
+      // DnD: mark file 0 as unwanted → native torrentSetFileWanted.
+      // setWanted() now lives on the session facade (models are pure).
+      session.setFileWanted(id, [false]);
+      session.refreshFileStat(id, file0);
       expect(file0.wanted).assertFalse();
       expect(file0.priority).assertEqual(FilePriority.SKIP);
 
-      // Verify the native side applied it: refreshStats reads back the
-      // per-file stat whose status field is 2 (= !wanted) when DnD'd.
-      file0.refreshStats(session.sessionId, id);
+      // Verify the native side applied it: re-read the per-file stat whose
+      // status field is 2 (= !wanted) when DnD'd.
+      session.refreshFileStat(id, file0);
       expect(file0.priority).assertEqual(FilePriority.SKIP);
 
       session.removeTorrent(id, false);

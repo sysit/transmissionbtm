@@ -1,4 +1,4 @@
-// transmissionhm — libcurl HTTP download (N-API)
+// transmissionbtm — libcurl HTTP download (N-API)
 // Adapted from transmissionbtc curl.cc (JNI → N-API)
 
 #include <napi/native_api.h>
@@ -57,7 +57,12 @@ static napi_value CurlDownload(napi_env env, napi_callback_info info) {
 
   FILE *file = fopen(dst, "wb");
   if (file == nullptr) {
-    throwCurlEX(env, ERR_IO, "Failed to open file %s: %s", dst, strerror(errno));
+    char _msg[256];
+    snprintf(_msg, sizeof(_msg), "Failed to open file %s: %s", dst, strerror(errno));
+    free(url);
+    free(dst);
+    napi_throw_error(env, ERR_IO, _msg);
+    return nullptr;
   }
 
   CURL *curl = curl_easy_init();

@@ -1,4 +1,4 @@
-// transmissionhm — AboutPage (M6)
+// transmissionbtm — AboutPage (M6)
 //
 // App identity, version info, engine details, open-source licenses,
 // and credits. Version is fetched from the native bridge on render.
@@ -30,7 +30,7 @@ export struct AboutPage {
     } catch (err) {
       this.versionError = 'Could not read native version';
       hilog.error(0x0001, TAG,
-        'fetchVersion failed: %{public}s', String(err));
+        'fetchVersion failed: %{private}s', String(err));
     } finally {
       this.isLoadingVersion = false;
     }
@@ -249,7 +249,7 @@ export struct AboutPage {
         this.BuildDivider();
         this.BuildInfoRow(
           'HarmonyOS port',
-          'transmissionhm © 2024–2026'
+          'transmissionbtm © 2024–2026'
         );
         this.BuildDivider();
         this.BuildInfoRow(

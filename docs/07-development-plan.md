@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document provides a phased development plan for implementing **transmissionhm** — a HarmonyOS BitTorrent client ported from transmissionbtc. The plan assumes **all Java code is discarded** and the entire application layer is rewritten in **ArkTS + ArkUI**. The C/C++ native layer (libtransmission + dependencies) is preserved and adapted from JNI to N-API.
+This document provides a phased development plan for implementing **transmissionbtm** — a HarmonyOS BitTorrent client ported from transmissionbtc. The plan assumes **all Java code is discarded** and the entire application layer is rewritten in **ArkTS + ArkUI**. The C/C++ native layer (libtransmission + dependencies) is preserved and adapted from JNI to N-API.
 
 **v1.0 Scope Decisions (2026-06-28, revised same day):** 22 features deferred to v1.1+ (UPnP/DLNA/SSDP ×9, HTTP server/streaming ×7, M3U playlists, Watch Dirs, Dark Theme, RU locale, RSS, Alt Web UI). Storage simplified to sandbox-only POSIX I/O — no bidirectional FileAccessHelper bridge. See `docs/06-feature-map-and-gap-analysis.md` §11 for details.
 

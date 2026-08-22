@@ -1,4 +1,4 @@
-// transmissionhm — Session lifecycle (N-API)
+// transmissionbtm — Session lifecycle (N-API)
 // Adapted from transmissionbtc transmission.cc (JNI → N-API)
 // Updated for Transmission 4.1 C++ API (2026-07-12)
 //
@@ -27,7 +27,7 @@
 #undef LOG_DOMAIN
 #undef LOG_TAG
 #define LOG_DOMAIN 0x0001
-#define LOG_TAG "transmissionhm"
+#define LOG_TAG "transmissionbtm"
 
 // P1 fix (codex review) + B3 (docs/11): live session handles tracked in the
 // commons registry (registerSessionHandle/unregisterSessionHandle). SessionStop
@@ -35,6 +35,21 @@
 // same handle would otherwise use-after-free. The registry also backs
 // getSession() validation: only SessionStart-created handles are accepted.
 #define TR_DEFAULT_RPC_PORT 9091
+
+// R7 (#19/#25): the composed proxy-url (with embedded user:pass@) is applied to
+// the live session at init, but must NEVER be written to settings.json — that is
+// a second plaintext-credential exposure alongside the app's own preferences
+// store (the HUKS cipher covers the latter; settings.json lives in the app's
+// settingsDir). Transmission persists proxy-url as a session setting
+// (session-settings.h Field{TR_KEY_proxy_url}), so strip it from any settings
+// variant before tr_sessionSaveSettings. The app re-applies proxy from its
+// (HUKS-encrypted) preferences on every session start, so losing it from the
+// snapshot is harmless.
+static void StripProxyUrlFromSettings(tr_variant &settings) {
+  if (auto *map = settings.get_if<tr_variant::Map>()) {
+    map->erase(TR_KEY_proxy_url);
+  }
+}
 
 // Forward declarations from native_to_arkts.cc (C linkage)
 extern "C" {
@@ -159,7 +174,6 @@ static napi_value SessionStart(napi_env env, napi_callback_info info) {
       // std::string_view: the CharSpan template overload can't deduce from a
       // raw char* (std::data/std::size fail on pointers).
       auto parsed = tr_variant_serde::json().parse(std::string_view{settingsJson});
-      free(settingsJson);
       if (parsed.has_value()) {
         auto *parsedMap = parsed->get_if<tr_variant::Map>();
         if (parsedMap != nullptr) {
@@ -170,6 +184,9 @@ static napi_value SessionStart(napi_env env, napi_callback_info info) {
         }
       }
     }
+    // M4 (review): settingsJson was only freed on the non-empty branch — an
+    // empty-string arg leaked. free() is null-safe; run it on every path.
+    free(settingsJson);
   }
 
   // Apply core download settings (explicit args override the JSON above)
@@ -214,6 +231,10 @@ static napi_value SessionStart(napi_env env, napi_callback_info info) {
     napi_throw_error(env, nullptr, "Failed to initialize transmission session");
     return nullptr;
   }
+  // R7: strip proxy credentials from the settings snapshot before persisting.
+  // The live session keeps the proxy (applied at init, above); only the on-disk
+  // settings.json drops the inline user:pass@.
+  StripProxyUrlFromSettings(settings);
   tr_sessionSaveSettings(session, configDir, settings);
   registerSessionHandle(session);
 
@@ -275,6 +296,9 @@ static napi_value SessionStop(napi_env env, napi_callback_info info) {
 
   // 4.1: tr_sessionGetSettings returns tr_variant by value
   auto settings = tr_sessionGetSettings(session);
+  // R7: strip proxy credentials from the snapshot before persisting (the
+  // session may still hold proxy-url internalized from init).
+  StripProxyUrlFromSettings(settings);
   tr_sessionSaveSettings(session, configDir, settings);
   tr_sessionClose(session, 15.0);
   free(configDir);
@@ -303,8 +327,11 @@ static napi_value SessionSuspend(napi_env env, napi_callback_info info) {
     return nullptr;
   }
 
-  bool suspend;
-  napi_get_value_bool(env, args[1], &suspend);
+  bool suspend = false;
+  if (napi_get_value_bool(env, args[1], &suspend) != napi_ok) {
+    napi_throw_type_error(env, nullptr, "Argument 1 must be a boolean");
+    return nullptr;
+  }
 
   SuspendData d = {suspend};
   runInTransmissionThread(__FILE__, __LINE__, env, args[0], transmissionSuspendFunc, &d);
@@ -337,6 +364,10 @@ static napi_value HasDownloadingTorrents(napi_env env, napi_callback_info info) 
   napi_value args[1];
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
 
+  if (argc < 1) {
+    napi_throw_error(env, nullptr, "Expected 1 argument: session");
+    return nullptr;
+  }
   tr_session *session = getSession(env, args[0]);
   if (session == nullptr) {
     napi_value r; napi_get_boolean(env, false, &r); return r;
@@ -361,6 +392,7 @@ static void *transmissionListTorrentNamesFunc(tr_session *session, void *data, E
   d->count = (int)session->torrents().size();
   if (d->count == 0) return nullptr;
   d->torrents = (char **)malloc(d->count * sizeof(char *));
+  if (d->torrents == nullptr) { d->count = 0; return nullptr; }
   int i = 0;
 
   for (auto tor : session->torrents()) {
@@ -370,14 +402,24 @@ static void *transmissionListTorrentNamesFunc(tr_session *session, void *data, E
     // by one byte for a 10-digit torrent id ("%d" can produce 10 chars plus
     // two spaces plus NUL). Two-pass snprintf sizes the buffer exactly.
     int need = snprintf(nullptr, 0, "%d %s %s", tr_torrentId(tor), hashStr, name.c_str());
-    if (need < 0) return nullptr;
+    if (need < 0) goto fail;
     size_t lineLen = (size_t)need + 1;
     char *line = (char *)malloc(lineLen);
-    if (line == nullptr) return nullptr;
+    if (line == nullptr) goto fail;
     snprintf(line, lineLen, "%d %s %s", tr_torrentId(tor), hashStr, name.c_str());
     d->torrents[i++] = line;
   }
 
+  return nullptr;
+
+fail:
+  // M3 (review): a partial failure left d->torrents filled to `i` but
+  // d->count at the full count, so the wrapper derefed/leaked garbage slots.
+  // Tear down what we built and signal empty.
+  for (int j = 0; j < i; j++) free(d->torrents[j]);
+  free(d->torrents);
+  d->torrents = nullptr;
+  d->count = 0;
   return nullptr;
 }
 
@@ -425,6 +467,10 @@ static napi_value GetEncryptionMode(napi_env env, napi_callback_info info) {
   napi_value args[1];
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
 
+  if (argc < 1) {
+    napi_throw_error(env, nullptr, "Expected 1 argument: session");
+    return nullptr;
+  }
   EncryptionData d = {0};
   runInTransmissionThread(__FILE__, __LINE__, env, args[0], transmissionGetEncryptionFunc, &d);
   napi_value result;

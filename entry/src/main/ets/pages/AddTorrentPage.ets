@@ -1,4 +1,4 @@
-// transmissionhm — AddTorrentPage (add torrent via file, magnet URI, or URL)
+// transmissionbtm — AddTorrentPage (add torrent via file, magnet URI, or URL)
 //
 // Three-tab interface: file picker for .torrent files, text input for magnet
 // URIs / info-hashes, and a URL field for downloading .torrent files (D2).
@@ -10,6 +10,9 @@ import { NativeBridge } from '../bridge/NativeBridge';
 import { TorrentAddResult } from '../utils/constants';
 import { Colors, FontSize, Spacing, Radius } from '../utils/constants';
 import { picker, fileIo as fs } from '@kit.CoreFileKit';
+import { taskpool } from '@kit.ArkTS';
+import { FilePreview } from '../components/add/FilePreview';
+import { TorrentStatusBanner } from '../components/add/TorrentStatusBanner';
 
 const TAG = 'AddTorrentPage';
 
@@ -18,6 +21,16 @@ enum AddTab {
   FILE = 0,
   MAGNET = 1,
   URL = 2,
+}
+
+/**
+ * D2: run the synchronous native curlDownload off the UI thread via taskpool.
+ * libcurl's curl_easy_perform can block for up to `timeout` seconds; running
+ * it on the ArkTS main thread would freeze the UI while fetching a URL.
+ */
+@Concurrent
+function runCurlDownload(url: string, dstPath: string, timeout: number): void {
+  NativeBridge.getInstance().curlDownload(url, dstPath, timeout);
 }
 
 @Component
@@ -40,7 +53,7 @@ export struct AddTorrentPage {
       this.buildHeader();
       this.buildTabBar();
       this.buildTabContent();
-      this.buildStatusMessage();
+      TorrentStatusBanner({ message: this.statusMessage, isError: this.statusIsError });
       this.buildActionButtons();
     }
     .width('100%')
@@ -181,42 +194,10 @@ export struct AddTorrentPage {
 
       // File info preview (when path is set)
       if (this.filePath.length > 0) {
-        this.buildFilePreview();
+        FilePreview({ path: this.filePath });
       }
     }
     .width('100%');
-  }
-
-  @Builder
-  buildFilePreview() {
-    Column() {
-      Row() {
-        Text('📄')
-          .fontSize(20)
-          .margin({ right: Spacing.MD });
-
-        Column() {
-          Text(this.extractFileName(this.filePath))
-            .fontSize(FontSize.CAPTION)
-            .fontColor(Colors.TEXT)
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis });
-
-          Text(this.filePath)
-            .fontSize(FontSize.SMALL)
-            .fontColor(Colors.TEXT_TERTIARY)
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis });
-        }
-        .layoutWeight(1);
-      }
-      .width('100%');
-    }
-    .width('100%')
-    .padding(Spacing.MD)
-    .borderRadius(Radius.MD)
-    .backgroundColor(Colors.SURFACE)
-    .margin({ bottom: Spacing.LG });
   }
 
   @Builder
@@ -290,25 +271,37 @@ export struct AddTorrentPage {
         .width('100%')
         .margin({ top: Spacing.XL, bottom: Spacing.SM });
 
+      // Read-only: the session always writes into the app sandbox because the
+      // native engine needs a real POSIX path and HarmonyOS NEXT grants a phone
+      // app no shared-dir write. Use the torrent's "Save to Files" action to
+      // publish a completed download into the public Download dir.
       Row() {
-        TextInput({ placeholder: '/storage/downloads', text: this.downloadDir })
-          .fontSize(FontSize.CAPTION)
-          .fontColor(Colors.TEXT_SECONDARY)
-          .backgroundColor(Colors.SURFACE)
-          .borderRadius(Radius.MD)
-          .layoutWeight(1)
-          .height(44)
-          .padding({ left: Spacing.MD, right: Spacing.MD })
-          .onChange((value: string) => {
-            // Note: downloadDir is @Prop so cannot be mutated directly.
-            // In practice, this would use @Link or be managed by parent.
-          });
-
-        Text('📂')
-          .fontSize(FontSize.HEADLINE)
-          .padding({ left: Spacing.SM });
+        Column() {
+          Text(this.downloadDir.length > 0 ? 'App sandbox (system-isolated)' : 'App sandbox')
+            .fontSize(FontSize.BODY)
+            .fontColor(Colors.TEXT)
+            .width('100%');
+          Text(this.downloadDir.length > 0 ? this.downloadDir : '(app sandbox)')
+            .fontSize(FontSize.CAPTION)
+            .fontColor(Colors.TEXT_SECONDARY)
+            .width('100%')
+            .margin({ top: 4 });
+        }
+        .alignItems(HorizontalAlign.Start)
+        .layoutWeight(1)
+        .backgroundColor(Colors.SURFACE)
+        .borderRadius(Radius.MD)
+        .padding({ left: Spacing.MD, right: Spacing.MD, top: 10, bottom: 10 });
       }
       .width('100%');
+
+      Text('Downloads always go to the app sandbox — HarmonyOS NEXT lets no phone app '
+        + 'write the public Download dir, so this path cannot be changed. Publish finished '
+        + 'files with the "Save to Files" action on a torrent.')
+        .fontSize(FontSize.SMALL)
+        .fontColor(Colors.TEXT_TERTIARY)
+        .width('100%')
+        .margin({ top: Spacing.SM });
     }
     .width('100%')
     .margin({ bottom: Spacing.LG });
@@ -317,25 +310,6 @@ export struct AddTorrentPage {
   // ═══════════════════════════════════════════════════════════════════
   // Status message
   // ═══════════════════════════════════════════════════════════════════
-
-  @Builder
-  buildStatusMessage() {
-    if (this.statusMessage.length > 0) {
-      Row() {
-        Text(this.statusIsError ? '✕' : '✓')
-          .fontSize(FontSize.CAPTION)
-          .fontColor(this.statusIsError ? Colors.ERROR : Colors.SEED)
-          .margin({ right: Spacing.SM });
-
-        Text(this.statusMessage)
-          .fontSize(FontSize.CAPTION)
-          .fontColor(this.statusIsError ? Colors.ERROR : Colors.SEED)
-          .layoutWeight(1);
-      }
-      .width('100%')
-      .padding({ left: Spacing.LG, right: Spacing.LG, bottom: Spacing.MD });
-    }
-  }
 
   // ═══════════════════════════════════════════════════════════════════
   // Action buttons
@@ -410,7 +384,7 @@ export struct AddTorrentPage {
     } catch (err) {
       // User cancelled or picker not available — keep current path
       hilog.info(0x0001, TAG,
-        'File picker dismissed: %{public}s', String(err));
+        'File picker dismissed: %{private}s', String(err));
     }
   }
 
@@ -431,17 +405,22 @@ export struct AddTorrentPage {
         baseName = `${baseName}.torrent`;
       }
       const destPath = `${getContext(this).cacheDir}/${baseName}`;
-      fs.copyFileSync(uri, destPath);
-      hilog.info(0x0001, TAG, 'Picked torrent copied to %{public}s', destPath);
+      // DocumentViewPicker returns a file:// URI. copyFileSync() does NOT
+      // understand that scheme (it only takes a real path or an fd), so open
+      // the URI first to get a readable fd, then copy fd -> cache path.
+      const srcFile = fs.openSync(uri, fs.OpenMode.READ_ONLY);
+      fs.copyFileSync(srcFile.fd, destPath);
+      fs.closeSync(srcFile.fd);
+      hilog.info(0x0001, TAG, 'Picked torrent copied to %{private}s', destPath);
       return destPath;
     } catch (err) {
       this.showError('Could not access the selected file');
-      hilog.error(0x0001, TAG, 'copyPickerUriToCache failed: %{public}s', String(err));
+      hilog.error(0x0001, TAG, 'copyPickerUriToCache failed: %{private}s', String(err));
       return '';
     }
   }
 
-  private onAddTorrent(): void {
+  private async onAddTorrent(): Promise<void> {
     this.statusMessage = '';
     this.statusIsError = false;
 
@@ -485,7 +464,7 @@ export struct AddTorrentPage {
       // add it through the existing file-based path. A download failure shows
       // here instead of a misleading PARSE_ERR from torrentAdd.
       if (this.currentTab === AddTab.URL) {
-        this.addFromUrl(session, input);
+        await this.addFromUrl(session, input);
         return;
       }
 
@@ -499,10 +478,13 @@ export struct AddTorrentPage {
   }
 
   /** D2 (docs/11): curlDownload the URL into the app cache, then add the file. */
-  private addFromUrl(session: TransmissionSession, url: string): void {
+  private async addFromUrl(session: TransmissionSession, url: string): Promise<void> {
     try {
+      this.statusMessage = 'Downloading .torrent...';
+      this.statusIsError = false;
       const dstPath = `${getContext(this).cacheDir}/url_${Date.now()}.torrent`;
-      NativeBridge.getInstance().curlDownload(url, dstPath, 60);
+      // Blocking libcurl fetch → taskpool worker, so the UI thread stays live.
+      await taskpool.execute(runCurlDownload, url, dstPath, 60);
       this.handleAddResult(session.addTorrent(dstPath, this.downloadDir, this.addPaused));
     } catch (e) {
       this.showError(`Download failed: ${String(e)}`);
@@ -589,6 +571,6 @@ export struct AddTorrentPage {
   private showError(message: string): void {
     this.statusMessage = message;
     this.statusIsError = true;
-    hilog.error(0x0001, TAG, 'Add torrent failed: %{public}s', message);
+    hilog.error(0x0001, TAG, 'Add torrent failed: %{private}s', message);
   }
 }

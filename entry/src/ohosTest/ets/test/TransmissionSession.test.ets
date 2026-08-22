@@ -1,4 +1,4 @@
-// transmissionhm — TransmissionSession domain model tests
+// transmissionbtm — TransmissionSession domain model tests
 //
 // Tests the session state machine and method contract. All tests operate
 // on pure logic — no native calls are needed for state transitions.

@@ -1,4 +1,4 @@
-import native from 'libtransmissionhm_napi.so';
+import native from 'libtransmissionbtm_napi.so';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 
 // NOTE: NativeBridge does NOT import domain models.
@@ -81,7 +81,7 @@ export class NativeBridge {
       // P2 fix (codex review): a double-stop or stale handle is benign — the
       // native live-session set (transmission.cc) already guards re-close.
       // Swallow so service teardown never throws.
-      hilog.warn(0x0001, TAG, 'sessionStop ignored: %{public}s', String(e));
+      hilog.warn(0x0001, TAG, 'sessionStop ignored: %{private}s', String(e));
     } finally {
       // P2 fix (codex review): always release the registry entry, even if
       // the native call throws — otherwise the stale id→pointer pair leaks
@@ -100,14 +100,6 @@ export class NativeBridge {
 
   listTorrentNames(sessionId: number): string[] {
     return native.listTorrentNames(this.toPtr(sessionId));
-  }
-
-  getEncryptionMode(sessionId: number): number {
-    return native.getEncryptionMode(this.toPtr(sessionId));
-  }
-
-  transmissionVersion(): string {
-    return native.transmissionVersion();
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -205,10 +197,9 @@ export class NativeBridge {
     return native.torrentGetError(this.toPtr(sessionId), torrentId);
   }
 
-  torrentSetDnd(
-    sessionId: number, torrentId: number, fileIndices: ArrayBuffer, dnd: boolean
-  ): void {
-    native.torrentSetDnd(this.toPtr(sessionId), torrentId, fileIndices, dnd);
+  /** Diagnostic: live native engine state as a compact string. */
+  torrentState(sessionId: number, torrentId: number): string {
+    return native.torrentState(this.toPtr(sessionId), torrentId);
   }
 
   torrentSetLocation(sessionId: number, torrentId: number, newDir: string): void {
@@ -225,34 +216,6 @@ export class NativeBridge {
     const span: ArrayBuffer = hash.buffer.slice(hash.byteOffset,
       hash.byteOffset + hash.byteLength);
     return native.hashBytesToString(span);
-  }
-
-  hashStringToBytes(hashHex: string): Uint8Array {
-    return new Uint8Array(native.hashStringToBytes(hashHex));
-  }
-
-  // ═══════════════════════════════════════════════════════════════════
-  // Environment Variables
-  // ═══════════════════════════════════════════════════════════════════
-  envSet(name: string, value?: string): void {
-    native.envSet(name, value ?? '');
-  }
-
-  // ═══════════════════════════════════════════════════════════════════
-  // Callbacks / TSFN (ThreadSafeFunction)
-  // ═══════════════════════════════════════════════════════════════════
-  nativeToArktsInit(
-    onTorrentChanged?: (...args: Object[]) => void,
-    onTorrentStopped?: (...args: Object[]) => void,
-    onSessionChanged?: (...args: Object[]) => void,
-    onAltSpeedChanged?: (...args: Object[]) => void
-  ): void {
-    native.nativeToArktsInit(
-      onTorrentChanged, onTorrentStopped, onSessionChanged, onAltSpeedChanged);
-  }
-
-  nativeToArktsRelease(): void {
-    native.nativeToArktsRelease();
   }
 
   // ═══════════════════════════════════════════════════════════════════

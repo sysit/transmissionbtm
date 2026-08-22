@@ -1,4 +1,4 @@
-// transmissionhm — SessionRunState tests
+// transmissionbtm — SessionRunState tests
 //
 // Cross-referenced against transmissionbtc Transmission.java state machine.
 // Notable divergence: our port omits the STOPPING state (transmissionbtc has

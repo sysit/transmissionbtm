@@ -1,4 +1,4 @@
-// transmissionhm — SessionConfig and EncryptionMode tests
+// transmissionbtm — SessionConfig and EncryptionMode tests
 //
 // Cross-referenced against transmissionbtc Prefs.java defaults.
 // Notable divergence: upstream defaults to EncrMode.Allow;

@@ -1,4 +1,4 @@
-// transmissionhm — Connectivity Monitor (M4)
+// transmissionbtm — Connectivity Monitor (M4)
 //
 // Monitors WiFi/Ethernet/Cellular connectivity via @ohos.net.connection.
 // Notifies the service of network availability changes so the session
@@ -92,7 +92,7 @@ export class ConnectivityMonitor {
     } catch (err) {
       this.isStarted = false;
       hilog.error(0x0001, TAG,
-        'Failed to start connectivity monitoring: %{public}s', String(err));
+        'Failed to start connectivity monitoring: %{private}s', String(err));
     }
   }
 
@@ -126,7 +126,7 @@ export class ConnectivityMonitor {
       hilog.info(0x0001, TAG, 'Connectivity monitoring stopped');
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'Failed to stop connectivity monitoring: %{public}s', String(err));
+        'Failed to stop connectivity monitoring: %{private}s', String(err));
     }
   }
 
@@ -207,7 +207,7 @@ export class ConnectivityMonitor {
       return await prefs.getBoolean(KEY_WIFI_ONLY, false);
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'isWifiOnlyEnabled failed: %{public}s', String(err));
+        'isWifiOnlyEnabled failed: %{private}s', String(err));
       return false;
     }
   }
@@ -226,7 +226,7 @@ export class ConnectivityMonitor {
       );
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'isWifiNetwork failed: %{public}s', String(err));
+        'isWifiNetwork failed: %{private}s', String(err));
       return false;
     }
   }

@@ -1,4 +1,4 @@
-// transmissionhm — SessionState model
+// transmissionbtm — SessionState model
 
 // E4 (docs/11): the SessionState class was provided by Index (@Provide) but no
 // page ever consumed it — removed. SessionRunState stays: TransmissionSession

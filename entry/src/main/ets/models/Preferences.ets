@@ -1,4 +1,4 @@
-// transmissionhm — Preferences & Settings Manager (M2)
+// transmissionbtm — Preferences & Settings Manager (M2)
 //
 // Centralized preference keys and typed getters/setters backed by
 // @ohos.data.preferences. All other modules read/write settings through
@@ -10,9 +10,10 @@
 import { preferences } from '@kit.ArkData';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { SessionConfig, EncryptionMode, defaultSessionConfig } from './SessionConfig';
+import { ProxyCipher, LegacyProxyCipher } from '../security/ProxyCipher';
 
 const TAG = 'PreferencesManager';
-const STORE_NAME = 'transmissionhm_preferences';
+const STORE_NAME = 'transmissionbtm_preferences';
 
 // ═══════════════════════════════════════════════════════════════════
 // Preference Keys (40+ — one per SessionConfig field)
@@ -21,6 +22,7 @@ const STORE_NAME = 'transmissionhm_preferences';
 export class PrefKeys {
   // Session
   static readonly DOWNLOAD_DIR: string = 'download_dir';
+  static readonly PUBLISH_DIR: string = 'publish_dir';
   static readonly INCOMPLETE_DIR: string = 'incomplete_dir';
   static readonly PEER_PORT: string = 'peer_port';
   static readonly RPC_PORT: string = 'rpc_port';
@@ -109,6 +111,16 @@ export class PreferencesManager {
   private static instance: PreferencesManager | null = null;
   private store: preferences.Preferences | null = null;
   private context: Context | null = null;
+  private passwordCipher: ProxyCipher = new LegacyProxyCipher();
+
+  /**
+   * Swap in the on-device HUKS cipher. Called once at app startup (EntryAbility)
+   * so host vitest keeps the legacy (plaintext) cipher by default and never
+   * resolves @kit.UniversalKeystoreKit here.
+   */
+  setPasswordCipher(cipher: ProxyCipher): void {
+    this.passwordCipher = cipher;
+  }
 
   static getInstance(): PreferencesManager {
     if (!PreferencesManager.instance) {
@@ -130,7 +142,7 @@ export class PreferencesManager {
       hilog.info(0x0001, TAG, 'PreferencesManager initialized');
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'PreferencesManager init failed: %{public}s', String(err));
+        'PreferencesManager init failed: %{private}s', String(err));
     }
   }
 
@@ -237,7 +249,7 @@ export class PreferencesManager {
       return await this.guard().get(key, def) as boolean;
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'getBoolean(%{private}s) failed: %{public}s', key, String(err));
+        'getBoolean(%{private}s) failed: %{private}s', key, String(err));
       return def;
     }
   }
@@ -247,7 +259,7 @@ export class PreferencesManager {
       return await this.guard().get(key, def) as number;
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'getInt(%{private}s) failed: %{public}s', key, String(err));
+        'getInt(%{private}s) failed: %{private}s', key, String(err));
       return def;
     }
   }
@@ -257,17 +269,24 @@ export class PreferencesManager {
       return await this.guard().get(key, def) as number;
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'getFloat(%{private}s) failed: %{public}s', key, String(err));
+        'getFloat(%{private}s) failed: %{private}s', key, String(err));
       return def;
     }
   }
 
   async getString(key: string, def: string = ''): Promise<string> {
     try {
-      return await this.guard().get(key, def) as string;
+      const raw = await this.guard().get(key, def) as string;
+      if (key === PrefKeys.PROXY_PASSWORD) {
+        // Decrypt the stored envelope. Legacy plaintext (no huk1: prefix) is
+        // returned as-is. A broken envelope decrypts to null → fall back to def
+        // (an unset password) rather than surfacing ciphertext to the UI.
+        return await this.passwordCipher.decrypt(raw) ?? def;
+      }
+      return raw;
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'getString(%{private}s) failed: %{public}s', key, String(err));
+        'getString(%{private}s) failed: %{private}s', key, String(err));
       return def;
     }
   }
@@ -280,7 +299,7 @@ export class PreferencesManager {
       await this.guard().flush();
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'setBoolean(%{private}s) failed: %{public}s', key, String(err));
+        'setBoolean(%{private}s) failed: %{private}s', key, String(err));
     }
   }
 
@@ -290,17 +309,20 @@ export class PreferencesManager {
       await this.guard().flush();
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'setInt(%{private}s) failed: %{public}s', key, String(err));
+        'setInt(%{private}s) failed: %{private}s', key, String(err));
     }
   }
 
   async setString(key: string, value: string): Promise<void> {
     try {
-      await this.guard().put(key, value);
+      const toStore = key === PrefKeys.PROXY_PASSWORD
+        ? await this.passwordCipher.encrypt(value)
+        : value;
+      await this.guard().put(key, toStore);
       await this.guard().flush();
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'setString(%{private}s) failed: %{public}s', key, String(err));
+        'setString(%{private}s) failed: %{private}s', key, String(err));
     }
   }
 
@@ -368,7 +390,7 @@ export class PreferencesManager {
       };
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'getSessionConfig failed, returning defaults: %{public}s', String(err));
+        'getSessionConfig failed, returning defaults: %{private}s', String(err));
       return defaultSessionConfig();
     }
   }
@@ -409,7 +431,7 @@ export class PreferencesManager {
       await store.put(PrefKeys.PROXY_PORT, config.proxyPort);
       await store.put(PrefKeys.PROXY_AUTH_REQUIRED, config.proxyAuthRequired);
       await store.put(PrefKeys.PROXY_USERNAME, config.proxyUsername);
-      await store.put(PrefKeys.PROXY_PASSWORD, config.proxyPassword);
+      await this.setString(PrefKeys.PROXY_PASSWORD, config.proxyPassword);
       await store.put(PrefKeys.BLOCKLIST_ENABLED, config.blocklistEnabled);
       await store.put(PrefKeys.BLOCKLIST_URL, config.blocklistUrl);
       await store.put(PrefKeys.SEED_RATIO_LIMIT, config.seedRatioLimit);
@@ -424,7 +446,7 @@ export class PreferencesManager {
       await store.flush();
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'setSessionConfig failed: %{public}s', String(err));
+        'setSessionConfig failed: %{private}s', String(err));
     }
   }
 
@@ -438,7 +460,7 @@ export class PreferencesManager {
       hilog.info(0x0001, TAG, 'Preferences reset to defaults');
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'resetToDefaults failed: %{public}s', String(err));
+        'resetToDefaults failed: %{private}s', String(err));
     }
   }
 

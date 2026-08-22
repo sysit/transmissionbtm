@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document maps every feature in **transmissionbtc** (v1.3.10) against a target HarmonyOS port (**transmissionhm**). Each feature is classified with a priority level and notes on dependencies, implementation complexity, and Android→HarmonyOS API migration effort.
+This document maps every feature in **transmissionbtc** (v1.3.10) against a target HarmonyOS port (**transmissionbtm**). Each feature is classified with a priority level and notes on dependencies, implementation complexity, and Android→HarmonyOS API migration effort.
 
 **v1.0 Scope Decision (2026-06-28, revised same day):** The following feature groups are **deferred to v1.1+** to reduce initial delivery scope from ~41-60 days to ~26-40 days:
 
@@ -28,7 +28,7 @@ This document maps every feature in **transmissionbtc** (v1.3.10) against a targ
 
 ## 1. Protocol & Core Engine
 
-| # | Feature | transmissionbtc | transmissionhm | Priority | Notes |
+| # | Feature | transmissionbtc | transmissionbtm | Priority | Notes |
 |---|---------|----------------|----------------|----------|-------|
 | 1.1 | BitTorrent protocol (P2P transfers) | ✅ (via libtransmission C) | ❌ | **P0** | Core engine. Port via N-API |
 | 1.2 | DHT (Distributed Hash Table) | ✅ (libdht.a) | ❌ | **P1** | Trackerless peer discovery |
@@ -55,7 +55,7 @@ This document maps every feature in **transmissionbtc** (v1.3.10) against a targ
 
 ## 2. Networking & Proxy
 
-| # | Feature | transmissionbtc | transmissionhm | Priority | Notes |
+| # | Feature | transmissionbtc | transmissionbtm | Priority | Notes |
 |---|---------|----------------|----------------|----------|-------|
 | 2.1 | HTTP/HTTPS proxy | ✅ (envSet + libcurl) | ❌ | **P1** | ALL/HTTP/HTTPS/NO_PROXY vars |
 | 2.2 | SOCKS5 proxy | 🔶 (via libtransmission, not configurable in UI) | ❌ | **P3** | libtransmission supports it |
@@ -68,7 +68,7 @@ This document maps every feature in **transmissionbtc** (v1.3.10) against a targ
 
 ## 3. HTTP Server & Streaming — 🚫 DEFERRED TO v1.1+
 
-| # | Feature | transmissionbtc | transmissionhm | Priority | Notes |
+| # | Feature | transmissionbtc | transmissionbtm | Priority | Notes |
 |---|---------|----------------|----------------|----------|-------|
 | 3.1 | Custom HTTP server | ✅ (SimpleHttpServer, ~250 loc) | 🚫 | ~~P1~~ | Deferred. v1.0: complete files played directly via file URI |
 | 3.2 | Torrent file streaming | ✅ (TorrentHandler) | 🚫 | ~~P0~~ | Deferred. "Play while downloading" → v1.1 |
@@ -82,7 +82,7 @@ This document maps every feature in **transmissionbtc** (v1.3.10) against a targ
 
 ## 4. UPnP/DLNA & SSDP — 🚫 DEFERRED TO v1.1+
 
-| # | Feature | transmissionbtc | transmissionhm | Priority | Notes |
+| # | Feature | transmissionbtc | transmissionbtm | Priority | Notes |
 |---|---------|----------------|----------------|----------|-------|
 | 4.1 | DLNA Media Server (DMS 1.50) | ✅ (DescriptorHandler) | 🚫 | ~~P2~~ | Deferred |
 | 4.2 | ContentDirectory:1 Browse | ✅ (ContentDirectoryHandler) | 🚫 | ~~P2~~ | Deferred |
@@ -98,7 +98,7 @@ This document maps every feature in **transmissionbtc** (v1.3.10) against a targ
 
 ## 5. User Interface
 
-| # | Feature | transmissionbtc | transmissionhm | Priority | Notes |
+| # | Feature | transmissionbtc | transmissionbtm | Priority | Notes |
 |---|---------|----------------|----------------|----------|-------|
 | 5.1 | Tab-based navigation (4 tabs) | ✅ (ViewPager + TabLayout) | ❌ | **P0** | Downloads, Settings, Proxy, About (Watch Dirs merged into Settings) |
 | 5.2 | Torrent list with live stats | ✅ (TorrentsList, 1s polling) | ❌ | **P0** | Name, progress, speed, peers, status |
@@ -122,7 +122,7 @@ This document maps every feature in **transmissionbtc** (v1.3.10) against a targ
 
 ## 6. Background Service & System Integration
 
-| # | Feature | transmissionbtc | transmissionhm | Priority | Notes |
+| # | Feature | transmissionbtc | transmissionbtm | Priority | Notes |
 |---|---------|----------------|----------------|----------|-------|
 | 6.1 | Foreground service | ✅ (TransmissionService) | ❌ | **P0** | Sticky notification |
 | 6.2 | Start on boot | ✅ (BootOrUpdateReceiver) | ❌ | **P1** | Configurable delay |
@@ -140,7 +140,7 @@ This document maps every feature in **transmissionbtc** (v1.3.10) against a targ
 
 > **v1.0 Simplification:** All downloads restricted to app sandbox directory. libtransmission uses raw POSIX I/O (`fopen`/`read`/`write`) directly — no bidirectional N-API file I/O bridge needed. The `tr_android_*` / `tr_oh_*` hooks are NOT compiled into the Transmission fork. External storage support (SD card, etc.) via FileAccessHelper deferred to v1.1+.
 
-| # | Feature | transmissionbtc | transmissionhm | Priority | Notes |
+| # | Feature | transmissionbtc | transmissionbtm | Priority | Notes |
 |---|---------|----------------|----------------|----------|-------|
 | 7.1 | File I/O (POSIX) | 🔶 (SAF via JNI bridge) | ✅ | **P0** | Raw POSIX in sandbox — no adapter needed |
 | 7.2 | Multi-directory download | ✅ (per-torrent download dir) | ❌ | **P1** | Subdirectories within sandbox — POSIX mkdir |
@@ -157,7 +157,7 @@ This document maps every feature in **transmissionbtc** (v1.3.10) against a targ
 
 ## 8. Web UI & RPC
 
-| # | Feature | transmissionbtc | transmissionhm | Priority | Notes |
+| # | Feature | transmissionbtc | transmissionbtm | Priority | Notes |
 |---|---------|----------------|----------------|----------|-------|
 | 8.1 | Transmission RPC server | ✅ (native, port 9091) | ❌ | **P0** | JSON-RPC protocol |
 | 8.2 | Web UI serving | ✅ (native, TRANSMISSION_WEB_HOME) | ❌ | **P1** | Copied from APK assets at start |
@@ -170,7 +170,7 @@ This document maps every feature in **transmissionbtc** (v1.3.10) against a targ
 
 ## 9. Data & Configuration
 
-| # | Feature | transmissionbtc | transmissionhm | Priority | Notes |
+| # | Feature | transmissionbtc | transmissionbtm | Priority | Notes |
 |---|---------|----------------|----------------|----------|-------|
 | 9.1 | Live preference persistence | ✅ (TextWatcher + OnCheckedChangeListener) | ❌ | **P0** | No save button, instant apply |
 | 9.2 | Settings JSON save/load | ✅ (tr_sessionLoadSettings/SaveSettings) | ❌ | **P0** | Native-side config persistence |
@@ -182,7 +182,7 @@ This document maps every feature in **transmissionbtc** (v1.3.10) against a targ
 
 ## 10. Build & Dependencies
 
-| # | Feature | transmissionbtc | transmissionhm | Priority | Notes |
+| # | Feature | transmissionbtc | transmissionbtm | Priority | Notes |
 |---|---------|----------------|----------------|----------|-------|
 | 10.1 | Gradle build (AGP 4.2.2) | ✅ | ❌ | **P0** | Replace with Hvigor |
 | 10.2 | CMake native build | ✅ (ExternalProject for 4 libs) | ❌ | **P0** | Port CMake to OH native build |

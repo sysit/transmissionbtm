@@ -1,4 +1,4 @@
-// transmissionhm — SessionConfig for native sessionStart()
+// transmissionbtm — SessionConfig for native sessionStart()
 
 export enum EncryptionMode {
   ALLOW = 'allow',

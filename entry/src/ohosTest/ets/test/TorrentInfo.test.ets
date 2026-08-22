@@ -1,4 +1,4 @@
-// transmissionhm — TorrentInfo domain model unit tests
+// transmissionbtm — TorrentInfo domain model unit tests
 //
 // Tests cover:
 //   - TorrentStatus (5-value enum matching transmissionbtc TorrentStat.Status)

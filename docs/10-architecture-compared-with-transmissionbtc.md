@@ -2,7 +2,7 @@
 
 > 本文对照源头项目 **transmissionbtc**（Android v1.3.10，`/Users/xiphis/projects/transmissionbtc`）
 > 的完整架构（56 个 Java 类 + 40 个 JNI 方法），结合 `docs/09` 的功能地图现状，
-> 对 transmissionhm 做一次**架构方向**的再审视。
+> 对 transmissionbtm 做一次**架构方向**的再审视。
 >
 > 依据：本会话对 transmissionbtc 应用层 + native 层的两份逐文件盘点（2026-08-09）。
 
@@ -10,7 +10,7 @@
 
 ## 0. 结论先行
 
-transmissionhm 是 transmissionbtc 的**忠实骨架 + 退化线程 + 功能子集**。三层结论：
+transmissionbtm 是 transmissionbtc 的**忠实骨架 + 退化线程 + 功能子集**。三层结论：
 
 1. **线程模型退化（结构性，最严重）**：transmissionbtc 的每个 JNI 调用都把工作
    **注入 libtransmission 事件线程**执行（调用线程只是信号量阻塞等待），UI 线程从不跑引擎工作；
@@ -29,7 +29,7 @@ transmissionhm 是 transmissionbtc 的**忠实骨架 + 退化线程 + 功能子�
 
 ## 1. 架构对照总表
 
-| 维度 | transmissionbtc | transmissionhm | 对照 |
+| 维度 | transmissionbtc | transmissionbtm | 对照 |
 |------|-----------------|----------------|------|
 | 整体模式 | 单进程 MVC + DataBinding | 单进程 ArkTS 组件化 | 同构 |
 | 会话宿主 | 前台 Service（START_STICKY）持有 | DownloadsPage（进程内）持有 | 因系统约束被迫改变 |
@@ -80,7 +80,7 @@ JNI 调用线程:  分配 Future(sem_t) → tr_runInEventThread(session, ...) �
 
 ## 3. 功能差距分析（原版有 → 我们没有）
 
-| 原版功能 | 原版实现 | transmissionhm | 差距定性 |
+| 原版功能 | 原版实现 | transmissionbtm | 差距定性 |
 |----------|----------|----------------|----------|
 | 磁力链接添加 | `torrentMagnetToTorrentFile`（native 完整实现，元数据下载 + 取消信号量） | **无 native 支持，UI 页签是坏的** | **移植丢失 → 必须补** |
 | HTTP 流媒体服务器 | SimpleHttpServer + TorrentHandler（Range/等片/优先级） | 延后 v1.1 | 移植丢失（原版旗舰） |
@@ -146,7 +146,7 @@ UPnP/DLNA、监视目录、URL 添加，原版 100% 实现过）和**系统墙**
 
 ## 7. 一句话总结
 
-transmissionhm = transmissionbtc 的**忠实骨架 + 退化线程 + 功能子集**：
+transmissionbtm = transmissionbtc 的**忠实骨架 + 退化线程 + 功能子集**：
 分层和桥接跟原版同构，但丢了原版赖以流畅的事件线程派发，以及 magnet / 流媒体 / UPnP / 监视目录
 五个已实现功能。**丢的都是能补回来的**——native 层死方法里一半是预留，补接线比重写便宜得多。
 

@@ -1,4 +1,4 @@
-// transmissionhm — FileTreeView (recursive torrent file browser)
+// transmissionbtm — FileTreeView (recursive torrent file browser)
 //
 // Renders a nested directory/file tree. Directories can be expanded/collapsed.
 // Each file has a checkbox for download selection.
@@ -13,6 +13,8 @@ import { Colors, Radius, Spacing, FontSize } from '../../utils/constants';
 export struct FileTreeView {
   @Prop root: TorrentDir;
   @Link selectedFiles: boolean[];
+  /** Fired after a file's wanted-state changes; passes the full selection. */
+  onToggleFile?: (files: boolean[]) => void;
   @State expandedDirs: Record<string, boolean> = {};
 
   aboutToAppear(): void {
@@ -213,6 +215,7 @@ export struct FileTreeView {
         updated.push(i === index ? checked : this.selectedFiles[i]);
       }
       this.selectedFiles = updated;
+      this.onToggleFile?.(updated);
     }
   }
 

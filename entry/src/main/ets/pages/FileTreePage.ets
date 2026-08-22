@@ -1,4 +1,4 @@
-// transmissionhm — FileTreePage (torrent file browser)
+// transmissionbtm — FileTreePage (torrent file browser)
 //
 // Displays a recursive file/directory tree for a single torrent.
 // Allows toggling which files to download.
@@ -26,6 +26,7 @@ export struct FileTreePage {
   @State isLoading: boolean = true;
   @State totalSize: number = 0;
   @State fileCount: number = 0;
+  private session: TransmissionSession = new TransmissionSession();
 
   aboutToAppear(): void {
     this.loadFiles();
@@ -37,16 +38,25 @@ export struct FileTreePage {
       return;
     }
     try {
-      const session = new TransmissionSession();
-      session.sessionId = this.sessionId;
-      const files: TorrentFile[] = session.listTorrentFiles(this.torrentId);
+      this.session.sessionId = this.sessionId;
+      const files: TorrentFile[] = this.session.listTorrentFiles(this.torrentId);
       if (files && files.length > 0) {
+        // Populate real size / bytesCompleted / wanted (DnD) / priority per
+        // file (listTorrentFiles returns names only). On-demand at tree open,
+        // so N per-file stat reads are acceptable. The native read lives on
+        // the session facade so the model stays pure.
+        for (const f of files) {
+          this.session.refreshFileStat(this.torrentId, f);
+        }
         this.root = FileTreeModel.buildTree(files);
 
-        // Build selectedFiles array from file wanted states
+        // Build selectedFiles array from file wanted states.
+        // IMPORTANT: index is the FILE NUMBER (file.index), NOT tree order —
+        // native torrentSetFileWanted(files) and FileTreeView both read by
+        // file number, so traversal-order indexing would misalign them.
         const totalFiles = this.countTotalFiles(this.root);
-        const selected: boolean[] = new Array<boolean>(totalFiles);
-        this.collectWantedStates(this.root, selected, 0);
+        const selected: boolean[] = new Array<boolean>(totalFiles).fill(true);
+        this.applyWantedStates(this.root, selected);
         this.selectedFiles = selected;
 
         this.totalSize = this.root.totalSize;
@@ -54,9 +64,19 @@ export struct FileTreePage {
       }
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'Failed to load torrent files: %{public}s', String(err));
+        'Failed to load torrent files: %{private}s', String(err));
     }
     this.isLoading = false;
+  }
+
+  /** Apply a per-file selection (DnD) to the live torrent via the session. */
+  private onFileWanted(files: boolean[]): void {
+    try {
+      this.session.setFileWanted(this.torrentId, files);
+    } catch (err) {
+      hilog.error(0x0001, TAG,
+        'Failed to apply file selection: %{private}s', String(err));
+    }
   }
 
   private countTotalFiles(dir: TorrentDir): number {
@@ -67,18 +87,15 @@ export struct FileTreePage {
     return count;
   }
 
-  private collectWantedStates(dir: TorrentDir,
-                              result: boolean[],
-                              offset: number): number {
-    let idx = offset;
+  private applyWantedStates(dir: TorrentDir, result: boolean[]): void {
     for (const file of dir.files) {
-      result[idx] = file.wanted;
-      idx++;
+      if (file.index >= 0 && file.index < result.length) {
+        result[file.index] = file.wanted;
+      }
     }
     for (const child of dir.children) {
-      idx = this.collectWantedStates(child, result, idx);
+      this.applyWantedStates(child, result);
     }
-    return idx;
   }
 
   build() {
@@ -180,6 +197,7 @@ export struct FileTreePage {
         FileTreeView({
           root: this.root,
           selectedFiles: $selectedFiles,
+          onToggleFile: (files: boolean[]) => { this.onFileWanted(files); },
         });
       }
       .layoutWeight(1)

@@ -1,4 +1,4 @@
-// transmissionhm — TransmissionSession domain model
+// transmissionbtm — TransmissionSession domain model
 //
 // Wraps a native libtransmission session. All operations proxy through
 // NativeBridge. Holds the active numeric sessionId after start().
@@ -15,7 +15,7 @@
 
 import { NativeBridge } from '../bridge/NativeBridge';
 import { SessionConfig, EncryptionMode } from './SessionConfig';
-import { TorrentInfo } from './TorrentInfo';
+import { TorrentInfo, TorrentStatus, TorrentError } from './TorrentInfo';
 import { TorrentFile, RawFileEntry } from './TorrentFile';
 import { SessionRunState } from './SessionState';
 import { hilog } from '@kit.PerformanceAnalysisKit';
@@ -231,11 +231,74 @@ export class TransmissionSession {
       if (!names || names.length === 0) {
         return [];
       }
-      return TorrentInfo.fromNativeJson(names.join('\n'));
+      // listTorrentNames() is id/hash/name only. Merge the live brief stat so
+      // status/percent/sizes/speeds are real — otherwise every torrent reports
+      // its default STOPPED (0) and shows as "Paused" even while the engine is
+      // downloading it (user: "两个种子都是pause状态").
+      const list = TorrentInfo.fromNativeJson(names.join('\n'));
+      this.applyStatBrief(list);
+      return list;
     } catch (e) {
       hilog.error(0x0001, 'TransmissionSession',
-        'getAllTorrents failed: %{public}s', String(e));
+        'getAllTorrents failed: %{private}s', String(e));
       return [];
+    }
+  }
+
+  /**
+   * Merge the live brief-stat buffer into a name-only TorrentInfo list.
+   *
+   * One buffer read, O(n + rows); the field mapping mirrors the per-torrent
+   * brief-stat parse (which re-scans the buffer + re-fetches hash/name per
+   * torrent — avoid for the polled list). A torrent present in the name list
+   * but absent from the brief buffer is left at its default STOPPED.
+   */
+  private applyStatBrief(list: TorrentInfo[]): void {
+    if (list.length === 0) {
+      return;
+    }
+    let buf: ArrayBuffer;
+    try {
+      buf = this.bridge.torrentStatBrief(this.sessionId);
+    } catch (e) {
+      return;
+    }
+    if (!buf || buf.byteLength < 80) {
+      return;
+    }
+    const view = new BigInt64Array(buf);
+    const STRIDE = 10; // 10 int64 per torrent (matches native brief-stat layout)
+    const count = Math.floor(view.length / STRIDE);
+    if (count === 0) {
+      return;
+    }
+    // id → torrent so each row fills its entry in O(1).
+    const byId = new Map<number, TorrentInfo>();
+    for (const t of list) {
+      byId.set(t.id, t);
+    }
+    for (let r = 0; r < count; r++) {
+      const base = r * STRIDE;
+      const info = byId.get(Number(view[base]));
+      if (!info) {
+        continue;
+      }
+      const total: number = Number(view[base + 3]);
+      const remaining: number = Number(view[base + 4]);
+      const stVal: number = Number(view[base + 1]);
+      info.status = stVal as TorrentStatus;
+      info.percentComplete = Number(view[base + 2]) / 100;
+      info.totalSize = total;
+      info.uploadedEver = Number(view[base + 5]);
+      info.peersConnected = Number(view[base + 6]);
+      info.peersTotal = Number(view[base + 7]);
+      info.rateUpload = Number(view[base + 8]);
+      info.rateDownload = Number(view[base + 9]);
+      info.haveValid = total - remaining;
+      info.percentDone = total > 0 ? info.haveValid / total : 0;
+      info.downloadedEver = info.haveValid;
+      info.error = info.status === TorrentStatus.ERROR
+        ? TorrentError.LOCAL_ERROR : TorrentError.OK;
     }
   }
 
@@ -269,6 +332,11 @@ export class TransmissionSession {
     return this.bridge.torrentGetError(this.sessionId, torrentId);
   }
 
+  /** Diagnostic: live native engine state as a compact string. */
+  getTorrentState(torrentId: number): string {
+    return this.bridge.torrentState(this.sessionId, torrentId);
+  }
+
   // ═══════════════════════════════════════════════════════════════════
   // File operations
   // ═══════════════════════════════════════════════════════════════════
@@ -277,7 +345,7 @@ export class TransmissionSession {
    * List all files in a torrent.
    *
    * Native returns file names as a string[]. Constructs minimal TorrentFile
-   * objects — call torrentGetFileStat() for per-file size/bytesCompleted.
+   * objects — call refreshFileStat() for per-file size/bytesCompleted/wanted.
    */
   listTorrentFiles(torrentId: number): TorrentFile[] {
     const names: string[] = this.bridge.torrentListFiles(
@@ -286,7 +354,6 @@ export class TransmissionSession {
     if (!names || names.length === 0) {
       return [];
     }
-    const fileCount: number = names.length;
     return names.map((name: string, index: number): TorrentFile => {
       const entry: RawFileEntry = {
         index: index,
@@ -295,9 +362,21 @@ export class TransmissionSession {
         wanted: true,
         priority: 0,
       };
-      return TorrentFile.fromNative(entry, this.sessionId, torrentId,
-        fileCount);
+      return TorrentFile.fromNative(entry);
     });
+  }
+
+  /**
+   * Read a single file's live stat and apply it to the given TorrentFile.
+   *
+   * The model stays pure (no NativeBridge import); the per-file native read
+   * lives here in the session facade. FileTreePage calls this once per file
+   * when the tree opens (N reads acceptable, on-demand).
+   */
+  refreshFileStat(torrentId: number, file: TorrentFile): void {
+    const buf: ArrayBuffer = this.bridge.torrentGetFileStat(
+      this.sessionId, torrentId, file.index);
+    file.applyFileStat(buf);
   }
 
   /**
@@ -309,7 +388,6 @@ export class TransmissionSession {
     if (!names || names.length === 0) {
       return [];
     }
-    const fileCount: number = names.length;
     return names.map((name: string, index: number): TorrentFile => {
       const entry: RawFileEntry = {
         index: index,
@@ -318,8 +396,7 @@ export class TransmissionSession {
         wanted: true,
         priority: 0,
       };
-      // No real session / torrentId for file-only listing
-      return TorrentFile.fromNative(entry, -1, -1, fileCount);
+      return TorrentFile.fromNative(entry);
     });
   }
 
@@ -327,6 +404,17 @@ export class TransmissionSession {
   getTorrentFileName(torrentId: number, fileIndex: number): string {
     return this.bridge.torrentGetFileName(this.sessionId, torrentId,
       fileIndex);
+  }
+
+  /**
+   * Set the per-file download (DnD) selection for a torrent.
+   * files[i] === true  → file i is wanted (downloaded)
+   * files[i] === false → file i is skipped (DnD), after the current file list.
+   * Routes through NativeBridge.torrentSetFileWanted, which builds the exact
+   * skip-index array native tr_torrentSetFileDLs expects.
+   */
+  setFileWanted(torrentId: number, files: boolean[]): void {
+    this.bridge.torrentSetFileWanted(this.sessionId, torrentId, files);
   }
 
   // ═══════════════════════════════════════════════════════════════════

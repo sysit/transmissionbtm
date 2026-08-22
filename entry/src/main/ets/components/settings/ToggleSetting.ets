@@ -1,4 +1,4 @@
-// transmissionhm — Toggle Setting Component (M2)
+// transmissionbtm — Toggle Setting Component (M2)
 //
 // Reusable toggle row: label + optional description + switch.
 // Persists the value to PreferencesManager on every toggle.

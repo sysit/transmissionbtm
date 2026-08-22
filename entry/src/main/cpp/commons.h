@@ -1,4 +1,4 @@
-// transmissionhm — Common utilities for N-API native bridge
+// transmissionbtm — Common utilities for N-API native bridge
 // Adapted from transmissionbtc commons.h (JNI → N-API)
 // Updated for Transmission 4.1 C++ API (2026-07-12)
 //
@@ -30,7 +30,7 @@
 #undef LOG_DOMAIN
 #undef LOG_TAG
 #define LOG_DOMAIN 0x0001
-#define LOG_TAG "transmissionhm"
+#define LOG_TAG "transmissionbtm"
 
 #define logErr(...) OH_LOG_Print(LOG_APP, LOG_ERROR, LOG_DOMAIN, LOG_TAG, __VA_ARGS__)
 

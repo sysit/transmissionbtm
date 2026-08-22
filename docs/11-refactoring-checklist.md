@@ -1,4 +1,4 @@
-# transmissionhm 重构清单（2026-08-09）
+# transmissionbtm 重构清单（2026-08-09）
 
 > 合并自：docs/09（功能地图）+ docs/10（架构对照）+ RPC/Web 半成品发现 +
 > 本次对 `.ai-review/codex-review.md` 的**逐项核实**。

@@ -1,4 +1,4 @@
-// transmissionhm — TorrentCard (torrent list item with expandable detail)
+// transmissionbtm — TorrentCard (torrent list item with expandable detail)
 //
 // Renamed from TorrentDetailView. Shows a compact torrent card with
 // progress bar, stats, and expandable action section.

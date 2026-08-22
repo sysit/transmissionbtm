@@ -1,4 +1,4 @@
-// transmissionhm — FileTreeModel
+// transmissionbtm — FileTreeModel
 //
 // Builds a recursive TorrentDir tree from a flat list of TorrentFile entries.
 // Handles arbitrarily nested directory structures.

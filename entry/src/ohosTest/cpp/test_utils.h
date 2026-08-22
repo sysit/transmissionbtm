@@ -1,4 +1,4 @@
-// transmissionhm — minimal C++ test helpers (no gtest dependency)
+// transmissionbtm — minimal C++ test helpers (no gtest dependency)
 // Used for native unit tests that run on-device via ohosTest.
 //
 // When gtest is available: replace assert_* macros with EXPECT_*/ASSERT_*.
