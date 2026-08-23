@@ -3,7 +3,8 @@
 // Renamed from TorrentDetailView. Shows a compact torrent card with
 // progress bar, stats, and expandable action section.
 
-import { TorrentInfo, TorrentStatus } from '../../models/TorrentInfo';
+import { TorrentStatus } from '../../models/TorrentInfo';
+import { TorrentVM } from './TorrentVM';
 import { ProgressBar } from '../ui/ProgressBar';
 import { StatChip } from '../ui/StatChip';
 import { formatSpeed, formatSize, formatETA } from '../../utils/format';
@@ -11,7 +12,7 @@ import { Colors, Radius, Spacing, FontSize } from '../../utils/constants';
 
 @Component
 export struct TorrentCard {
-  @Prop torrent: TorrentInfo;
+  @ObjectLink vm: TorrentVM;
   @Prop sessionId: number = 0;
   @State isExpanded: boolean = false;
   onPause?: () => void;
@@ -41,7 +42,7 @@ export struct TorrentCard {
   buildHeader() {
     Row() {
       // Torrent name
-      Text(this.torrent.name)
+      Text(this.vm.torrent.name)
         .fontSize(FontSize.BODY)
         .fontWeight(FontWeight.Medium)
         .fontColor(Colors.TEXT)
@@ -50,13 +51,13 @@ export struct TorrentCard {
         .textOverflow({ overflow: TextOverflow.Ellipsis });
 
       // Status badge
-      Text(this.torrent.getStatusString())
+      Text(this.vm.torrent.getStatusString())
         .fontSize(FontSize.SMALL)
         .fontWeight(FontWeight.Medium)
-        .fontColor(this.torrent.getStatusColor())
+        .fontColor(this.vm.torrent.getStatusColor())
         .padding({ left: Spacing.SM, right: Spacing.SM, top: 2, bottom: 4 })
         .borderRadius(Radius.SM)
-        .border({ width: 1, color: this.torrent.getStatusColor() })
+        .border({ width: 1, color: this.vm.torrent.getStatusColor() })
         .opacity(0.7);
     }
     .width('100%')
@@ -65,13 +66,13 @@ export struct TorrentCard {
 
   @Builder
   buildProgressSection() {
-    if (this.torrent.status === TorrentStatus.DOWNLOAD ||
-      this.torrent.status === TorrentStatus.SEED ||
-      this.torrent.status === TorrentStatus.CHECK ||
-      this.torrent.isFinished()) {
+    if (this.vm.torrent.status === TorrentStatus.DOWNLOAD ||
+      this.vm.torrent.status === TorrentStatus.SEED ||
+      this.vm.torrent.status === TorrentStatus.CHECK ||
+      this.vm.torrent.isFinished()) {
       ProgressBar({
-        progress: this.torrent.percentComplete,
-        color: this.torrent.getStatusColor(),
+        progress: this.vm.torrent.percentComplete,
+        color: this.vm.torrent.getStatusColor(),
         barHeight: 4,
         showLabel: true,
         labelSize: FontSize.SMALL,
@@ -79,8 +80,8 @@ export struct TorrentCard {
     }
 
     // Error message
-    if (this.torrent.hasError()) {
-      Text(this.torrent.errorString || 'Unknown error')
+    if (this.vm.torrent.hasError()) {
+      Text(this.vm.torrent.errorString || 'Unknown error')
         .fontSize(FontSize.SMALL)
         .fontColor(Colors.ERROR)
         .maxLines(2)
@@ -92,33 +93,33 @@ export struct TorrentCard {
   @Builder
   buildStatsRow() {
     Row() {
-      if (this.torrent.isDownloading()) {
+      if (this.vm.torrent.isDownloading()) {
         StatChip({
           label: '⬇ Download',
-          value: formatSpeed(this.torrent.rateDownload),
+          value: formatSpeed(this.vm.torrent.rateDownload),
           color: Colors.DOWNLOAD,
         });
         StatChip({
           label: 'ETA',
-          value: formatETA(this.torrent.eta),
+          value: formatETA(this.vm.torrent.eta),
           color: Colors.TEXT,
         });
       }
-      if (this.torrent.isSeeding()) {
+      if (this.vm.torrent.isSeeding()) {
         StatChip({
           label: '⬆ Upload',
-          value: formatSpeed(this.torrent.rateUpload),
+          value: formatSpeed(this.vm.torrent.rateUpload),
           color: Colors.SEED,
         });
       }
       StatChip({
         label: 'Size',
-        value: formatSize(this.torrent.totalSize),
+        value: formatSize(this.vm.torrent.totalSize),
         color: Colors.TEXT,
       });
       StatChip({
         label: 'Peers',
-        value: `${this.torrent.peersConnected}`,
+        value: `${this.vm.torrent.peersConnected}`,
         color: Colors.TEXT,
       });
 
@@ -146,7 +147,7 @@ export struct TorrentCard {
           Text('Downloaded')
             .fontSize(FontSize.SMALL)
             .fontColor(Colors.TEXT_TERTIARY);
-          Text(formatSize(this.torrent.downloadedEver))
+          Text(formatSize(this.vm.torrent.downloadedEver))
             .fontSize(FontSize.CAPTION)
             .fontColor(Colors.TEXT)
             .fontFamily('JetBrains Mono')
@@ -157,7 +158,7 @@ export struct TorrentCard {
           Text('Uploaded')
             .fontSize(FontSize.SMALL)
             .fontColor(Colors.TEXT_TERTIARY);
-          Text(formatSize(this.torrent.uploadedEver))
+          Text(formatSize(this.vm.torrent.uploadedEver))
             .fontSize(FontSize.CAPTION)
             .fontColor(Colors.TEXT)
             .fontFamily('JetBrains Mono')
@@ -168,7 +169,7 @@ export struct TorrentCard {
           Text('Progress')
             .fontSize(FontSize.SMALL)
             .fontColor(Colors.TEXT_TERTIARY);
-          Text(`${Math.round(this.torrent.percentComplete * 100)}%`)
+          Text(`${Math.round(this.vm.torrent.percentComplete * 100)}%`)
             .fontSize(FontSize.CAPTION)
             .fontColor(Colors.TEXT)
             .fontFamily('JetBrains Mono')
@@ -181,7 +182,7 @@ export struct TorrentCard {
 
       // Action buttons
       Row() {
-        if (this.torrent.isStopped()) {
+        if (this.vm.torrent.isStopped()) {
           this.ActionButton('▶', 'Resume', this.onResume);
         } else {
           this.ActionButton('⏸', 'Pause', this.onPause);

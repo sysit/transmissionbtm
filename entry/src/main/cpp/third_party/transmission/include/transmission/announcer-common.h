@@ -11,7 +11,6 @@
 
 #include <array>
 #include <chrono>
-#include <compare>
 #include <cstdint> // uint64_t
 #include <ctime>
 #include <optional>
@@ -19,11 +18,13 @@
 #include <string_view>
 #include <vector>
 
+#include "libtransmission/transmission.h"
+
 #include "libtransmission/announcer.h"
 #include "libtransmission/interned-string.h"
 #include "libtransmission/net.h"
 #include "libtransmission/peer-mgr.h" // tr_pex
-#include "libtransmission/types.h" // tr_peer_id_t
+#include "libtransmission/tr-macros.h" // tr_peer_id_t
 #include "libtransmission/utils.h"
 
 struct tr_url_parsed_t;
@@ -146,20 +147,20 @@ struct tr_announce_response
      * https://www.bittorrent.org/beps/bep_0024.html */
     std::optional<tr_address> external_ip;
 
-    static constexpr auto compare_failed(tr_announce_response const& lhs, tr_announce_response const& rhs) noexcept
+    static constexpr int compare_failed(tr_announce_response const& lhs, tr_announce_response const& rhs) noexcept
     {
-        if (auto const val = static_cast<int>(lhs.did_connect) <=> static_cast<int>(rhs.did_connect); val != 0)
+        if (auto val = tr_compare_3way(lhs.did_connect, rhs.did_connect); val != 0)
         {
             return val;
         }
 
-        if (auto const val = static_cast<int>(rhs.did_timeout) <=> static_cast<int>(lhs.did_timeout); val != 0)
+        if (auto val = tr_compare_3way(lhs.did_timeout, rhs.did_timeout); val != 0)
         {
-            return val;
+            return -val;
         }
 
         // Non-empty error message most likely means we reached the tracker
-        return static_cast<int>(std::empty(rhs.errmsg)) <=> static_cast<int>(std::empty(lhs.errmsg));
+        return -tr_compare_3way(std::empty(lhs.errmsg), std::empty(rhs.errmsg));
     }
 };
 

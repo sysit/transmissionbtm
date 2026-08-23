@@ -16,9 +16,11 @@
 #include <string_view>
 #include <vector>
 
+#include "libtransmission/transmission.h"
+
 #include "libtransmission/torrent-metainfo.h"
 #include "libtransmission/torrent.h"
-#include "libtransmission/types.h"
+#include "libtransmission/tr-macros.h"
 
 struct tr_error;
 struct tr_session;
@@ -161,7 +163,7 @@ public:
         return optional_args_[mode].paused_;
     }
 
-    constexpr void set_paused(tr_ctorMode const mode, bool const paused)
+    TR_CONSTEXPR20 void set_paused(tr_ctorMode const mode, bool const paused)
     {
         optional_args_[mode].paused_ = paused;
     }
@@ -173,7 +175,7 @@ public:
         return optional_args_[mode].peer_limit_;
     }
 
-    constexpr void set_peer_limit(tr_ctorMode const mode, uint16_t const peer_limit)
+    TR_CONSTEXPR20 void set_peer_limit(tr_ctorMode const mode, uint16_t const peer_limit)
     {
         optional_args_[mode].peer_limit_ = peer_limit;
     }

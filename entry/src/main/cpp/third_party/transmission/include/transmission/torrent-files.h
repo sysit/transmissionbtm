@@ -16,10 +16,11 @@
 #include <utility>
 #include <vector>
 
+#include "libtransmission/transmission.h"
+
 #include "libtransmission/file.h"
 #include "libtransmission/tr-macros.h"
 #include "libtransmission/tr-strbuf.h"
-#include "libtransmission/types.h"
 
 struct tr_error;
 
@@ -29,17 +30,17 @@ struct tr_error;
 struct tr_torrent_files
 {
 public:
-    [[nodiscard]] constexpr bool empty() const noexcept
+    [[nodiscard]] TR_CONSTEXPR20 bool empty() const noexcept
     {
         return std::empty(files_);
     }
 
-    [[nodiscard]] constexpr size_t file_count() const noexcept
+    [[nodiscard]] TR_CONSTEXPR20 size_t file_count() const noexcept
     {
         return std::size(files_);
     }
 
-    [[nodiscard]] TR_CONSTEXPR_VEC uint64_t file_size(tr_file_index_t file_index) const
+    [[nodiscard]] TR_CONSTEXPR20 uint64_t file_size(tr_file_index_t file_index) const
     {
         return files_.at(file_index).size_;
     }
@@ -49,7 +50,7 @@ public:
         return total_size_;
     }
 
-    [[nodiscard]] TR_CONSTEXPR_VEC std::string const& path(tr_file_index_t file_index) const
+    [[nodiscard]] TR_CONSTEXPR20 std::string const& path(tr_file_index_t file_index) const
     {
         return files_.at(file_index).path_;
     }
@@ -70,17 +71,17 @@ public:
         }
     }
 
-    TR_CONSTEXPR_VEC void reserve(size_t n_files)
+    void reserve(size_t n_files)
     {
         files_.reserve(n_files);
     }
 
-    TR_CONSTEXPR_VEC void shrink_to_fit()
+    void shrink_to_fit()
     {
         files_.shrink_to_fit();
     }
 
-    TR_CONSTEXPR_VEC void clear() noexcept
+    TR_CONSTEXPR20 void clear() noexcept
     {
         files_.clear();
         total_size_ = uint64_t{};
@@ -90,17 +91,18 @@ public:
     {
         auto ret = std::vector<std::pair<std::string /*path*/, uint64_t /*size*/>>{};
         ret.reserve(std::size(files_));
-        tr::transform(
-            files_,
+        std::transform(
+            std::begin(files_),
+            std::end(files_),
             std::back_inserter(ret),
             [](auto const& in) { return std::make_pair(in.path_, in.size_); });
 
-        tr::sort(tr::keys_of(ret));
+        std::sort(std::begin(ret), std::end(ret), [](auto const& lhs, auto const& rhs) { return lhs.first < rhs.first; });
 
         return ret;
     }
 
-    TR_CONSTEXPR_VEC tr_file_index_t add(std::string_view path, uint64_t file_size)
+    tr_file_index_t add(std::string_view path, uint64_t file_size)
     {
         auto const ret = static_cast<tr_file_index_t>(std::size(files_));
         files_.emplace_back(path, file_size);
@@ -114,11 +116,9 @@ public:
         std::string_view parent_name = "",
         tr_error* error = nullptr) const;
 
-    void remove(
-        std::string_view parent_in,
-        std::string_view tmpdir_prefix,
-        tr_torrent_remove_func const& func,
-        tr_error* error = nullptr) const;
+    using FileFunc = std::function<void(char const* filename)>;
+    void remove(std::string_view parent_in, std::string_view tmpdir_prefix, FileFunc const& func, tr_error* error = nullptr)
+        const;
 
     struct FoundFile : public tr_sys_path_info
     {
@@ -155,7 +155,6 @@ public:
 
     [[nodiscard]] std::optional<FoundFile> find(tr_file_index_t file, std::string_view const* paths, size_t n_paths) const;
     [[nodiscard]] bool has_any_local_data(std::string_view const* paths, size_t n_paths) const;
-    [[nodiscard]] std::string_view primary_mime_type() const;
 
     static void sanitize_subpath(std::string_view path, tr_pathbuf& append_me, bool os_specific = true);
 
@@ -177,7 +176,7 @@ private:
     struct file_t
     {
     public:
-        TR_CONSTEXPR_STR void set_path(std::string_view subpath)
+        void set_path(std::string_view subpath)
         {
             if (path_ != subpath)
             {
@@ -186,7 +185,7 @@ private:
             }
         }
 
-        TR_CONSTEXPR_STR file_t(std::string_view path, uint64_t size)
+        file_t(std::string_view path, uint64_t size)
             : path_{ path }
             , size_{ size }
         {

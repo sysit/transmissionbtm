@@ -102,9 +102,9 @@ public:
 
     [[nodiscard]] bool is_idle() const noexcept;
 
-    // If you want to give running tasks a chance to finish,
-    // call startShutdown() before destroying the tr_web object.
-    // Deleting the object will cancel all of its tasks.
+    // If you want to give running tasks a chance to finish, call closeSoon()
+    // before destroying the tr_web object. Deleting the object will cancel
+    // all of its tasks.
     ~tr_web();
 
     tr_web(tr_web const&) = delete;
@@ -160,15 +160,14 @@ public:
         }
 
         // Invoke the user-provided fetch callback
-        // NOLINTNEXTLINE(cppcoreguidelines-rvalue-reference-param-not-moved)
         virtual void run(FetchDoneFunc&& func, FetchResponse&& response) const
         {
             func(response);
         }
 
-        [[nodiscard]] virtual std::chrono::steady_clock::time_point now() const
+        [[nodiscard]] virtual time_t now() const
         {
-            return std::chrono::steady_clock::now();
+            return time(nullptr);
         }
     };
 

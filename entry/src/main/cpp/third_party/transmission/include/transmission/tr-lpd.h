@@ -14,11 +14,13 @@
 #include <string_view>
 #include <vector>
 
+#include "libtransmission/transmission.h"
+
 #include "libtransmission/net.h" // for tr_address, tr_port
 
 struct event_base;
 
-namespace tr
+namespace libtransmission
 {
 class TimerMaker;
 }
@@ -47,7 +49,7 @@ public:
 
         [[nodiscard]] virtual std::vector<TorrentInfo> torrents() const = 0;
 
-        [[nodiscard]] virtual tr::TimerMaker& timerMaker() = 0;
+        [[nodiscard]] virtual libtransmission::TimerMaker& timerMaker() = 0;
 
         virtual void setNextAnnounceTime(std::string_view info_hash_str, time_t announce_at) = 0;
 

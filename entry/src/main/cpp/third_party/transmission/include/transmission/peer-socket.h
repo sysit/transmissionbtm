@@ -11,11 +11,9 @@
 
 #include <atomic>
 #include <cstddef> // size_t
-#include <functional>
 #include <string>
 #include <utility> // for std::make_pair()
 
-#include "libtransmission/constants.h"
 #include "libtransmission/net.h"
 #include "libtransmission/tr-buffer.h"
 
@@ -25,43 +23,37 @@ struct tr_session;
 class tr_peer_socket
 {
 public:
-    // The buffer size for incoming & outgoing peer messages.
-    // Starts off with enough capacity to read a single BT Piece message,
-    // but has a 5x GrowthFactor so that it can quickly grow.
-    using PeerBuffer = tr::StackBuffer<TrBlockSize + 16U, std::byte, std::ratio<5, 1>>;
+    using InBuf = libtransmission::BufferWriter<std::byte>;
+    using OutBuf = libtransmission::BufferReader<std::byte>;
 
-    using InBuf = tr::BufferWriter<std::byte>;
-    using OutBuf = tr::BufferReader<std::byte>;
-
-    using RWCb = std::function<void()>;
-    using ErrorCb = std::function<void(tr_error const&)>;
-
-    tr_peer_socket(tr_peer_socket&& s) noexcept = delete;
+    tr_peer_socket() = default;
+    tr_peer_socket(tr_session const* session, tr_socket_address const& socket_address, tr_socket_t sock);
+    tr_peer_socket(tr_socket_address const& socket_address, struct UTPSocket* sock);
+    tr_peer_socket(tr_peer_socket&& s) noexcept
+    {
+        *this = std::move(s);
+    }
     tr_peer_socket(tr_peer_socket const&) = delete;
-    tr_peer_socket& operator=(tr_peer_socket&& s) noexcept = delete;
+    tr_peer_socket& operator=(tr_peer_socket&& s) noexcept
+    {
+        close();
+        handle = s.handle;
+        socket_address_ = s.socket_address_;
+        type_ = s.type_;
+        // invalidate s.type_, s.handle so s.close() won't break anything
+        s.type_ = Type::None;
+        s.handle = {};
+        return *this;
+    }
     tr_peer_socket& operator=(tr_peer_socket const&) = delete;
-    virtual ~tr_peer_socket();
-
-    [[nodiscard]] size_t try_read(InBuf& buf, size_t max, tr_error* error);
-    [[nodiscard]] size_t try_write(OutBuf& buf, size_t max, tr_error* error);
-
-    virtual void set_read_enabled(bool enabled) = 0;
-    virtual void set_write_enabled(bool enabled) = 0;
-    [[nodiscard]] virtual bool is_read_enabled() const = 0;
-    [[nodiscard]] virtual bool is_write_enabled() const = 0;
-
-    void set_read_cb(RWCb cb)
+    ~tr_peer_socket()
     {
-        read_cb_ = std::move(cb);
+        close();
     }
-    void set_write_cb(RWCb cb)
-    {
-        write_cb_ = std::move(cb);
-    }
-    void set_error_cb(ErrorCb cb)
-    {
-        error_cb_ = std::move(cb);
-    }
+    void close();
+
+    size_t try_read(InBuf& buf, size_t max, bool buf_is_empty, tr_error* error) const;
+    size_t try_write(OutBuf& buf, size_t max, tr_error* error) const;
 
     [[nodiscard]] constexpr auto const& socket_address() const noexcept
     {
@@ -70,73 +62,57 @@ public:
 
     [[nodiscard]] constexpr auto const& address() const noexcept
     {
-        return socket_address().address();
+        return socket_address_.address();
     }
 
     [[nodiscard]] constexpr auto port() const noexcept
     {
-        return socket_address().port();
+        return socket_address_.port();
     }
 
     [[nodiscard]] std::string display_name() const
     {
-        return socket_address().display_name();
+        return socket_address_.display_name();
     }
 
     [[nodiscard]] constexpr auto is_utp() const noexcept
     {
-        return type() == Type::UTP;
+        return type_ == Type::UTP;
     }
 
     [[nodiscard]] constexpr auto is_tcp() const noexcept
     {
-        return type() == Type::TCP;
+        return type_ == Type::TCP;
     }
+
+    [[nodiscard]] constexpr auto is_valid() const noexcept
+    {
+#ifdef WITH_UTP
+        return is_tcp() || is_utp();
+#else
+        return is_tcp();
+#endif
+    }
+
+    union
+    {
+        tr_socket_t tcp;
+        struct UTPSocket* utp;
+    } handle = {};
 
     [[nodiscard]] static bool limit_reached(tr_session const* session) noexcept;
 
-protected:
+private:
     enum class Type : uint8_t
     {
-        UTP,
-        TCP
+        None,
+        TCP,
+        UTP
     };
-
-    explicit tr_peer_socket(tr_socket_address const& socket_address);
-
-    [[nodiscard]] constexpr virtual Type type() const noexcept = 0;
-
-    [[nodiscard]] virtual size_t try_read_impl(InBuf& buf, size_t n_bytes, tr_error* error) = 0;
-    [[nodiscard]] virtual size_t try_write_impl(OutBuf& buf, size_t n_bytes, tr_error* error) = 0;
-
-    void read_cb() const
-    {
-        if (read_cb_)
-        {
-            read_cb_();
-        }
-    }
-    void write_cb() const
-    {
-        if (write_cb_)
-        {
-            write_cb_();
-        }
-    }
-    void error_cb(tr_error const& error) const
-    {
-        if (error_cb_)
-        {
-            error_cb_(error);
-        }
-    }
 
     tr_socket_address socket_address_;
 
-    RWCb read_cb_;
-    RWCb write_cb_;
-    ErrorCb error_cb_;
+    enum Type type_ = Type::None;
 
-private:
     static inline std::atomic<size_t> n_open_sockets = {};
 };

@@ -14,8 +14,9 @@
 
 #include "natpmp.h"
 
+#include "libtransmission/transmission.h" // tr_port_forwarding_state
+
 #include "libtransmission/net.h" // tr_port
-#include "libtransmission/types.h"
 
 class tr_natpmp
 {

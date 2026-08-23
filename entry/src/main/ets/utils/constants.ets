@@ -109,7 +109,7 @@ export class AppConstants {
   static readonly BUILD_MILESTONE: string = 'M6';
   static readonly RPC_DEFAULT_PORT: number = 9091;
   static readonly PEER_DEFAULT_PORT: number = 51413;
-  static readonly ENGINE_VERSION: string = 'Transmission 4.0.6 + OpenSSL + libcurl + libevent';
+  static readonly ENGINE_VERSION: string = 'Transmission 4.1.0 + OpenSSL + libcurl + libevent';
   static readonly PLATFORM: string = 'HarmonyOS NEXT';
   static readonly ARCH: string = 'arm64-v8a';
 }

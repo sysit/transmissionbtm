@@ -28,14 +28,14 @@ ArkTS/ArkUI (33 files)  ← M6 complete, all pages functional
         │
 N-API Bridge (C++, 8 files) ← M1_FULL_BRIDGE active, 35 methods
         │
-libtransmission + deps (C)  ← 18 .a files cross-compiled for OH arm64-v8a (Transmission 4.1 main)
+libtransmission + deps (C)  ← 18 .a files cross-compiled for OH arm64-v8a (Transmission 4.1.0 stable)
 ```
 
 Three layers, all active:
 
 - **ArkTS layer** (`entry/src/main/ets/`): All classes call real `native.*` functions via `NativeBridge.getInstance()`. Covers 7 pages (Index, Downloads, Settings, Proxy, About, AddTorrent, FileTree), 11 components, 8 domain models, 2 services (ConnectivityMonitor, WakeLockManager), and NativeBridge.
 - **N-API bridge** (`entry/src/main/cpp/`): 8 files (7 `.cc` + `napi_init.cpp`) compiled with `M1_FULL_BRIDGE`. 7 submodules (`Register*` functions) register 35 N-API methods. ThreadSafeFunction callbacks wire libtransmission events to ArkTS.
-- **Native engine**: 18 cross-compiled static `.a` files at `entry/src/main/cpp/third_party/` — libtransmission 4.1 (C++ API), OpenSSL (3.0.15), libcurl (8.5.0), libevent (2.1.12) + 10 sub-deps (dht, b64, natpmp, miniupnpc, utp, psl, crcany, deflate, wildmat). Header-only: rapidjson (replaces jsonsl), fmt, fast_float, small, utfcpp, wide-integer, sigslot.
+- **Native engine**: 18 cross-compiled static `.a` files at `entry/src/main/cpp/third_party/` — libtransmission 4.1.0 (C++ API, built from the real stable tag `2724011`), OpenSSL (3.0.15), libcurl (8.5.0), libevent (2.1.12) + sub-deps (dht, b64, natpmp, miniupnpc, utp, psl, crc32c, deflate, wildmat). Header-only: rapidjson (replaces jsonsl), fmt, fast_float, small, utfcpp, wide-integer, sigslot.
 
 ### Third-party `.a` files
 
@@ -51,7 +51,7 @@ All 18 static libraries are at `entry/src/main/cpp/third_party/<lib>/lib/`:
 
 `libjsonsl.a` removed — replaced by header-only rapidjson (bundled with transmission 4.1).
 `libpsl.a` added — Public Suffix List (new submodule in 4.1, eliminates psl_* stubs).
-`libMadlerCrcany.a` added — CRC library (new dependency in 4.1).
+`libcrc32c.a` (Google crc32c) added — CRC library; 4.1.0 vendors `crc32c::Extend` (replaces the madler-crcany used by the 4.2.0-dev tree).
 `third_party_stubs.cc` deleted (E1) — no stubs remain; all formerly-stubbed symbols are resolved by the 4.1 build.
 
 Source repo for the transmission fork: `/Users/xiphis/projects/transmissionbtc` (contains CMake ExternalProject scripts and JNI C++ sources). Build script: `scripts/build-third-party.sh`.
@@ -74,12 +74,14 @@ Source repo for the transmission fork: `/Users/xiphis/projects/transmissionbtc` 
 
 ## Current Status (2026-08-08)
 
+- [x] **Real 4.1.0 stable engine (2026-08-23)** — engine rebuilt from the actual `4.1.0` stable tag (`2724011`), replacing the earlier 4.2.0-dev tree that had only *appeared* to be 4.1.0 via a version-masked `version.h`. M-Team requires 4.1.x. Bridge C++ adapted to 4.1 API (`tr_stat` pointer + camelCase, `tr_ctorSetMetainfo*` `tr_error*` arg, `tr_torrentRemove` 6-arg, raw-callback setters, `TR_UP`/`TR_DOWN`); CRC sub-dep switched madler-crcany → **Google `crc32c`** (`libcrc32c.a`, `crc32c::Extend`); the C++20 oh-compat.h force-include removed (4.1.0 is C++17, no ranges). `crypto-utils.h` (`WITH_OPENSSL`) and the generated `version.h` (re-hand-set `-TR4100-`/`4.1.0`) survived the header regen by re-apply. **BUILD SUCCESSFUL**; on-device verified: M-Team announce `res='Success'`, tracker `seed=/leech=` answered, session + HUKS `selfTest OK`. Rebuild recipe in memory `transmission-410-engine-build`.
+- [x] **ArkUI 5s live-refresh (2026-08-23)** — torrent cards now re-render every 5s (a `TorrentVM` `@Observed` wrapper bound via `@ObjectLink`, mutated in place each poll by `DownloadsPage.syncTorrentVms`, so ForEach reuses cards and updates live instead of only on restart). `SessionController` poll cadence moved 1s → 5s. Verified: `[DBG] stat` at 5s cadence + reactive `ForEachNode skip mark dirty`; seeding torrent shows live "Seeding". About page's stale "4.0.6" engine string corrected to **4.1.0**.
 - [x] DevEco Studio project scaffold (M0.1–0.5)
 - [x] N-API module skeleton with `getVersion()` returning `"0.1.0-m6"`
 - [x] All ArkTS source files written (production code, 33 files)
 - [x] All C++ N-API source files written (8 files, M1_FULL_BRIDGE active)
 - [x] HAP builds and signs successfully (12MB signed HAP)
-- [x] Third-party native libs cross-compiled for OH arm64-v8a (18 .a files, Transmission 4.1)
+- [x] Third-party native libs cross-compiled for OH arm64-v8a (18 .a files, Transmission 4.1.0 stable)
 - [x] M1: N-API bridge → **35 native methods, 26 public NativeBridge methods** (dead surface removed in codex batch, Task #106; 7 more native methods pruned in E1; 7 more dead ArkTS wrappers removed in R9: `getEncryptionMode`, `transmissionVersion`, `torrentSetDnd`, `hashStringToBytes`, `envSet`, `nativeToArktsInit`, `nativeToArktsRelease` — the native C++ registrations stay, harmless unreachable)
 - [x] M2: Preferences & settings persistence (instant-apply, typed getter/setter)
 - [x] M3: Torrent domain models (8 files: TorrentInfo, TorrentFile, TorrentDir, TransmissionSession, FileTreeModel, Preferences, SessionConfig, SessionState[SessionRunState only — SessionState class removed in E4]; legacy models Torrent/TorrentFs/TorrentStat/TorrentItem/TorrentExceptions/MediaInfo/NaturalOrderComparator deleted)
@@ -107,6 +109,7 @@ Source repo for the transmission fork: `/Users/xiphis/projects/transmissionbtc` 
 | `docs/08-java-to-arkts-mapping.md` | 65 Java files → ArkTS mapping |
 | `docs/01-native-bridge-and-core-engine.md` | 40 N-API methods spec, C++ file inventory |
 | `docs/06-feature-map-and-gap-analysis.md` | Feature priorities, deferred list |
+| `docs/12-tracker-connect-debugging.md` | Tracker connect failure investigation + multicast-permission research |
 | `docs/M0-kickoff.md` | M0 execution checklist |
 | `design/tokens.css` | CSS design tokens (reference for ArkTS Colors constant) |
 | `design/demo.html` | Interactive UI prototype |

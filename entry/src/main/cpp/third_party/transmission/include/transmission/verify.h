@@ -19,8 +19,10 @@
 #include <thread>
 #include <utility> // std::move
 
+#include "libtransmission/transmission.h"
+
 #include "libtransmission/torrent-metainfo.h"
-#include "libtransmission/types.h"
+#include "libtransmission/tr-macros.h"
 
 class tr_verify_worker
 {

@@ -102,16 +102,6 @@ public:
         return buffer_[pos];
     }
 
-    [[nodiscard]] constexpr Char& operator[](size_t pos) noexcept
-    {
-        return buffer_[pos];
-    }
-
-    [[nodiscard]] constexpr Char operator[](size_t pos) const noexcept
-    {
-        return buffer_[pos];
-    }
-
     [[nodiscard]] constexpr auto size() const noexcept
     {
         return buffer_.size();
@@ -271,6 +261,28 @@ public:
     [[nodiscard]] constexpr operator auto() const noexcept
     {
         return c_str();
+    }
+
+    bool popdir() noexcept
+    {
+        // NOLINTNEXTLINE(readability-redundant-declaration): P.S. This looks like some dark magic
+        std::string_view tr_sys_path_dirname(std::string_view path);
+        auto const parent = tr_sys_path_dirname(sv());
+        auto const changed = parent != sv();
+
+        if (changed)
+        {
+            if (std::data(parent) == std::data(*this))
+            {
+                resize(std::size(parent));
+            }
+            else
+            {
+                assign(parent);
+            }
+        }
+
+        return changed;
     }
 
 private:

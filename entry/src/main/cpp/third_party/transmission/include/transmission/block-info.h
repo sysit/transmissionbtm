@@ -7,13 +7,12 @@
 
 #include <cstdint> // uint32_t, uint64_t
 
-#include "libtransmission/constants.h"
-#include "libtransmission/types.h"
+#include "libtransmission/transmission.h"
 
 struct tr_block_info
 {
 public:
-    static auto constexpr BlockSize = TrBlockSize;
+    static auto constexpr BlockSize = uint32_t{ 1024U * 16U };
 
     tr_block_info() noexcept = default;
 
@@ -98,12 +97,6 @@ public:
         return byte_loc(uint64_t{ block } * BlockSize);
     }
 
-    [[nodiscard]] constexpr tr_byte_span_t byte_span_for_block(tr_block_index_t const block) const noexcept
-    {
-        auto const begin = block_loc(block).byte;
-        return { .begin = begin, .end = begin + block_size(block) };
-    }
-
     // Location of the last byte in `block`.
     [[nodiscard]] constexpr auto block_last_loc(tr_block_index_t const block) const noexcept
     {
@@ -116,32 +109,25 @@ public:
         return byte_loc((uint64_t{ piece } * piece_size()) + offset + length);
     }
 
-    [[nodiscard]] constexpr tr_byte_span_t byte_span_for_req(tr_piece_index_t piece, uint32_t offset, uint32_t length)
-        const noexcept
-    {
-        auto const begin = piece_loc(piece, offset).byte;
-        return { .begin = begin, .end = begin + length };
-    }
-
     [[nodiscard]] constexpr tr_block_span_t block_span_for_piece(tr_piece_index_t const piece) const noexcept
     {
         if (!is_initialized())
         {
-            return { .begin = 0U, .end = 0U };
+            return { 0U, 0U };
         }
 
-        return { .begin = piece_loc(piece).block, .end = piece_last_loc(piece).block + 1U };
+        return { piece_loc(piece).block, piece_last_loc(piece).block + 1U };
     }
 
     [[nodiscard]] constexpr tr_byte_span_t byte_span_for_piece(tr_piece_index_t const piece) const noexcept
     {
         if (!is_initialized())
         {
-            return { .begin = 0U, .end = 0U };
+            return { 0U, 0U };
         }
 
         auto const offset = piece_loc(piece).byte;
-        return { .begin = offset, .end = offset + piece_size(piece) };
+        return { offset, offset + piece_size(piece) };
     }
 
 private:

@@ -11,18 +11,19 @@
 #include <string_view>
 #include <vector>
 
+#include "libtransmission/transmission.h"
+
 #include "libtransmission/block-info.h"
 #include "libtransmission/magnet-metainfo.h"
 #include "libtransmission/torrent-files.h"
 #include "libtransmission/tr-macros.h"
-#include "libtransmission/types.h"
 
 struct tr_error;
 
 struct tr_torrent_metainfo : public tr_magnet_metainfo
 {
 public:
-    [[nodiscard]] constexpr auto empty() const noexcept
+    [[nodiscard]] TR_CONSTEXPR20 auto empty() const noexcept
     {
         return std::empty(files_);
     }
@@ -41,15 +42,15 @@ public:
     {
         return files_;
     }
-    [[nodiscard]] constexpr auto file_count() const noexcept
+    [[nodiscard]] TR_CONSTEXPR20 auto file_count() const noexcept
     {
         return files().file_count();
     }
-    [[nodiscard]] TR_CONSTEXPR_VEC auto file_size(tr_file_index_t i) const
+    [[nodiscard]] TR_CONSTEXPR20 auto file_size(tr_file_index_t i) const
     {
         return files().file_size(i);
     }
-    [[nodiscard]] TR_CONSTEXPR_VEC auto const& file_subpath(tr_file_index_t i) const
+    [[nodiscard]] TR_CONSTEXPR20 auto const& file_subpath(tr_file_index_t i) const
     {
         return files().path(i);
     }
@@ -131,12 +132,12 @@ public:
         return is_private_;
     }
 
-    [[nodiscard]] TR_CONSTEXPR_VEC tr_sha1_digest_t const& piece_hash(tr_piece_index_t piece) const
+    [[nodiscard]] TR_CONSTEXPR20 tr_sha1_digest_t const& piece_hash(tr_piece_index_t piece) const
     {
         return pieces_[piece];
     }
 
-    [[nodiscard]] constexpr bool has_v1_metadata() const noexcept
+    [[nodiscard]] TR_CONSTEXPR20 bool has_v1_metadata() const noexcept
     {
         // need 'pieces' field and 'files' or 'length'
         // TODO check for 'files' or 'length'

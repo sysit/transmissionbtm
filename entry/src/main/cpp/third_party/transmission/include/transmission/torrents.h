@@ -18,7 +18,10 @@
 #include <utility>
 #include <vector>
 
+#include "libtransmission/transmission.h"
+
 #include "libtransmission/torrent-metainfo.h"
+#include "libtransmission/tr-macros.h"
 
 struct tr_torrent;
 
@@ -32,7 +35,7 @@ public:
     void remove(tr_torrent const* tor, time_t current_time);
 
     // O(1)
-    [[nodiscard]] constexpr tr_torrent* get(tr_torrent_id_t id) const
+    [[nodiscard]] TR_CONSTEXPR20 tr_torrent* get(tr_torrent_id_t id) const
     {
         auto const uid = static_cast<size_t>(id);
         return uid >= std::size(by_id_) ? nullptr : by_id_.at(uid);
@@ -62,40 +65,40 @@ public:
 
     [[nodiscard]] std::vector<tr_torrent_id_t> removedSince(time_t timestamp) const;
 
-    [[nodiscard]] constexpr auto cbegin() const noexcept
+    [[nodiscard]] TR_CONSTEXPR20 auto cbegin() const noexcept
     {
         return std::cbegin(by_hash_);
     }
-    [[nodiscard]] constexpr auto begin() const noexcept
+    [[nodiscard]] TR_CONSTEXPR20 auto begin() const noexcept
     {
         return cbegin();
     }
-    [[nodiscard]] constexpr auto begin() noexcept
+    [[nodiscard]] TR_CONSTEXPR20 auto begin() noexcept
     {
         return std::begin(by_hash_);
     }
 
-    [[nodiscard]] constexpr auto cend() const noexcept
+    [[nodiscard]] TR_CONSTEXPR20 auto cend() const noexcept
     {
         return std::cend(by_hash_);
     }
 
-    [[nodiscard]] constexpr auto end() const noexcept
+    [[nodiscard]] TR_CONSTEXPR20 auto end() const noexcept
     {
         return cend();
     }
 
-    [[nodiscard]] constexpr auto end() noexcept
+    [[nodiscard]] TR_CONSTEXPR20 auto end() noexcept
     {
         return std::end(by_hash_);
     }
 
-    [[nodiscard]] constexpr auto size() const noexcept
+    [[nodiscard]] TR_CONSTEXPR20 auto size() const noexcept
     {
         return std::size(by_hash_);
     }
 
-    [[nodiscard]] constexpr auto empty() const noexcept
+    [[nodiscard]] TR_CONSTEXPR20 auto empty() const noexcept
     {
         return std::empty(by_hash_);
     }
@@ -109,7 +112,7 @@ public:
 
         auto vec = std::vector<tr_torrent*>{};
         vec.reserve(size());
-        tr::copy_if(by_id_, std::back_inserter(vec), pred);
+        std::copy_if(std::begin(by_id_), std::end(by_id_), std::back_inserter(vec), pred);
         return vec;
     }
 

@@ -19,26 +19,25 @@
 
 #include <event2/util.h> // for evutil_socket_t
 
+#include "libtransmission/transmission.h"
+
 #include "libtransmission/bandwidth.h"
+#include "libtransmission/block-info.h"
 #include "libtransmission/peer-mse.h"
 #include "libtransmission/peer-socket.h"
 #include "libtransmission/tr-buffer.h"
-#include "libtransmission/types.h"
+#include "libtransmission/tr-macros.h" // tr_sha1_digest_t, TR_CONSTEXPR20
+#include "libtransmission/utils-ev.h"
 
 struct struct_utp_context;
 struct tr_error;
 struct tr_session;
 struct tr_socket_address;
 
-namespace tr
-{
-class Timer;
-
-namespace test
+namespace libtransmission::test
 {
 class HandshakeTest;
-}
-} // namespace tr
+} // namespace libtransmission::test
 
 enum class ReadState : uint8_t
 {
@@ -46,6 +45,13 @@ enum class ReadState : uint8_t
     Later,
     Break,
     Err
+};
+
+enum tr_preferred_transport : uint8_t
+{
+    TR_PREFER_UTP,
+    TR_PREFER_TCP,
+    TR_NUM_PREFERRED_TRANSPORT
 };
 
 class tr_peerIo final : public std::enable_shared_from_this<tr_peerIo>
@@ -57,6 +63,14 @@ class tr_peerIo final : public std::enable_shared_from_this<tr_peerIo>
     using GotError = void (*)(tr_peerIo* io, tr_error const& error, void* user_data);
 
 public:
+    tr_peerIo(
+        tr_session* session,
+        tr_peer_socket&& socket,
+        tr_bandwidth* parent_bandwidth,
+        tr_sha1_digest_t const* info_hash,
+        bool is_incoming,
+        bool client_is_seed);
+
     ~tr_peerIo();
 
     tr_peerIo(tr_peerIo const&) = delete;
@@ -72,10 +86,7 @@ public:
         bool client_is_seed,
         bool utp);
 
-    static std::shared_ptr<tr_peerIo> new_incoming(
-        tr_session* session,
-        tr_bandwidth* parent,
-        std::shared_ptr<tr_peer_socket> socket);
+    static std::shared_ptr<tr_peerIo> new_incoming(tr_session* session, tr_bandwidth* parent, tr_peer_socket socket);
 
     constexpr void set_callbacks(CanRead can_read, DidWrite did_write, GotError got_error, void* user_data)
     {
@@ -90,11 +101,11 @@ public:
         set_callbacks(nullptr, nullptr, nullptr, nullptr);
     }
 
-    void set_socket(std::shared_ptr<tr_peer_socket> socket_in);
+    void set_socket(tr_peer_socket socket_in);
 
-    [[nodiscard]] auto is_utp() const noexcept
+    [[nodiscard]] constexpr auto is_utp() const noexcept
     {
-        return socket_ ? socket_->is_utp() : false;
+        return socket_.is_utp();
     }
 
     void clear();
@@ -105,7 +116,7 @@ public:
 
     ///
 
-    [[nodiscard]] constexpr auto read_buffer_size() const noexcept
+    [[nodiscard]] TR_CONSTEXPR20 auto read_buffer_size() const noexcept
     {
         return std::size(inbuf_);
     }
@@ -141,7 +152,7 @@ public:
     // Write all the data from `buf`.
     // This is a destructive add: `buf` is empty after this call.
     template<typename T>
-    void write(tr::BufferReader<T>& buf, bool is_piece_data)
+    void write(libtransmission::BufferReader<T>& buf, bool is_piece_data)
     {
         auto const n_bytes = std::size(buf);
         write_bytes(std::data(buf), n_bytes, is_piece_data);
@@ -150,10 +161,7 @@ public:
 
     size_t flush_outgoing_protocol_msgs();
 
-    size_t flush(tr_direction dir, size_t byte_limit)
-    {
-        return dir == tr_direction::Down ? try_read(byte_limit) : try_write(byte_limit);
-    }
+    size_t flush(tr_direction dir, size_t byte_limit);
 
     ///
 
@@ -251,19 +259,19 @@ public:
         return is_incoming_;
     }
 
-    [[nodiscard]] constexpr auto const& socket_address() const noexcept
-    {
-        return socket_address_;
-    }
-
     [[nodiscard]] constexpr auto const& address() const noexcept
     {
-        return socket_address().address();
+        return socket_.address();
+    }
+
+    [[nodiscard]] constexpr auto const& socket_address() const noexcept
+    {
+        return socket_.socket_address();
     }
 
     [[nodiscard]] auto display_name() const
     {
-        return socket_address().display_name();
+        return socket_.display_name();
     }
 
     ///
@@ -279,7 +287,7 @@ public:
         filter_.decrypt_init(is_incoming, dh, info_hash);
     }
 
-    constexpr void decrypt_disable(size_t decrypt_len = 0U) noexcept
+    TR_CONSTEXPR20 void decrypt_disable(size_t decrypt_len = 0U) noexcept
     {
         // optionally decrypt decrypt_len more bytes before disabling decryption
         n_decrypt_remain_ = decrypt_len;
@@ -298,21 +306,21 @@ public:
         filter_.encrypt_disable();
     }
 
+    ///
+
+    static void utp_init(struct_utp_context* ctx);
+
 private:
     // Our target socket receive buffer size.
-    // Gets read from the socket buffer into the incoming PeerBuffer.
+    // Gets read from the socket buffer into the PeerBuffer inbuf_.
     static constexpr auto RcvBuf = size_t{ 256 * 1024 };
 
-    using PeerBuffer = tr_peer_socket::PeerBuffer;
+    // The buffer size for incoming & outgoing peer messages.
+    // Starts off with enough capacity to read a single BT Piece message,
+    // but has a 5x GrowthFactor so that it can quickly to high volume.
+    using PeerBuffer = libtransmission::StackBuffer<tr_block_info::BlockSize + 16U, std::byte, std::ratio<5, 1>>;
 
-    friend class tr::test::HandshakeTest;
-
-    tr_peerIo(
-        tr_session* session,
-        tr_bandwidth* parent_bandwidth,
-        tr_sha1_digest_t const* info_hash,
-        bool is_incoming,
-        bool client_is_seed);
+    friend class libtransmission::test::HandshakeTest;
 
     [[nodiscard]] constexpr auto client_is_seed() const noexcept
     {
@@ -327,11 +335,18 @@ private:
         }
     }
 
+#ifdef WITH_UTP
+    void on_utp_state_change(int new_state);
+    void on_utp_error(int errcode);
+#endif
+
     void close();
 
-    void read_cb();
-    void write_cb();
-    void flush_outbuf_soon();
+    static void event_read_cb(evutil_socket_t fd, short /*event*/, void* vio);
+    static void event_write_cb(evutil_socket_t fd, short /*event*/, void* vio);
+
+    void event_enable(short event);
+    void event_disable(short event);
 
     void can_read_wrapper(size_t bytes_transferred);
     void did_write_wrapper(size_t bytes_transferred);
@@ -339,9 +354,11 @@ private:
     size_t try_read(size_t max);
     size_t try_write(size_t max);
 
+    // this is only public for testing purposes.
+    // production code should use new_outgoing() or new_incoming()
     static std::shared_ptr<tr_peerIo> create(
         tr_session* session,
-        std::shared_ptr<tr_peer_socket> socket,
+        tr_peer_socket&& socket,
         tr_bandwidth* parent,
         tr_sha1_digest_t const* info_hash,
         bool is_incoming,
@@ -352,9 +369,7 @@ private:
 
     std::deque<std::pair<size_t /*n_bytes*/, bool /*is_piece_data*/>> outbuf_info_;
 
-    std::shared_ptr<tr_peer_socket> socket_;
-
-    tr_socket_address socket_address_;
+    tr_peer_socket socket_;
 
     tr_bandwidth bandwidth_;
 
@@ -370,7 +385,10 @@ private:
     GotError got_error_ = nullptr;
     void* user_data_ = nullptr;
 
-    std::unique_ptr<tr::Timer> const flush_outbuf_trigger_;
+    libtransmission::evhelpers::event_unique_ptr event_read_;
+    libtransmission::evhelpers::event_unique_ptr event_write_;
+
+    short int pending_events_ = 0;
 
     tr_priority_t priority_ = TR_PRI_NORMAL;
 

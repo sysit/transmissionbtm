@@ -272,12 +272,17 @@ build_libevent() {
 }
 
 # ═══════════════════════════════════════════════════════════════════
-# 4. transmission 4.1 (main branch) + 18 submodules
+# 4. transmission 4.1.0 (stable tag) + 18 submodules
+#
+# Built from the real 4.1.0 release tag (not a version-masked 4.2.0-dev).
+# Transmission 4.1.0 is C++17 and does NOT use std::ranges, so the C++20
+# compat machinery (oh-compat.h force-include, ranges->tr:: replacement) is
+# NOT needed here — it existed only for the 4.2.x C++20 codebase.
 # ═══════════════════════════════════════════════════════════════════
 
 build_transmission() {
   echo ""
-  echo "=== transmission 4.1 (main) ==="
+  echo "=== transmission 4.1.0 (stable) ==="
 
   local prefix="${THIRD_PARTY}/transmission"
 
@@ -295,13 +300,16 @@ build_transmission() {
     fi
   done
 
-  local src_dir="${BUILD_DIR}/transmission-main"
+  # Reuse the verified 4.1.0 clone already on disk (probe-410) instead of
+  # re-cloning: the main clone fetch'd early-EOF'd over the proxy during the
+  # attempted re-clone. probe-410 is the same `4.1.0` tag (2724011).
+  local src_dir="${BUILD_DIR}/probe-410"
   local build_dir="${BUILD_DIR}/transmission-main-build"
 
-  # Clone transmission 4.1 main (shallow for speed)
+  # Clone transmission 4.1.0 stable (shallow for speed)
   if [ ! -d "${src_dir}" ]; then
-    echo "  Cloning transmission 4.1 main..."
-    git clone --depth 1 --branch main \
+    echo "  Cloning transmission 4.1.0 stable..."
+    git clone --depth 1 --branch 4.1.0 \
       https://github.com/transmission/transmission.git "${src_dir}" 2>&1 | tail -3
     cd "${src_dir}"
     echo "  Initializing submodules (18 total, via proxy)..."
@@ -460,9 +468,9 @@ for root, dirs, files in os.walk(os.path.join(src, "libtransmission")):
 
 print(f"  Patched {count} files with compat shims")
 '
-  # Add force-include of oh-compat.h and source dir to include path
-  # so the compiler finds our C++20 compatibility wrapper functions.
-  CXXFLAGS+=" -include ${src_dir}/libtransmission/oh-compat.h"
+  # Transmission 4.1.0 is C++17 (per its own CMakeLists) and uses no std::ranges,
+  # so the C++20 oh-compat.h shim is not needed and is not present in the 4.1.0
+  # source tree. Keep the source dir on the include path for the local headers.
   CXXFLAGS+=" -I${src_dir}/libtransmission"
 
   rm -rf "${build_dir}"
@@ -538,7 +546,8 @@ print(f"  Patched {count} files with compat shims")
   done
 
   # Sub-dependency .a files from SUBPROJECT / direct builds
-  for pkg in b64 utp wildmat madler-crcany; do
+  # 4.1 vendors Google crc32c (crc32c::Extend), not madler-crcany
+  for pkg in b64 utp wildmat crc32c; do
     find "${build_dir}" -name "lib${pkg}.a" -exec cp {} "${prefix}/lib/" \; 2>/dev/null || true
   done
 

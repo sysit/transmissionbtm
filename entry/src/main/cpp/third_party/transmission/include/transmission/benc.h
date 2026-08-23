@@ -16,7 +16,7 @@
 
 #include "libtransmission/error.h"
 
-namespace tr::benc
+namespace transmission::benc
 {
 
 namespace impl
@@ -386,9 +386,8 @@ bool parse(
             }
             break;
 
-        default:
-            err = EILSEQ;
-            error->set(err, "Malformed benc? invalid bencoded text");
+        default: // invalid bencoded text... march past it
+            benc.remove_prefix(1);
             break;
         }
 
@@ -428,4 +427,4 @@ bool parse(
     return true;
 }
 
-} // namespace tr::benc
+} // namespace transmission::benc

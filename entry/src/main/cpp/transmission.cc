@@ -61,10 +61,10 @@ void callAltSpeedChangedCallback();
 
 // ── C++ callbacks (NOT extern "C" — use std::function types) ──────────
 
-// 4.1: tr_rpc_func = std::function<tr_rpc_callback_status(tr_rpc_callback_type, std::optional<tr_torrent_id_t>)>
-static tr_rpc_callback_status rpcFunc(tr_rpc_callback_type type,
-                                       std::optional<tr_torrent_id_t> tor_id) {
-  tr_torrent_id_t tid = tor_id.value_or(-1);
+// 4.1: tr_rpc_func = raw C pointer tr_rpc_callback_status(*)(tr_session*, tr_rpc_callback_type, tr_torrent*, void*)
+static tr_rpc_callback_status rpcFunc(tr_session* /*session*/, tr_rpc_callback_type type,
+                                      tr_torrent* tor, void* /*user_data*/) {
+  tr_torrent_id_t tid = tor != nullptr ? tr_torrentId(tor) : -1;
   switch (type) {
     case TR_RPC_TORRENT_ADDED:
     case TR_RPC_TORRENT_STARTED:
@@ -87,13 +87,14 @@ static tr_rpc_callback_status rpcFunc(tr_rpc_callback_type type,
   return TR_RPC_OK;
 }
 
-// 4.1: tr_session_metadata_func = std::function<void(tr_torrent_id_t)>
-static void metadataCallback(tr_torrent_id_t tor_id) {
+// 4.1: tr_session_metadata_func = raw C pointer void(*)(tr_session*, tr_torrent*, void*)
+static void metadataCallback(tr_session* /*session*/, tr_torrent* tor, void* /*user_data*/) {
+  tr_torrent_id_t tor_id = tor != nullptr ? tr_torrentId(tor) : -1;
   callTorrentChangedCallback(tor_id);
 }
 
-// 4.1: tr_altSpeedFunc = std::function<void(bool active, bool user_driven)>
-static void altSpeedFunc(bool /*active*/, bool user_driven) {
+// 4.1: tr_altSpeedFunc = raw C pointer void(*)(tr_session*, bool, bool, void*)
+static void altSpeedFunc(tr_session* /*session*/, bool /*active*/, bool user_driven, void* /*user_data*/) {
   if (!user_driven) callAltSpeedChangedCallback();
 }
 
@@ -189,6 +190,16 @@ static napi_value SessionStart(napi_env env, napi_callback_info info) {
     free(settingsJson);
   }
 
+  // Mirror transmissionbtc: the bundled libcurl has no OS CA store (native
+  // libcurl on Android/HarmonyOS can't reach the system trust store), so HTTPS
+  // tracker announces fail TLS with "Could not connect to tracker" (rc=60
+  // peer failed verification). Android upstream disables engine cert
+  // verification via these two libcurl env vars (Native.java initNativeContext)
+  // — keep parity with the proven reference implementation. This applies to
+  // every libtransmission HTTPS request (tracker announce, etc.).
+  setenv("TR_CURL_SSL_NO_VERIFY", "true", 1);
+  setenv("TR_CURL_PROXY_SSL_NO_VERIFY", "true", 1);
+
   // Apply core download settings (explicit args override the JSON above)
   map[TR_KEY_download_dir] = tr_variant{downloadsDir};
   map[TR_KEY_encryption] = static_cast<int64_t>(encrMode);
@@ -247,10 +258,10 @@ static napi_value SessionStart(napi_env env, napi_callback_info info) {
   napi_value jsession;
   napi_create_bigint_uint64(env, (uint64_t)(uintptr_t)session, &jsession);
 
-  // 4.1: Set callbacks (2 params, no user_data)
-  tr_sessionSetRPCCallback(session, rpcFunc);
-  tr_sessionSetAltSpeedFunc(session, altSpeedFunc);
-  tr_sessionSetMetadataCallback(session, metadataCallback);
+  // 4.1: Set callbacks (3 params incl. user_data)
+  tr_sessionSetRPCCallback(session, rpcFunc, nullptr);
+  tr_sessionSetAltSpeedFunc(session, altSpeedFunc, nullptr);
+  tr_sessionSetMetadataCallback(session, metadataCallback, nullptr);
 
   // Note: tr_sessionSetPaused is applied once, after load, below (the old
   // duplicate `tr_sessionSetPaused(session, false)` was redundant).

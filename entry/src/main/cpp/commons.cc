@@ -82,8 +82,8 @@ tr_ctor *ctorFromFile(napi_env env, napi_value jsession, napi_value jpath, bool 
     throwOrLog(env, ERR_ARG, throwErr, "Invalid path argument (null)");
   }
 
-  // 4.0.6: tr_ctorSetMetainfoFromFile takes std::string_view, returns bool
-  if (ctor != nullptr && !tr_ctorSetMetainfoFromFile(ctor, path)) {
+  // 4.1: tr_ctorSetMetainfoFromFile takes a tr_error*, returns bool
+  if (ctor != nullptr && !tr_ctorSetMetainfoFromFile(ctor, path, nullptr)) {
     tr_ctorFree(ctor);
     ctor = nullptr;
     throwOrLog(env, ERR_IO, throwErr, "Invalid torrent file: %s", path);
@@ -107,7 +107,7 @@ infoFromFile(napi_env env, napi_value jsession, napi_value jpath, bool throwErr)
   if (path == nullptr) goto CATCH;
 
   ctor = tr_ctorNew(nullptr);
-  if (tr_ctorSetMetainfoFromFile(ctor, path)) {
+  if (tr_ctorSetMetainfoFromFile(ctor, path, nullptr)) {
     // tr_ctorGetMetainfo returns non-null when metainfo is present
     if (tr_ctorGetMetainfo(ctor) != nullptr) result = true;
   }

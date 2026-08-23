@@ -35,9 +35,9 @@ target_compile_definitions(transmissionbtm_napi PRIVATE
     __TRANSMISSION__
 )
 
-target_compile_options(transmissionbtm_napi PRIVATE
-    -include ${THIRD_PARTY}/transmission/include/transmission/oh-compat.h
-)
+# 3.1 uses C++17/cable headers with no std::ranges, so the C++20 oh-compat.h
+# force-include (4.2.0-only) is removed. The bridge builds as C++20 but the
+# 4.1.0 transmission headers are C++17-clean and need no compat shim.
 
 target_include_directories(transmissionbtm_napi PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
@@ -65,7 +65,7 @@ target_link_libraries(transmissionbtm_napi
     ${THIRD_PARTY}/miniupnpc/lib/libminiupnpc.a
     ${THIRD_PARTY}/utp/lib/libutp.a
     ${THIRD_PARTY}/psl/lib/libpsl.a
-    ${THIRD_PARTY}/crcany/lib/libMadlerCrcany.a
+    ${THIRD_PARTY}/crc32c/lib/libcrc32c.a
     ${THIRD_PARTY}/deflate/lib/libdeflate.a
     ${THIRD_PARTY}/wildmat/lib/libwildmat.a
     ${THIRD_PARTY}/curl/lib/libcurl.a

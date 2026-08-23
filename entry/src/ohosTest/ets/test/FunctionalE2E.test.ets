@@ -137,11 +137,19 @@ async function waitForTorrentCount(session: TransmissionSession,
  * dirs under the app files dir, networking features disabled so no external
  * traffic is attempted (deterministic, offline).
  */
+let runCounter: number = 0;
+
 function makeIsolatedConfig(tag: string): SessionConfig {
   const base = getFilesBaseDir();
+  // A fixed tag would persist settingsDir/downloadDir ACROSS `aa test`
+  // invocations: the next run's tr_sessionLoadTorrents re-loads the leftover
+  // torrents from the previous run → the fixture-add returns DUPLICATE (2).
+  // Append a run-unique suffix so every session starts on a clean, empty dir
+  // (matches the "UNIQUE settingsDir" isolation intent in the header comment).
+  const unique = `${tag}_${Date.now()}_${runCounter++}`;
   const cfg = defaultSessionConfig();
-  cfg.settingsDir = `${base}/e2e_${tag}`;
-  cfg.downloadDir = `${base}/e2e_${tag}_dl`;
+  cfg.settingsDir = `${base}/e2e_${unique}`;
+  cfg.downloadDir = `${base}/e2e_${unique}_dl`;
   ensureDir(cfg.settingsDir);
   ensureDir(cfg.downloadDir);
   cfg.enableRpc = false;
@@ -345,16 +353,21 @@ export default function functionalE2ETest() {
       const file0 = files[0];
       expect(file0.wanted).assertTrue();
 
-      // DnD: mark file 0 as unwanted → native torrentSetFileWanted.
-      // setWanted() now lives on the session facade (models are pure).
+      // DnD: mark file 0 as unwanted via the session facade (models are pure).
+      // The wanted state is applied on the session event thread, so it is
+      // EVENTUALLY consistent — the app reflects it on its 1s poll / next tree
+      // open, not on a synchronous read. Poll (bounded) to assert the applied
+      // state rather than racing the event thread (the emulator runs slower
+      // than the physical device and exposed this race).
       session.setFileWanted(id, [false]);
-      session.refreshFileStat(id, file0);
-      expect(file0.wanted).assertFalse();
-      expect(file0.priority).assertEqual(FilePriority.SKIP);
-
-      // Verify the native side applied it: re-read the per-file stat whose
-      // status field is 2 (= !wanted) when DnD'd.
-      session.refreshFileStat(id, file0);
+      const deadline = Date.now() + 3000;
+      let applied = false;
+      while (Date.now() < deadline) {
+        session.refreshFileStat(id, file0);
+        if (!file0.wanted) { applied = true; break; }
+        await sleep(100);
+      }
+      expect(applied).assertTrue();
       expect(file0.priority).assertEqual(FilePriority.SKIP);
 
       session.removeTorrent(id, false);

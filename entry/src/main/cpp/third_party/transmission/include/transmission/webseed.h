@@ -12,6 +12,8 @@
 #include <memory>
 #include <string_view>
 
+#include "libtransmission/transmission.h"
+
 #include "libtransmission/peer-common.h"
 
 using tr_peer_callback_webseed = tr_peer_callback_generic;

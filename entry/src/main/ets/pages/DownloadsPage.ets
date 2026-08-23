@@ -14,6 +14,7 @@ import { PreferencesManager, PrefKeys } from '../models/Preferences';
 import { picker, fileIo as fs } from '@kit.CoreFileKit';
 import { promptAction } from '@kit.ArkUI';
 import { TorrentCard } from '../components/torrent/TorrentCard';
+import { TorrentVM } from '../components/torrent/TorrentVM';
 import { TorrentContextMenu, TorrentAction } from '../components/torrent/TorrentContextMenu';
 import { AddTorrentPage } from './AddTorrentPage';
 import { FileTreePage } from './FileTreePage';
@@ -29,6 +30,9 @@ const TAG = 'DownloadsPage';
 @Component
 export struct DownloadsPage {
   @State torrents: TorrentInfo[] = [];
+  // ArkUI-observable mirror of `torrents`, one TorrentVM per torrent, mutated
+  // in place each poll so the reused ForEach cards re-render live (see TorrentVM).
+  @State torrentVms: TorrentVM[] = [];
   @State isLoading: boolean = true;
   @State showAddPage: boolean = false;
   @State showFileTree: boolean = false;
@@ -53,7 +57,10 @@ export struct DownloadsPage {
 
   aboutToAppear(): void {
     hilog.info(0x0001, TAG, 'DownloadsPage aboutToAppear');
-    this.controller.onTorrents = (list: TorrentInfo[]) => { this.torrents = list; };
+    this.controller.onTorrents = (list: TorrentInfo[]) => {
+      this.torrents = list;
+      this.syncTorrentVms(list);
+    };
     this.controller.onLoading = (loading: boolean) => { this.isLoading = loading; };
     this.initSession();
   }
@@ -280,6 +287,31 @@ export struct DownloadsPage {
     this.controller.reload();
   }
 
+  /**
+   * Reconcile @State torrentVms against the latest polled list, REUSING the
+   * existing TorrentVM instances by id. Re-using keeps the ForEach child
+   * components (and their @State, e.g. isExpanded) alive; setting `vm.torrent`
+   * to the fresh TorrentInfo is an @Observed mutation that re-renders the
+   * @ObjectLink-bound card in place instead of freezing on first render.
+   */
+  private syncTorrentVms(list: TorrentInfo[]): void {
+    const prev = new Map<number, TorrentVM>();
+    for (const vm of this.torrentVms) {
+      prev.set(vm.torrent.id, vm);
+    }
+    const next: TorrentVM[] = [];
+    for (const t of list) {
+      const existing = prev.get(t.id);
+      if (existing !== undefined) {
+        existing.torrent = t; // mutate in place → @ObjectLink re-renders
+        next.push(existing);
+      } else {
+        next.push(new TorrentVM(t));
+      }
+    }
+    this.torrentVms = next;
+  }
+
   // ═══════════════════════════════════════════════════════════════════
   // Build
   // ═══════════════════════════════════════════════════════════════════
@@ -415,28 +447,28 @@ export struct DownloadsPage {
 
     // Torrent list
     List() {
-      ForEach(this.torrents, (torrent: TorrentInfo) => {
+      ForEach(this.torrentVms, (vm: TorrentVM) => {
         ListItem() {
           TorrentCard({
-            torrent: torrent,
+            vm: vm,
             sessionId: this.controller.sessionId,
-            onPause: () => { this.onPause(torrent); },
-            onResume: () => { this.onResume(torrent); },
-            onRemove: () => { this.onRemove(torrent); },
-            onVerify: () => { this.onVerify(torrent); },
-            onReannounce: () => { this.onReannounce(torrent); },
-            onShowFiles: () => { this.onShowFiles(torrent); },
+            onPause: () => { this.onPause(vm.torrent); },
+            onResume: () => { this.onResume(vm.torrent); },
+            onRemove: () => { this.onRemove(vm.torrent); },
+            onVerify: () => { this.onVerify(vm.torrent); },
+            onReannounce: () => { this.onReannounce(vm.torrent); },
+            onShowFiles: () => { this.onShowFiles(vm.torrent); },
           });
         }
         .gesture(
           LongPressGesture({ repeat: false, duration: 500 })
             .onAction(() => {
-              this.contextMenuTorrent = torrent;
+              this.contextMenuTorrent = vm.torrent;
               this.showContextMenu = true;
             })
         )
         .margin({ left: Spacing.LG, right: Spacing.LG, bottom: Spacing.MD });
-      }, (t: TorrentInfo) => `${t.id}`)
+      }, (vm: TorrentVM) => `${vm.torrent.id}`)
     }
     .layoutWeight(1)
     .width('100%');

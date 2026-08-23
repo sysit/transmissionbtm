@@ -1,7 +1,7 @@
 // transmissionbtm — SessionController
 //
 // Consolidates the DownloadsPage session side-effects into one observable,
-// addressable unit: the libtransmission session lifecycle, the 1s polling
+// addressable unit: the libtransmission session lifecycle, the 5s polling
 // loop, the D3 wake lock, and the D4 connectivity monitor (network-loss
 // suspend/resume). The page keeps its own @State and subscribes through
 // onTorrents()/onLoading(), so ArkUI reactivity is unchanged — only the
@@ -69,7 +69,7 @@ export class SessionController {
   }
 
   /**
-   * Start the native session, then the 1s poll, the wake lock, and the
+   * Start the native session, then the 5s poll, the wake lock, and the
    * connectivity monitor. Mirrors the page's former initSession(): the page
    * resolves sandbox paths into config BEFORE calling start; here we start the
    * session and begin polling.
@@ -180,9 +180,11 @@ export class SessionController {
   // ── Polling loop ─────────────────────────────────────────────────────
 
   private startPolling(): void {
+    // Poll every 5s (user requirement): the engine-side stats are cheap and 5s
+    // keeps the UI responsive without per-second re-render churn.
     this.pollTimer = setInterval(() => {
       this.refresh();
-    }, 1000);
+    }, 5000);
   }
 
   private stopPolling(): void {

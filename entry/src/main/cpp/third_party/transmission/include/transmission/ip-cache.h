@@ -3,24 +3,24 @@
 // or any future license endorsed by Mnemosyne LLC.
 // License text can be found in the licenses/ folder.
 
-#ifndef __TRANSMISSION__
-#error only libtransmission should #include this header.
-#endif
-
-#pragma once
-
 #include <array>
 #include <chrono> // std::chrono::milliseconds
+#include <condition_variable>
 #include <memory> // std::unique_ptr
+#include <mutex>
 #include <optional>
 #include <shared_mutex>
-#include <span>
 #include <string_view>
-#include <vector>
 
 #include "libtransmission/net.h"
 #include "libtransmission/timer.h"
 #include "libtransmission/web.h"
+
+#pragma once
+
+#ifndef __TRANSMISSION__
+#error only libtransmission should #include this header.
+#endif
 
 /**
  * Cache IP addresses.
@@ -28,17 +28,11 @@
  * This class caches 3 useful info:
  * 1. Whether your machine supports the IP protocol
  * 2. Source address used for global connections
- * 3. Global address (IPv4 public address/IPv6 global unicast address) retrieved
- *    from HTTP IP query endpoints on the Internet.
+ * 3. Global address (IPv4 public address/IPv6 global unicast address)
  *
  * The idea is, if this class successfully cached a source address, that means
  * your system is capable in that IP protocol. And if the global address is
  * the same as the source address, then you are not behind a NAT.
- *
- * The global address cached in this class is not to be trusted 100%. Although
- * uncommon, your BT packets might be routed differently than HTTP traffic such
- * that your global address appears differently to other BT clients than the IP
- * query services.
  */
 class tr_ip_cache : public std::enable_shared_from_this<tr_ip_cache>
 {
@@ -56,12 +50,7 @@ public:
             return {};
         }
 
-        [[nodiscard]] virtual std::span<std::string const> settings_ip_endpoint(tr_address_type /*type*/)
-        {
-            return {};
-        }
-
-        [[nodiscard]] virtual tr::TimerMaker& timer_maker() = 0;
+        [[nodiscard]] virtual libtransmission::TimerMaker& timer_maker() = 0;
     };
 
     static std::shared_ptr<tr_ip_cache> create(Mediator& mediator);
@@ -123,19 +112,18 @@ private:
         upkeep_timers_[type]->stop();
     }
 
-    [[nodiscard]] bool set_is_updating(tr_address_type type, std::span<std::string const> ip_endpoints = {}) noexcept;
+    [[nodiscard]] bool set_is_updating(tr_address_type type) noexcept;
     void unset_is_updating(tr_address_type type) noexcept;
 
     Mediator& mediator_;
 
     enum class is_updating_t : uint8_t
     {
-        No = 0,
-        Yes,
-        Abort
+        NO = 0,
+        YES,
+        ABORT
     };
     array_ip_t<is_updating_t> is_updating_ = {};
-    array_ip_t<std::vector<std::string>> current_ip_endpoints_ = {};
 
     // Never directly read/write IP addresses for the sake of being thread safe
     // Use global_*_addr() for read, and set_*_addr()/unset_*_addr() for write instead
@@ -148,7 +136,7 @@ private:
     // Keep the timer at the bottom of the class definition so that it will be destructed first
     // We don't want it to trigger after the IP addresses have been destroyed
     // (The destructor will acquire the IP address locks before proceeding, but still)
-    array_ip_t<std::unique_ptr<tr::Timer>> upkeep_timers_;
+    array_ip_t<std::unique_ptr<libtransmission::Timer>> upkeep_timers_;
 
     // Whether this machine supports this IP protocol
     array_ip_t<bool> has_ip_protocol_ = { true, true };

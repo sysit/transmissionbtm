@@ -203,7 +203,7 @@ export struct AboutPage {
         .padding({ left: Spacing.MD, bottom: Spacing.SM });
 
       Column() {
-        this.BuildLicenseRow('libtransmission', '4.0.6', 'GPL-2.0 / MIT');
+        this.BuildLicenseRow('libtransmission', '4.1.0', 'GPL-2.0 / MIT');
         this.BuildDivider();
         this.BuildLicenseRow('OpenSSL', '3.0', 'Apache-2.0');
         this.BuildDivider();

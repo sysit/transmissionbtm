@@ -17,11 +17,12 @@
 #include <string>
 #include <vector>
 
+#include "libtransmission/transmission.h" // tr_block_span_t (ptr only)
+
 #include "libtransmission/blocklist.h"
 #include "libtransmission/handshake.h"
 #include "libtransmission/net.h" /* tr_address */
 #include "libtransmission/tr-assert.h"
-#include "libtransmission/types.h"
 #include "libtransmission/utils.h" /* tr_compare_3way */
 #include "libtransmission/variant.h"
 
@@ -300,7 +301,7 @@ public:
 
     // ---
 
-    [[nodiscard]] bool is_blocklisted(tr::Blocklists const& blocklist) const
+    [[nodiscard]] bool is_blocklisted(libtransmission::Blocklists const& blocklist) const
     {
         if (!blocklisted_.has_value())
         {
@@ -629,19 +630,39 @@ struct tr_pex
         uint8_t const* added_f,
         size_t added_f_len);
 
+    [[nodiscard]] tr_variant::Map to_variant() const;
+
+    [[nodiscard]] static tr_variant::Vector to_variant(tr_pex const* pex, size_t n_pex)
+    {
+        auto ret = tr_variant::Vector{};
+        ret.reserve(n_pex);
+        for (size_t i = 0; i < n_pex; ++i)
+        {
+            ret.emplace_back(pex[i].to_variant());
+        }
+        return ret;
+    }
+
+    [[nodiscard]] static std::vector<tr_pex> from_variant(tr_variant const* var, size_t n_var);
+
     [[nodiscard]] std::string display_name() const
     {
         return socket_address.display_name();
     }
 
-    [[nodiscard]] auto operator<=>(tr_pex const& that) const noexcept
+    [[nodiscard]] int compare(tr_pex const& that) const noexcept // <=>
     {
-        return socket_address <=> that.socket_address;
+        return socket_address.compare(that.socket_address);
     }
 
     [[nodiscard]] bool operator==(tr_pex const& that) const noexcept
     {
-        return (*this <=> that) == 0;
+        return compare(that) == 0;
+    }
+
+    [[nodiscard]] bool operator<(tr_pex const& that) const noexcept
+    {
+        return compare(that) < 0;
     }
 
     [[nodiscard]] bool is_valid() const noexcept
@@ -670,7 +691,7 @@ void tr_peerMgrFree(tr_peerMgr* manager);
 
 [[nodiscard]] std::vector<tr_block_span_t> tr_peerMgrGetNextRequests(tr_torrent* torrent, tr_peer const* peer, size_t numwant);
 
-void tr_peerMgrAddIncoming(tr_peerMgr* manager, std::shared_ptr<tr_peer_socket> socket);
+void tr_peerMgrAddIncoming(tr_peerMgr* manager, tr_peer_socket&& socket);
 
 size_t tr_peerMgrAddPex(tr_torrent* tor, tr_peer_from from, tr_pex const* pex, size_t n_pex);
 
@@ -695,7 +716,7 @@ void tr_peerMgrTorrentAvailability(tr_torrent const* tor, int8_t* tab, unsigned 
 
 [[nodiscard]] uint64_t tr_peerMgrGetDesiredAvailable(tr_torrent const* tor);
 
-[[nodiscard]] std::vector<tr_peer_stat> tr_peerMgrPeerStats(tr_torrent const* tor);
+[[nodiscard]] struct tr_peer_stat* tr_peerMgrPeerStats(tr_torrent const* tor, size_t* setme_count);
 
 [[nodiscard]] tr_webseed_view tr_peerMgrWebseed(tr_torrent const* tor, size_t i);
 

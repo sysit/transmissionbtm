@@ -7,10 +7,10 @@
 //   metainfo_ is private → use tor->info_hash(), tor->file_count(), etc.
 //   completion_ is private → use tor->size_when_done(), tor->has_piece(), etc.
 //   swarm is private → use tr_torrentStat() for peer counts and speeds
-//   bytes_uploaded_ is private → use tr_torrentStat().uploaded_ever
+//   bytes_uploaded_ is private → use tr_torrentStat()->uploadedEver
 //   cache is internal → read_block() removed; torrentGetPiece stubbed
 //   tr_file_view → still exists, tr_torrentFile() unchanged
-//   tor->error / tor->error_string → tor->error().is_local_error() / tor->error().errmsg()
+//   tor->error / tor->error_string → tor->error().error_type()==TR_STAT_LOCAL_ERROR / errmsg()
 
 #include "commons.h"
 #include <libtransmission/transmission.h>
@@ -21,6 +21,7 @@
 #include <cstdlib>
 #include <fcntl.h>
 #include <unistd.h>
+#include <curl/curl.h>
 
 #undef LOG_DOMAIN
 #undef LOG_TAG
@@ -76,7 +77,7 @@ static double getPercentDone(tr_torrent const *tor) {
 // Helper: get bytes uploaded ever (via tr_stat, avoids private member)
 static uint64_t getUploadedEver(tr_torrent *tor) {
   auto stat = tr_torrentStat(tor);
-  return stat.uploaded_ever;
+  return stat->uploadedEver;
 }
 
 extern "C" {
@@ -204,7 +205,7 @@ static napi_value TorrentAdd(napi_env env, napi_callback_info info) {
         : "magnet:?xt=urn:btih:" + std::string(sv);
       ctor = tr_ctorNew(getSession(env, args[0]));
       if (ctor != nullptr &&
-          !tr_ctorSetMetainfoFromMagnetLink(ctor, magnetUri, nullptr)) {
+          !tr_ctorSetMetainfoFromMagnetLink(ctor, magnetUri.c_str(), nullptr)) {
         tr_ctorFree(ctor);
         ctor = nullptr;
       }
@@ -299,7 +300,7 @@ typedef struct { int32_t id; bool removeData; } TorrentRemoveData;
 static void *torrentRemoveFunc(tr_session *s, void *d, Err *err) {
   auto *rd = (TorrentRemoveData *) d;
   tr_torrent *tor = findTorrentById(s, rd->id, err);
-  if (tor) tr_torrentRemove(tor, rd->removeData);
+  if (tor) tr_torrentRemove(tor, rd->removeData, nullptr, nullptr, nullptr, nullptr);
   return nullptr;
 }
 static napi_value TorrentRemove(napi_env env, napi_callback_info info) {
@@ -340,7 +341,7 @@ static void *TorrentStartFunc(tr_session *s, void *d, Err *err) {
                  "[DBG] start %{public}s id=%{public}d act=%{public}d run=%{public}d queued=%{public}d dir=%{public}d total=%{public}lld localerr=%{public}d err='%{public}s'",
                  tag, tr_torrentId(tor), (int)tor->activity(), tor->is_running()?1:0,
                  tor->is_queued(dir)?1:0, (int)dir, (long long)tor->size_when_done(),
-                 tor->error().is_local_error()?1:0, errs.c_str());
+                 tor->error().error_type() == TR_STAT_LOCAL_ERROR?1:0, errs.c_str());
   };
   logState("BEFORE");
   tr_torrentStart(tor);
@@ -367,7 +368,7 @@ static napi_value TorrentListFilesFromFile(napi_env env, napi_callback_info info
   if (path == nullptr) return nullptr;
 
   tr_ctor *ctor = tr_ctorNew(nullptr);
-  if (!tr_ctorSetMetainfoFromFile(ctor, path)) {
+  if (!tr_ctorSetMetainfoFromFile(ctor, path, nullptr)) {
     free(path);
     tr_ctorFree(ctor);
     napi_throw_error(env, nullptr, "Failed to parse torrent file");
@@ -624,10 +625,14 @@ static void *torrentGetFileStatFunc(tr_session *s, void *d, Err *err) {
   size_t pieceRange = lastPiece - firstPiece + 1;
   size_t fc = (pieceRange + 63) / 64;
   int32_t sl = (int32_t)(fc + 6);
-  if (sl > (int32_t)(SIZE_MAX / sizeof(int64_t))) return nullptr;
+  // (size_t)sl must be compared, not (int32_t)(SIZE_MAX/8): the int32 cast of
+  // ~2^61 truncates to a negative value, so a plain int32 compare ALWAYS
+  // trips and this func returned a 0-length buffer for every file (breaking
+  // file stat, DnD wanted-flip, and the FileTree view).
+  if (sl < 0 || (size_t)sl > SIZE_MAX / sizeof(int64_t)) { free(tabs); return nullptr; }
   int64_t *bf = fs->bf;
   if (!bf) { bf = fs->bf = (int64_t *) malloc(sizeof(int64_t) * (size_t)sl); fs->alloc = true; }
-  if (!bf) return nullptr;
+  if (!bf) { free(tabs); return nullptr; }
   fs->bfLen = sl;
 
   bool complete = true;
@@ -755,8 +760,50 @@ static napi_value TorrentGetPiece(napi_env env, napi_callback_info info) {
 
 // ── torrentStatBrief (10 int64 per torrent) ─────────────────────────
 typedef struct { int64_t *stat; int32_t statLen; bool alloc; } StatBriefData;
+// [PROBE] One-shot HTTP reachability check using the app's own libcurl,
+// run on the first poll. Distinguishes "app can't reach anything (INTERNET
+// permission / sandbox / CA bundle)" from "tracker-specific failure".
+// No passkey is used — the tracker probe hits only the bare https://host/.
+static size_t HttpProbeDiscard(void *, size_t sz, size_t nm, void *) { return sz * nm; }
+
+static void HttpProbeFetch(const char *label, const char *url) {
+  CURL *c = curl_easy_init();
+  if (!c) {
+    OH_LOG_Print(LOG_APP, LOG_WARN, LOG_DOMAIN, LOG_TAG,
+                 "[PROBE] %{public}s curl_easy_init FAILED", label);
+    return;
+  }
+  char errbuf[CURL_ERROR_SIZE] = {0};
+  char effip[64] = {0};
+  double ct = 0;
+  curl_easy_setopt(c, CURLOPT_URL, url);
+  curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, HttpProbeDiscard);
+  curl_easy_setopt(c, CURLOPT_ERRORBUFFER, errbuf);
+  curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT, 5L);
+  curl_easy_setopt(c, CURLOPT_TIMEOUT, 8L);
+  curl_easy_setopt(c, CURLOPT_SSL_VERIFYPEER, 1L);
+  curl_easy_setopt(c, CURLOPT_USERAGENT, "transmissionbtm-probe");
+  CURLcode rc = curl_easy_perform(c);
+  curl_easy_getinfo(c, CURLINFO_PRIMARY_IP, effip);
+  curl_easy_getinfo(c, CURLINFO_CONNECT_TIME, &ct);
+  OH_LOG_Print(LOG_APP, rc == CURLE_OK ? LOG_INFO : LOG_WARN, LOG_DOMAIN, LOG_TAG,
+               "[PROBE] %{public}s url=%{public}s rc=%{public}d ip=%{public}s connect=%.3fs err='%{public}s'",
+               label, url, (int)rc, effip, ct, errbuf);
+  curl_easy_cleanup(c);
+}
+
+static void HttpProbeOnce() {
+  HttpProbeFetch("control", "https://example.com/");
+  HttpProbeFetch("tracker", "https://tracker.m-team.cc/");
+}
+
 static void *torrentStatBriefFunc(tr_session *s, void *d, Err *err) {
   (void)err;
+  static bool s_probe_done = false;
+  if (!s_probe_done) {
+    s_probe_done = true;
+    HttpProbeOnce();
+  }
   auto *sb = (StatBriefData *) d;
   int n = (int)s->torrents().size();
   int sl = n * 10;
@@ -772,21 +819,12 @@ static void *torrentStatBriefFunc(tr_session *s, void *d, Err *err) {
   for (auto tor : s->torrents()) {
     i += 10;
     auto st = tor->activity();
-    { // [DBG] live engine state per poll
-      auto dir = tor->queue_direction();
-      auto errs = std::string(tor->error().errmsg());
-      OH_LOG_Print(LOG_APP, LOG_INFO, LOG_DOMAIN, LOG_TAG,
-                   "[DBG] stat id=%{public}d act=%{public}d run=%{public}d queued=%{public}d dir=%{public}d total=%{public}lld left=%{public}lld localerr=%{public}d err='%{public}s'",
-                   tr_torrentId(tor), (int)st, tor->is_running()?1:0, tor->is_queued(dir)?1:0,
-                   (int)dir, (long long)tor->size_when_done(), (long long)tor->left_until_done(),
-                   tor->error().is_local_error()?1:0, errs.c_str());
-    }
     sb->stat[i] = tr_torrentId(tor);
     sb->stat[i + 3] = tor->size_when_done();
     sb->stat[i + 4] = tor->left_until_done();
-    // 4.1: bytes_uploaded_ is private. Use tr_torrentStat().uploaded_ever
+    // 4.1: bytes_uploaded_ is private. Use tr_torrentStat()->uploadedEver
     sb->stat[i + 5] = (int64_t)getUploadedEver(tor);
-    if (!tor->error().is_local_error()) {
+    if (tor->error().error_type() != TR_STAT_LOCAL_ERROR) {
       switch (st) {
         case TR_STATUS_STOPPED:
           sb->stat[i+1]=0;
@@ -817,10 +855,62 @@ static void *torrentStatBriefFunc(tr_session *s, void *d, Err *err) {
     }
     // 4.1: swarm is private. Use tr_torrentStat() for peer info.
     auto stat = tr_torrentStat(tor);
-    sb->stat[i+6] = stat.peers_getting_from_us;
-    sb->stat[i+7] = stat.peers_sending_to_us + stat.webseeds_sending_to_us;
-    sb->stat[i+8] = (int64_t)stat.piece_upload_speed.base_quantity();
-    sb->stat[i+9] = (int64_t)stat.piece_download_speed.base_quantity();
+    sb->stat[i+6] = stat->peersGettingFromUs;
+    sb->stat[i+7] = stat->peersSendingToUs + stat->webseedsSendingToUs;
+    sb->stat[i+8] = (int64_t)stat->pieceUploadSpeed_KBps;
+    sb->stat[i+9] = (int64_t)stat->pieceDownloadSpeed_KBps;
+
+    { // [DBG] live engine state per poll — expanded for the "downloads but
+      // 0 bytes" investigation. dl_peers = peers SENDING us data (what we can
+      // download from); ul_peers = peers GETTING data from us. Encr: 0=TOLERATED,
+      // 1=PREFERRED, 2=REQUIRED (see tr_encryption_mode).
+      auto dirq = tor->queue_direction();
+      auto errs = std::string(tor->error().errmsg());
+      auto const& scfg = s->settings();
+      long long haveValid = (long long)tor->size_when_done() - (long long)tor->left_until_done();
+      // Tracker announce state via tr_tracker_view. Only 'host' (${host}:${port})
+      // and result/peer-int counters are printed — the full 'announce' URL may
+      // embed a PT passkey and is deliberately NOT logged.
+      std::string trk_cstr;
+      size_t trk_n = tr_torrentTrackerCount(tor);
+      for (size_t k = 0; k < trk_n; ++k) {
+        auto tv = tr_torrentTracker(tor, k);
+        if (k) trk_cstr += " | ";
+        char tbuf[320];
+        snprintf(tbuf, sizeof(tbuf),
+                 "%s st=%d peers=%zu seed=%lld leech=%lld ok=%d to=%d res='%s'",
+                 tv.host_and_port, (int)tv.announceState, tv.lastAnnouncePeerCount,
+                 (long long)tv.seederCount, (long long)tv.leecherCount,
+                 tv.lastAnnounceSucceeded?1:0, tv.lastAnnounceTimedOut?1:0,
+                 tv.lastAnnounceResult);
+        trk_cstr += tbuf;
+      }
+      OH_LOG_Print(LOG_APP, LOG_INFO, LOG_DOMAIN, LOG_TAG,
+                   "[DBG] stat id=%{public}d act=%{public}d run=%{public}d queued=%{public}d "
+                   "total=%{public}lld have=%{public}lld left=%{public}lld "
+                   "dl_peers=%{public}d ul_peers=%{public}d webseed=%{public}d "
+                   "dlspeed=%{public}lld upspeed=%{public}lld "
+                   "dht=%{public}d pex=%{public}d utp=%{public}d tcp=%{public}d pfw=%{public}d "
+                   "encr=%{public}d dllim=%{public}d dllimKB=%{public}lld ullim=%{public}d ullimKB=%{public}lld "
+                   "priv=%{public}d tdht=%{public}d tpex=%{public}d trk=%{public}lld "
+                   "trkdbg='%{public}s' localerr=%{public}d err='%{public}s'",
+                   tr_torrentId(tor), (int)st, tor->is_running()?1:0, tor->is_queued(dirq)?1:0,
+                   (long long)tor->size_when_done(), haveValid,
+                   (long long)tor->left_until_done(),
+                   (int)stat->peersSendingToUs, (int)stat->peersGettingFromUs,
+                   (int)stat->webseedsSendingToUs,
+                   (long long)stat->pieceDownloadSpeed_KBps,
+                   (long long)stat->pieceUploadSpeed_KBps,
+                   scfg.dht_enabled?1:0, scfg.pex_enabled?1:0, scfg.utp_enabled?1:0,
+                   scfg.tcp_enabled?1:0, scfg.port_forwarding_enabled?1:0,
+                   (int)scfg.encryption_mode,
+                   s->is_speed_limited(TR_DOWN)?1:0, (long long)scfg.speed_limit_down,
+                   s->is_speed_limited(TR_UP)?1:0, (long long)scfg.speed_limit_up,
+                   tor->is_private()?1:0, tor->allows_dht()?1:0, tor->allows_pex()?1:0,
+                   (long long)tor->announce_list().size(),
+                   trk_cstr.c_str(),
+                   tor->error().error_type() == TR_STAT_LOCAL_ERROR?1:0, errs.c_str());
+    }
   }
   return nullptr;
 }
@@ -829,12 +919,21 @@ static napi_value TorrentStatBrief(napi_env env, napi_callback_info info) {
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
   StatBriefData d = {nullptr, 0, false};
   runInTransmissionThread(__FILE__, __LINE__, env, args[0], torrentStatBriefFunc, &d);
-  if (d.stat == nullptr || d.statLen == 0) {
-    napi_value r; napi_get_null(env, &r); return r;
+  // Empty session (0 torrents) and allocation-failure both end with statLen==0 /
+  // stat==null. Return a 0-length buffer (not null) so the value is always a
+  // valid ArrayBuffer — this matches the ArkTS-side contract (native.ts mock
+  // torrentStatBrief → new ArrayBuffer(0)). The app's applyStatBrief guards
+  // `byteLength < 80`, so a 0-length buffer is safe and skips the merge.
+  if (d.stat == nullptr || d.statLen <= 0) {
+    napi_value r; void *out;
+    napi_create_arraybuffer(env, 0, &out, &r);
+    if (d.alloc) free(d.stat); // malloc(0) returned a non-null ptr — release it
+    return r;
   }
+  size_t bytes = (size_t)d.statLen * sizeof(int64_t);
   napi_value r; void *out;
-  napi_create_arraybuffer(env, d.statLen * sizeof(int64_t), &out, &r);
-  memcpy(out, d.stat, d.statLen * sizeof(int64_t));
+  napi_create_arraybuffer(env, bytes, &out, &r);
+  memcpy(out, d.stat, bytes);
   if (d.alloc) free(d.stat);
   return r;
 }
@@ -866,7 +965,7 @@ static void *torrentStateFunc(tr_session *s, void *d, Err *err) {
            "act=%d run=%d queued=%d dir=%d total=%lld left=%lld localerr=%d err='%s'",
            (int)tor->activity(), tor->is_running()?1:0, tor->is_queued(dir)?1:0, (int)dir,
            (long long)tor->size_when_done(), (long long)tor->left_until_done(),
-           tor->error().is_local_error()?1:0, errs.c_str());
+           tor->error().error_type() == TR_STAT_LOCAL_ERROR?1:0, errs.c_str());
   return strdup(buf);
 }
 static napi_value TorrentState(napi_env env, napi_callback_info info) {
@@ -884,7 +983,9 @@ typedef struct { bool dnd; int32_t id; tr_file_index_t *files; tr_file_index_t c
 static void *torrentSetDndFunc(tr_session *s, void *d, Err *err) {
   auto *sd = (SetDndData *) d;
   tr_torrent *tor = findTorrentById(s, sd->id, err);
-  if (tor) tr_torrentSetFileDLs(tor, sd->files, sd->count, !sd->dnd);
+  if (tor) {
+    tr_torrentSetFileDLs(tor, sd->files, sd->count, !sd->dnd);
+  }
   return nullptr;
 }
 static napi_value TorrentSetDnd(napi_env env, napi_callback_info info) {

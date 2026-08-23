@@ -5,8 +5,6 @@
 
 #pragma once
 
-#include <algorithm>
-#include <compare>
 #include <string_view>
 
 #include <fmt/format.h>
@@ -39,7 +37,9 @@ public:
 
     tr_interned_string& operator=(tr_quark quark)
     {
-        return (*this = tr_interned_string{ quark });
+        quark_ = quark;
+        sv_ = tr_quark_get_string_view(quark_);
+        return *this;
     }
 
     tr_interned_string& operator=(std::string_view sv)
@@ -62,14 +62,14 @@ public:
         return sv_;
     }
 
+    [[nodiscard]] constexpr char const* c_str() const noexcept
+    {
+        return std::data(sv()); // tr_quark strs are always zero-terminated
+    }
+
     [[nodiscard]] constexpr auto data() const noexcept
     {
         return std::data(sv());
-    }
-
-    [[nodiscard]] char const* c_str() const noexcept
-    {
-        return data(); // tr_quark strs are always zero-terminated
     }
 
     [[nodiscard]] constexpr auto empty() const noexcept
@@ -106,26 +106,59 @@ public:
         return std::rend(sv());
     }
 
-    [[nodiscard]] constexpr auto operator<=>(tr_interned_string const& that) const noexcept
+    [[nodiscard]] constexpr auto compare(tr_interned_string const& that) const noexcept // <=>
     {
-        return this->quark() <=> that.quark();
-    }
-    [[nodiscard]] constexpr bool operator==(tr_interned_string const& that) const noexcept
-    {
-        return (*this <=> that) == 0;
+        if (this->quark() < that.quark())
+        {
+            return -1;
+        }
+
+        if (this->quark() > that.quark())
+        {
+            return 1;
+        }
+
+        return 0;
     }
 
-    [[nodiscard]] constexpr auto operator<=>(std::string_view that) const noexcept
+    [[nodiscard]] constexpr bool operator<(tr_interned_string const& that) const noexcept
     {
-        return tr::lexicographical_compare_three_way(begin(), end(), that.begin(), that.end());
+        return this->compare(that) < 0;
     }
-    [[nodiscard]] constexpr bool operator==(std::string_view that) const noexcept
+
+    [[nodiscard]] constexpr bool operator>(tr_interned_string const& that) const noexcept
     {
-        return tr::equal(*this, that);
+        return this->compare(that) > 0;
+    }
+
+    [[nodiscard]] constexpr bool operator==(tr_interned_string const& that) const noexcept
+    {
+        return this->compare(that) == 0;
+    }
+    [[nodiscard]] constexpr bool operator!=(tr_interned_string const& that) const noexcept
+    {
+        return this->compare(that) != 0;
+    }
+
+    [[nodiscard]] constexpr auto operator==(std::string_view that) const noexcept
+    {
+        return sv() == that;
+    }
+    [[nodiscard]] constexpr auto operator!=(std::string_view that) const noexcept
+    {
+        return sv() != that;
+    }
+    [[nodiscard]] constexpr bool operator==(char const* that) const noexcept
+    {
+        return *this == std::string_view{ that != nullptr ? that : "" };
+    }
+    [[nodiscard]] constexpr bool operator!=(char const* that) const noexcept
+    {
+        return *this != std::string_view{ that != nullptr ? that : "" };
     }
 
     // NOLINTNEXTLINE(google-explicit-constructor)
-    [[nodiscard]] operator std::string_view() const noexcept
+    [[nodiscard]] constexpr operator std::string_view() const noexcept
     {
         return sv();
     }

@@ -65,7 +65,8 @@ export class NativeBridge {
   ): number {
     const ptr: BigInt = native.sessionStart(
       configDir, downloadsDir, encrMode, enableRpc, rpcPort,
-      enableAuth, username, password, enableRpcWhitelist, rpcWhitelist, settingsJson
+      enableAuth, username, password, enableRpcWhitelist, rpcWhitelist,
+      settingsJson
     );
     if (ptr === BigInt(0)) {
       hilog.error(0x0001, TAG, 'sessionStart returned null session pointer');
