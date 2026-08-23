@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> **History moved to `docs/STATUS.md`.** This file holds only live engineering guidance; the full change log (R7/R8/R9, engine rebuild, milestone closures, deferred debt) lives in `docs/STATUS.md`.
+
 ## Project Identity
 
 **transmissionbtm** — HarmonyOS BitTorrent client, ported from [transmissionbtc](https://github.com/AndreyPavlenko/transmissionbtc) (Android v1.3.10). All Java discarded; application layer rewritten in ArkTS + ArkUI. The C/C++ engine (libtransmission + deps) is preserved and adapted from JNI → N-API.
@@ -19,7 +21,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **SDK versions** (build-profile.json5): `compatibleSdkVersion (6.1.1/API 24) == targetSdkVersion (6.1.1/API 24)`. hvigor 6.x enforces compatible <= target — do not set compatible higher than target, or the build fails with error 00303015.
 
-No lint commands are wired yet. Unit + E2E tests run via ohosTest on device (see M7 below; 232/232 passing).
+No lint commands are wired yet. Unit + E2E tests run via ohosTest on device (see Status below; 231/231 current).
+
+> `hvigorw test` hangs at GenerateUnitTestResult — use `assembleHap -p module=entry@ohosTest` + `hdc install` + `aa test` instead.
 
 ## Architecture
 
@@ -72,39 +76,19 @@ Source repo for the transmission fork: `/Users/xiphis/projects/transmissionbtc` 
 - Smart pointers only — no raw `new`/`delete`
 - hilog format: `%{private}s` for user data, `%{public}s` for constants
 
-## Current Status (2026-08-08)
+## Status (current)
 
-- [x] **Real 4.1.0 stable engine (2026-08-23)** — engine rebuilt from the actual `4.1.0` stable tag (`2724011`), replacing the earlier 4.2.0-dev tree that had only *appeared* to be 4.1.0 via a version-masked `version.h`. M-Team requires 4.1.x. Bridge C++ adapted to 4.1 API (`tr_stat` pointer + camelCase, `tr_ctorSetMetainfo*` `tr_error*` arg, `tr_torrentRemove` 6-arg, raw-callback setters, `TR_UP`/`TR_DOWN`); CRC sub-dep switched madler-crcany → **Google `crc32c`** (`libcrc32c.a`, `crc32c::Extend`); the C++20 oh-compat.h force-include removed (4.1.0 is C++17, no ranges). `crypto-utils.h` (`WITH_OPENSSL`) and the generated `version.h` (re-hand-set `-TR4100-`/`4.1.0`) survived the header regen by re-apply. **BUILD SUCCESSFUL**; on-device verified: M-Team announce `res='Success'`, tracker `seed=/leech=` answered, session + HUKS `selfTest OK`. Rebuild recipe in memory `transmission-410-engine-build`.
-- [x] **ArkUI 5s live-refresh (2026-08-23)** — torrent cards now re-render every 5s (a `TorrentVM` `@Observed` wrapper bound via `@ObjectLink`, mutated in place each poll by `DownloadsPage.syncTorrentVms`, so ForEach reuses cards and updates live instead of only on restart). `SessionController` poll cadence moved 1s → 5s. Verified: `[DBG] stat` at 5s cadence + reactive `ForEachNode skip mark dirty`; seeding torrent shows live "Seeding". About page's stale "4.0.6" engine string corrected to **4.1.0**.
-- [x] DevEco Studio project scaffold (M0.1–0.5)
-- [x] N-API module skeleton with `getVersion()` returning `"0.1.0-m6"`
-- [x] All ArkTS source files written (production code, 33 files)
-- [x] All C++ N-API source files written (8 files, M1_FULL_BRIDGE active)
-- [x] HAP builds and signs successfully (12MB signed HAP)
-- [x] Third-party native libs cross-compiled for OH arm64-v8a (18 .a files, Transmission 4.1.0 stable)
-- [x] M1: N-API bridge → **35 native methods, 26 public NativeBridge methods** (dead surface removed in codex batch, Task #106; 7 more native methods pruned in E1; 7 more dead ArkTS wrappers removed in R9: `getEncryptionMode`, `transmissionVersion`, `torrentSetDnd`, `hashStringToBytes`, `envSet`, `nativeToArktsInit`, `nativeToArktsRelease` — the native C++ registrations stay, harmless unreachable)
-- [x] M2: Preferences & settings persistence (instant-apply, typed getter/setter)
-- [x] M3: Torrent domain models (8 files: TorrentInfo, TorrentFile, TorrentDir, TransmissionSession, FileTreeModel, Preferences, SessionConfig, SessionState[SessionRunState only — SessionState class removed in E4]; legacy models Torrent/TorrentFs/TorrentStat/TorrentItem/TorrentExceptions/MediaInfo/NaturalOrderComparator deleted)
-- [x] M4: Foreground service + connectivity monitor + wake lock
-- [x] M5: Core UI (torrent list, detail, file tree, add flow, context menu)
-- [x] M6: Settings UI + about + polish (loading states, error handling, reset)
-- [x] Codex architecture + code review completed (`.ai-review/codex-review.md`); critical/high findings fixed (Tasks #98–107) — BUILD SUCCESSFUL (remaining deferred debt below)
-- [x] M7 (unit): ohosTest wired (`hvigorw test` hangs at GenerateUnitTestResult — use `assembleHap -p module=entry@ohosTest` + `hdc install` + `aa test`). **222/222 tests pass on device** (Pura 80 `4VM0125513000074`). 7 initial failures fixed: `buildTree` now normalizes nested `file.name` to basename; 3 stale test assertions corrected (dirCount=3 subdirs, no STOPPING note, downloadedEver=haveValid per Task #104)
-- [x] M7 (E2E, in-process): **8/8 in-process E2E tests pass on device — 231/231 total** (Pura 80 `4VM0125513000074`). `FunctionalE2E.test.ets` drives the REAL libtransmission session via NativeBridge (exactly like DownloadsPage): 7.1 session lifecycle + suspend/resume, 7.2 file add + file listing, 7.8 DnD (setWanted → refreshStats priority=SKIP), 7.9 10 concurrent torrents, 7.11 relocation, 7.12 removal (with/without data). Base64-embedded local .torrent fixtures, network features disabled, per-test isolated settingsDir/downloadDir. The foreground service stays REMOVED (system-app-only on HarmonyOS NEXT — see module.json5 note); the session runs in-process. 7.3/7.4 (download integrity/sequential) need a reachable tracker+seed; 7.6 (boot auto-start) is impossible on a consumer device; 7.7 (WiFi-only) needs live network manipulation — all deferred.
-  - **E2E-found bridge caveats:** (1) HarmonyOS `@ohos.buffer` `Buffer.buffer.slice()` returns an empty ArrayBuffer on pool-reused allocations — always copy via `buffer.from(buf)` before writing. (2) `tr_torrentRemove` dispatches to the session's own event thread and returns immediately — the torrent disappears a few ms later (the UI sees it via its 1s poll); tests must poll, not assert synchronously.
-
-**v1.0 scope:** 7 milestones, 75 tasks. 22 features deferred to v1.1+ (UPnP/DLNA/SSDP, M3U, Watch Dirs, Dark Theme, RU locale, RSS, Alt Web UI, HTTP streaming server, bidirectional storage adapter).
-
-**Deferred debt from codex review:** async session-thread dispatch for N-API calls (P0 — the P0 remove half is now FIXED (2026-08-23): `torrentRemoveFunc` ran ON the session thread but called `tr_torrentRemove`, which re-dispatches a second session-thread task and returns immediately, so `sem_wait` unblocked before the removal completed. It now calls `tr_torrentRemoveInSessionThread` (inline, completes on the session thread), so sync-after-remove is safe and the UI poll just masks nothing-for-removal). The general "non-blocking async completion primitive for slow ops (add-from-file / relocate, so the UI thread isn't blocked)" remains a future item), service re-enable requires `install_list_capability` device provisioning (P0 — permanently deferred, see module.json5 note). ~~magnet-link native parsing~~ — DONE in D1 (`tr_ctorSetMetainfoFromMagnetLink`, commit 2c488f4). Proxy credentials (R7, Tasks #19/#25) — **DONE and on-device-verified (2026-08-22, emulator).** **Two on-disk exposures existed:** (a) plaintext `proxy_password` as its own `PrefKeys.PROXY_PASSWORD` entry in the app-sandbox `el2` preferences XML (LOW severity, non-world-readable), and (b) — the task title's exact concern — the composed `proxy-url` (with inline `user:pass@`) built by `TransmissionSession.buildSessionSettings()` was ALSO being written to `<settingsDir>/settings.json` via `tr_sessionSaveSettings` in native `SessionStart` + `SessionStop`, because transmission persists `TR_KEY_proxy_url` (session-settings.h Field). R7 fixed BOTH:
-- **Preferences store → HUKS AES-256-GCM.** `entry/src/main/ets/security/ProxyCipher.ets` (marker `huk1:` + `ProxyCipher` interface + plaintext `LegacyProxyCipher` fallback) and `security/HukProxyCipher.ets` (GCM pattern ported from v2rayHM's proven `SecureStorage.ets`: IV via `HUKS_TAG_NONCE`, 1-byte AAD via `HUKS_TAG_ASSOCIATED_DATA`, tag split from ciphertext and passed via `HUKS_TAG_AE_TAG`, `HUKS_TAG_DIGEST=HUKS_DIGEST_NONE`, `decodeToString` not `decodeWithStream`). `Preferences.ets` keeps a default `LegacyProxyCipher` (kit-free, host-testable) and injects the HUKS cipher via `setPasswordCipher()`; `setString`/`getString` for `PrefKeys.PROXY_PASSWORD` now encrypt-on-write / decrypt-on-read, `setSessionConfig` routes it through `setString`, and `EntryAbility.onCreate` injects the cipher + runs a startup self-test.
-- **settings.json → strip before save.** Native `transmission.cc` gained `StripProxyUrlFromSettings()` (erases `TR_KEY_proxy_url` from a `tr_variant` Map) and now strips it at BOTH save sites — right after `tr_sessionInit` (the live session keeps the proxy, applied at init) and in `SessionStop` (which re-reads session settings). The app re-applies proxy from its HUKS-encrypted preferences on every start, so the snapshot losing it is harmless. RPC credentials are intentionally left (they're the app's own server config that transmission persists by design).
-
-**Verified:** main HAP + `entry@ohosTest` both BUILD SUCCESSFUL; **93/93 host vitest** (new `tests/proxy-cipher.test.ts` + `tests/preferences-proxy-cipher.test.ts` driving a fake cipher against an in-memory `@kit.ArkData` mock); and **on-device emulator `aa start` + hilog → `HukProxyCipher: selfTest OK` / `transmissionbtm: HUKS selfTest OK`** — proving the AES-256-GCM tag/IV/alias round-trip on device, closing the earlier "cannot validate GCM here" gap. Legacy plaintext still reads (migration path, re-encrypts on next save); a broken/key-lost envelope degrades to an unset password (decrypt returns null → default, never surfaces ciphertext); an empty password stays plaintext. The persisted-`huk1:`-envelope XML check itself is NOT possible on this box (shell uid 2000 = no root; the `el2` sandbox is unreadable) — the on-device self-test is the substitute proof. One review-mitigation architecture item is done, one remains: R8 (split the >600-line pages — DownloadsPage/SettingsPage/AddTorrentPage — into a SessionController + sub-components) is **DONE** — DownloadsPage now delegates its session lifecycle / 1s poll / D3 wake lock / D4 connectivity / torrent CRUD to a `SessionController` (constructor-DI for host tests, `tests/session-controller.test.ts`), so a device/@kit-free test drives the controller. All three pages are now under 600 lines (DownloadsPage 543, SettingsPage 569, AddTorrentPage 576) with presentational sub-components (FilePreview, TorrentStatusBanner, SettingsLoadingState, SettingsErrorBanner, SettingsResetDialog, SandboxSettingRow, PublishFolderRow). Verified: ArkTS build green + 76/76 host vitest. **R9 is now fully DONE** (layering inversion + dedup + dead-method removal, Tasks #21/#24). Models are pure data — `TorrentInfo` and `TorrentFile` no longer import `NativeBridge`; every native read routes through the `TransmissionSession` facade (`getAllTorrents`/`applyStatBrief` for the poll, new `refreshFileStat(torrentId, file)` for the per-file tree read, `setFileWanted` for DnD). The dead model methods (`TorrentInfo.refreshStats`, `TorrentFile.listFromNative/setPriority/setWanted/refreshStats`) were removed; `FileTreePage` calls `session.refreshFileStat(this.torrentId, f)`. The relocated parse surfaced + fixed a latent piece-bitmap infinite-loop bug (a native bitmap whose 64th piece is set reads as a negative int64 — `applyFileStat` now masks with `BigInt.asUintN(64, …)` before the Kernighan popcount). Verified: build green + **80/80 host vitest** (new `tests/transmission-file-stat.test.ts`) + ohosTest module compiles (`NativeBridge.test.ets` cleaned to the 26-method surface; the module now builds after R9's dead-method removal had left it referencing removed wrappers).
+- **Engine:** real Transmission 4.1.0 stable (tag `2724011`), M-Team-compatible. HAP builds + signs; on-device verified.
+- **Live-refresh:** torrent cards re-render every 5s via a `TorrentVM` `@ObjectLink` wrapper (`DownloadsPage.syncTorrentVms`).
+- **Tests:** 231/231 on-device ohosTest (unit + in-process E2E, Pura 80 `4VM0125513000074`); 80/80 host vitest.
+- **Owed code:** P0 remove-race is FIXED; piece-priority reserved export implemented at file level. Remaining: non-blocking async completion primitive for slow ops (add-from-file / relocate), permanently-deferred service re-enable needs `install_list_capability`.
+- Full change log + deferred debt → **`docs/STATUS.md`**.
 
 ## Critical Docs
 
 | Reference | Content |
 |-----------|---------|
+| `docs/STATUS.md` | Full change log + deferred debt (R7/R8/R9, engine rebuild, milestones) |
 | `docs/07-development-plan.md` | Full milestone plan + task breakdown (ground truth) |
 | `docs/08-java-to-arkts-mapping.md` | 65 Java files → ArkTS mapping |
 | `docs/01-native-bridge-and-core-engine.md` | 40 N-API methods spec, C++ file inventory |
