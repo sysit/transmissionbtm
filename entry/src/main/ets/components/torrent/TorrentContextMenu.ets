@@ -16,6 +16,7 @@ export enum TorrentAction {
   REANNOUNCE = 'reannounce',
   SHOW_FILES = 'show_files',
   SAVE_TO_FILES = 'save_to_files',
+  SET_LOCATION = 'set_location',
   SHOW_DETAIL = 'show_detail',
 }
 
@@ -113,6 +114,9 @@ export struct TorrentContextMenu {
 
       // Save to Files (export completed data into public Download via picker)
       this.MenuItem('⬇', 'Save to Files', TorrentAction.SAVE_TO_FILES, Colors.DOWNLOAD);
+
+      // Change Download Location (relocate torrent data to a new sandbox dir)
+      this.MenuItem('📂', 'Change Download Location', TorrentAction.SET_LOCATION, Colors.TEXT);
 
       // Remove
       this.MenuItem('✕', 'Remove', TorrentAction.REMOVE, Colors.ERROR);

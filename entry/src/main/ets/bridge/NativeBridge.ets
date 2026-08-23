@@ -47,6 +47,15 @@ export class NativeBridge {
     this.sessionMap.delete(sessionId);
   }
 
+  /** Resolve a numeric session id to its live tr_session* pointer.
+   *  Call on the MAIN thread. @ohos.taskpool workers have isolated JS heaps,
+   *  so they cannot reach the singleton's sessionMap; pass the returned (BigInt,
+   *  a serializable taskpool arg) pointer into a @Concurrent function that calls
+   *  the stateless *ByPtr methods instead. */
+  getSessionPtr(sessionId: number): BigInt {
+    return this.toPtr(sessionId);
+  }
+
   // ═══════════════════════════════════════════════════════════════════
   // Version
   // ═══════════════════════════════════════════════════════════════════
@@ -205,6 +214,55 @@ export class NativeBridge {
 
   torrentSetLocation(sessionId: number, torrentId: number, newDir: string): void {
     native.torrentSetLocation(this.toPtr(sessionId), torrentId, newDir);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Stateless native calls (safe from a taskpool worker)
+  //
+  // @ohos.taskpool runs @Concurrent functions with ISOLATED JS heaps (Actor
+  // model): the singleton's sessionMap is NOT shared with a worker, so
+  // toPtr(sessionId) would throw there. Instead the UI thread resolves the
+  // serializable BigInt pointer via getSessionPtr() and passes it in; these
+  // statics call native.* directly with no `this` and no session-map lookup.
+  // Use them only from @Concurrent functions, never on the main thread.
+  // ═══════════════════════════════════════════════════════════════════
+  static torrentAddByPtr(ptr: BigInt, path: string, downloadDir: string,
+      deleteFlag: boolean, paused: boolean): number {
+    return native.torrentAdd(ptr, path, downloadDir, deleteFlag,
+      false /*sequential*/, null /*unwantedIndexes*/, null /*hashOut*/, paused);
+  }
+
+  static torrentSetLocationByPtr(ptr: BigInt, torrentId: number, newDir: string): void {
+    native.torrentSetLocation(ptr, torrentId, newDir);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // ThreadSafeFunction (TSFN) events → ArkTS callbacks
+  //
+  // native_to_arkts.cc already registers nativeToArktsInit/Release and fires
+  // them from libtransmission's session thread. Contracts (from CallJsCallback):
+  //   onTorrentChanged / onTorrentStopped -> exactly one int32 arg (= torrent id)
+  //   onSessionChanged / onAltSpeedChanged -> zero args
+  // Native must be called BEFORE sessionStart, because SessionStart wires the
+  // tr_session RPC callbacks that produce these events. The .d.ts declares a
+  // loose (...args: Object[]) => void; adapt concrete signatures to it here.
+  // ═══════════════════════════════════════════════════════════════════
+  nativeToArktsInit(
+    onTorrentChanged: (torrentId: number) => void = () => {},
+    onTorrentStopped: (torrentId: number) => void = () => {},
+    onSessionChanged: () => void = () => {},
+    onAltSpeedChanged: () => void = () => {},
+  ): void {
+    native.nativeToArktsInit(
+      (...args: Object[]) => { if (args.length > 0) { onTorrentChanged(args[0] as number); } },
+      (...args: Object[]) => { if (args.length > 0) { onTorrentStopped(args[0] as number); } },
+      (...args: Object[]) => { onSessionChanged(); },
+      (...args: Object[]) => { onAltSpeedChanged(); },
+    );
+  }
+
+  nativeToArktsRelease(): void {
+    native.nativeToArktsRelease();
   }
 
   // ═══════════════════════════════════════════════════════════════════

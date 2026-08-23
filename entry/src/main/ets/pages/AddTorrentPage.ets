@@ -5,7 +5,6 @@
 // Validates inputs before passing to TransmissionSession.addTorrent().
 
 import { hilog } from '@kit.PerformanceAnalysisKit';
-import { TransmissionSession } from '../models/TransmissionSession';
 import { NativeBridge } from '../bridge/NativeBridge';
 import { TorrentAddResult } from '../utils/constants';
 import { Colors, FontSize, Spacing, Radius } from '../utils/constants';
@@ -31,6 +30,20 @@ enum AddTab {
 @Concurrent
 function runCurlDownload(url: string, dstPath: string, timeout: number): void {
   NativeBridge.getInstance().curlDownload(url, dstPath, timeout);
+}
+
+/**
+ * Offload the blocking native torrentAdd (file read + bencode parse +
+ * tr_torrentNew/tr_torrentStart disk I/O) to a taskpool worker so the UI thread
+ * isn't frozen. A worker has an isolated JS heap, so it cannot resolve the
+ * session via the NativeBridge singleton's sessionMap — pass the BigInt
+ * tr_session* pointer in and call the stateless NativeBridge.torrentAddByPtr.
+ * Returns the native result code (0=OK, 1=PARSE_ERR, 2=DUPLICATE, 3=OK_DELETE).
+ */
+@Concurrent
+function concurrentTorrentAdd(ptr: BigInt, path: string, downloadDir: string,
+    deleteFlag: boolean, paused: boolean): number {
+  return NativeBridge.torrentAddByPtr(ptr, path, downloadDir, deleteFlag, paused);
 }
 
 @Component
@@ -457,20 +470,25 @@ export struct AddTorrentPage {
     this.statusMessage = '';
 
     try {
-      const session = new TransmissionSession();
-      session.sessionId = this.sessionId;
+      // Resolve the live session pointer on the UI thread, then offload the
+      // blocking native add (file parse + tr_torrentNew/Start) to a taskpool
+      // worker. The worker can't reach the NativeBridge singleton (isolated
+      // heap — sessionMap isn't shared), so pass the BigInt ptr in and call the
+      // stateless torrentAddByPtr.
+      const ptr = NativeBridge.getInstance().getSessionPtr(this.sessionId);
 
       // D2 (docs/11): URL tab — fetch the .torrent to the app cache first, then
       // add it through the existing file-based path. A download failure shows
       // here instead of a misleading PARSE_ERR from torrentAdd.
       if (this.currentTab === AddTab.URL) {
-        await this.addFromUrl(session, input);
+        await this.addFromUrl(ptr, input);
         return;
       }
 
       // D1 (docs/11): native torrentAdd accepts magnet URIs and bare 40-hex
       // info-hashes directly (BEP 9 ut_metadata) — no blocking resolve step.
-      this.handleAddResult(session.addTorrent(input, this.downloadDir, this.addPaused));
+      this.handleAddResult(await taskpool.execute(
+        concurrentTorrentAdd, ptr, input, this.downloadDir, false, this.addPaused) as number);
     } catch (e) {
       this.showError(`Error: ${String(e)}`);
       this.isAdding = false;
@@ -478,14 +496,15 @@ export struct AddTorrentPage {
   }
 
   /** D2 (docs/11): curlDownload the URL into the app cache, then add the file. */
-  private async addFromUrl(session: TransmissionSession, url: string): Promise<void> {
+  private async addFromUrl(ptr: BigInt, url: string): Promise<void> {
     try {
       this.statusMessage = 'Downloading .torrent...';
       this.statusIsError = false;
       const dstPath = `${getContext(this).cacheDir}/url_${Date.now()}.torrent`;
       // Blocking libcurl fetch → taskpool worker, so the UI thread stays live.
       await taskpool.execute(runCurlDownload, url, dstPath, 60);
-      this.handleAddResult(session.addTorrent(dstPath, this.downloadDir, this.addPaused));
+      this.handleAddResult(await taskpool.execute(
+        concurrentTorrentAdd, ptr, dstPath, this.downloadDir, false, this.addPaused) as number);
     } catch (e) {
       this.showError(`Download failed: ${String(e)}`);
       this.isAdding = false;

@@ -13,6 +13,7 @@ import { SessionConfig } from '../models/SessionConfig';
 import { PreferencesManager, PrefKeys } from '../models/Preferences';
 import { picker, fileIo as fs } from '@kit.CoreFileKit';
 import { promptAction } from '@kit.ArkUI';
+import { taskpool } from '@kit.ArkTS';
 import { TorrentCard } from '../components/torrent/TorrentCard';
 import { TorrentVM } from '../components/torrent/TorrentVM';
 import { TorrentContextMenu, TorrentAction } from '../components/torrent/TorrentContextMenu';
@@ -24,8 +25,21 @@ import { Colors, FontSize, Spacing, Radius } from '../utils/constants';
 import { WakeLockManager } from '../services/WakeLockManager';
 import { ConnectivityMonitor } from '../services/ConnectivityMonitor';
 import { SessionController } from '../services/SessionController';
+import { NativeBridge } from '../bridge/NativeBridge';
 
 const TAG = 'DownloadsPage';
+
+/**
+ * Offload the blocking native torrentSetLocation (libtransmission moves the
+ * torrent's files on disk) to a taskpool worker so the UI thread isn't frozen.
+ * A worker has an isolated JS heap, so it can't resolve the session via the
+ * NativeBridge singleton — pass the BigInt tr_session* pointer in and call the
+ * stateless NativeBridge.torrentSetLocationByPtr.
+ */
+@Concurrent
+function concurrentTorrentSetLocation(ptr: BigInt, torrentId: number, newDir: string): void {
+  NativeBridge.torrentSetLocationByPtr(ptr, torrentId, newDir);
+}
 
 @Component
 export struct DownloadsPage {
@@ -40,6 +54,9 @@ export struct DownloadsPage {
   @State fileTreeTorrentName: string = '';
   @State showContextMenu: boolean = false;
   @State contextMenuTorrent: TorrentInfo | null = null;
+  // Relocate dialog (Part B): show/hide + the target path typed by the user.
+  @State showRelocateDialog: boolean = false;
+  @State relocateTarget: string = '';
   // Owns the session lifecycle, 1s poll, D3 wake lock, D4 connectivity monitor,
   // and torrent CRUD. Wake lock + connectivity factory are supplied here (they
   // need device-only @kit modules); host tests omit them.
@@ -69,6 +86,10 @@ export struct DownloadsPage {
     // D3/D4 (docs/11): controller.stop() releases the wake lock, unregisters the
     // connectivity monitor, stops polling, and tears the session down.
     this.controller.stop();
+    // Release the TSFN event channel before teardown so late events can't fire
+    // into a torn-down session. Native re-init (nativeToArktsInit) resets the
+    // channel on the next page appear, so this is safe to call each disappear.
+    NativeBridge.getInstance().nativeToArktsRelease();
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -85,6 +106,16 @@ export struct DownloadsPage {
       const config = await PreferencesManager.getInstance().getSessionConfig();
       this.applySandboxPaths(config);
       this.sessionDownloadDir = config.downloadDir;
+      // Re-wire native TSFN events → controller.reload(). MUST run before
+      // sessionStart (sessionStart wires the tr_session RPC callbacks that fire
+      // them). All four funnel to reload() (poll + invalidate), matching
+      // transmissionbtc's refresh-on-event behavior, so a move/add is never dropped.
+      NativeBridge.getInstance().nativeToArktsInit(
+        () => this.controller.reload(),
+        () => this.controller.reload(),
+        () => this.controller.reload(),
+        () => this.controller.reload(),
+      );
       await this.controller.start(config);
     } catch (e) {
       hilog.error(0x0001, TAG, 'Session start failed: %{private}s', String(e));
@@ -210,6 +241,49 @@ export struct DownloadsPage {
     }
   }
 
+  /** Move a torrent's data to a new sandbox dir (taskpool-offloaded). Sets up
+   *  the relocate dialog; doRelocate does the offloaded native move. */
+  private onSetLocation(t: TorrentInfo): void {
+    this.relocateTarget = `${this.sessionDownloadDir}/moved_${t.id}`;
+    this.contextMenuTorrent = t;
+    this.showRelocateDialog = true;
+  }
+
+  /**
+   * Run the offloaded torrentSetLocation. The native call moves file data on
+   * disk, so it wraps the synchronous native torrentSetLocation in a taskpool
+   * worker to keep the UI thread responsive (transmissionbtc mirrors this with a
+   * background ThreadPoolExecutor). The target must stay inside the app sandbox,
+   * the only path libtransmission can write on API 24.
+   */
+  private async doRelocate(): Promise<void> {
+    const target = this.relocateTarget.trim();
+    this.showRelocateDialog = false;
+    const t = this.contextMenuTorrent;
+    if (!t || target.length === 0) {
+      return;
+    }
+    if (!target.startsWith(getContext(this).filesDir)) {
+      promptAction.showToast({ message: 'Move target must be inside the app sandbox', duration: 2000 });
+      return;
+    }
+    try {
+      if (!fs.accessSync(target)) {
+        fs.mkdirSync(target, true);
+      }
+      // Resolve the session ptr on the MAIN thread and pass it in — a taskpool
+      // worker has an isolated heap and can't read the session map (see the
+      // '@Concurrent' table above).
+      const ptr = NativeBridge.getInstance().getSessionPtr(this.controller.sessionId);
+      await taskpool.execute(concurrentTorrentSetLocation, ptr, t.id, target);
+      promptAction.showToast({ message: '已移动下载位置', duration: 2000 });
+      this.controller.reload();
+    } catch (e) {
+      hilog.error(0x0001, TAG, 'Relocate failed: %{private}s', String(e));
+      promptAction.showToast({ message: `移动失败: ${String(e)}`, duration: 2000 });
+    }
+  }
+
   /** Absolute sandbox path for a downloadDir-relative file name. Returns ''
    *  (caller must guard) if the name escapes the sandbox via path traversal. */
   private buildSandboxFilePath(torrentRelPath: string): string {
@@ -275,6 +349,9 @@ export struct DownloadsPage {
         break;
       case TorrentAction.SAVE_TO_FILES:
         this.onSaveToFiles(t);
+        break;
+      case TorrentAction.SET_LOCATION:
+        this.onSetLocation(t);
         break;
       case TorrentAction.SHOW_DETAIL:
         // Toggle expanded state — handled by TorrentCard internally
@@ -358,6 +435,12 @@ export struct DownloadsPage {
             this.onContextMenuAction(action);
           },
         });
+      }
+
+      // Relocate dialog overlay (text-entry — the FOLDER picker returns a
+      // file://docs URI and is 2-in-1-only, so it can't supply a POSIX path).
+      if (this.showRelocateDialog) {
+        this.buildRelocateOverlay();
       }
     }
     .width('100%')
@@ -515,6 +598,68 @@ export struct DownloadsPage {
       onTorrentAdded: () => { this.onTorrentAdded(); },
       onCancel: () => { this.showAddPage = false; },
     });
+  }
+
+  @Builder
+  buildRelocateOverlay() {
+    Stack() {
+      // Backdrop (dismiss on tap)
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor('#00000080')
+        .onClick(() => { this.showRelocateDialog = false; });
+
+      Column() {
+        Text('更改下载位置')
+          .fontSize(FontSize.HEADLINE)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(Colors.TEXT)
+          .margin({ bottom: Spacing.MD });
+
+        Text('输入应用沙箱内的新目录:')
+          .fontSize(FontSize.SMALL)
+          .fontColor(Colors.TEXT_SECONDARY)
+          .width('100%')
+          .margin({ bottom: Spacing.SM });
+
+        TextInput({ placeholder: '.../downloads/moved_N', text: this.relocateTarget })
+          .fontSize(FontSize.CAPTION)
+          .fontColor(Colors.TEXT)
+          .backgroundColor(Colors.ELEVATED)
+          .borderRadius(Radius.MD)
+          .height(44)
+          .width('100%')
+          .onChange((value: string) => { this.relocateTarget = value; });
+
+        Button('移动')
+          .fontSize(FontSize.BODY)
+          .fontColor('#ffffff')
+          .backgroundColor(Colors.DOWNLOAD)
+          .width('90%')
+          .height(48)
+          .borderRadius(Radius.MD)
+          .margin({ top: Spacing.LG })
+          .onClick(() => { this.doRelocate(); });
+
+        Button('取消')
+          .fontSize(FontSize.BODY)
+          .fontColor(Colors.TEXT_SECONDARY)
+          .width('90%')
+          .height(44)
+          .borderRadius(Radius.MD)
+          .backgroundColor(Colors.ELEVATED)
+          .margin({ top: Spacing.SM })
+          .onClick(() => { this.showRelocateDialog = false; });
+      }
+      .width('90%')
+      .borderRadius(Radius.LG)
+      .backgroundColor(Colors.SURFACE)
+      .padding({ top: Spacing.LG, bottom: Spacing.LG, left: Spacing.LG, right: Spacing.LG });
+    }
+    .width('100%')
+    .height('100%')
+    .position({ x: 0, y: 0 });
   }
 
   private getDefaultDownloadDir(): string {
