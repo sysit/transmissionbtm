@@ -94,22 +94,12 @@ declare module 'libtransmissionbtm_napi.so' {
   function torrentReannounce(session: BigInt, torrentId: number): void;
 
   // ── Hash utilities ───────────────────────────────────
-  function hashLength(): number;                             // Returns SHA_DIGEST_LENGTH (20)
   function hashBytesToString(hash: ArrayBuffer): string;    // Binary → hex string
   function hashStringToBytes(hashStr: string): ArrayBuffer; // Hex string → 20-byte buffer
-  function hashGetTorrentHash(torrentPath: string): ArrayBuffer;  // Extract info hash from .torrent
-
-  // ── Semaphore (cross-thread coordination) ─────────────
-  function semCreate(): BigInt;     // Returns BigInt pointer to POSIX sem_t
-  function semDestroy(sem: BigInt): void;
-  function semPost(sem: BigInt): void;
 
   // ── Environment variables ────────────────────────────
   function envSet(name: string, value?: string): void;
   function envUnset(name: string): void;
-
-  // ── Stdio redirection ────────────────────────────────
-  function stdRedirect(): void;
 
   // ── HTTP download (libcurl) ──────────────────────────
   function curlDownload(url: string, dst: string, timeout: number): void;

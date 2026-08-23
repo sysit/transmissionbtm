@@ -11,6 +11,17 @@
 > **可执行清单**：重构任务分级见
 > [docs/11-refactoring-checklist.md](11-refactoring-checklist.md)。
 
+> ⚠️ **刷新（2026-08-23）：** 本文 §1.1/§1.3/§1.4 的若干条目已过时，以下改动已落到代码，以
+> [`docs/STATUS.md`](STATUS.md) 为准：
+> - **磁力链接添加**：已实现（D1, `tr_ctorSetMetainfoFromMagnetLink`）——§1.3「坏的入口」不再成立。
+> - **删除**：改用 `tr_torrentRemoveInSessionThread`（内联、同步完成）——§1.1 该行的「⚠️ 异步」不再成立。
+> - **WakeLockManager / ConnectivityMonitor**：已接线到 DownloadsPage→SessionController——§1.4「实际死」不再成立。
+> - **models/SessionState.ets**：`SessionState` class 已在 E4 移除，文件仅存 `enum SessionRunState`（被 TransmissionSession 使用）——非死。
+> - **torrentSetPiecesHiPri**：已改为文件级实现——§1.4「空操作/FIXME」不再成立。
+> - **NativeBridge 死方法**：已在 R9 移除。**services/TransmissionService.ets**：文件已删除。
+> - **sem/env/stdRedirect/hashLength/hashGetTorrentHash**：纯 .d.ts 幻影声明，已从 Index.d.ts 移除（2026-08-23）。
+> - §2.1 的「30 个 .ets」「42 个 N-API 导出」等计数保留盘点时点，未逐项复核。
+
 ---
 
 ## 1. 功能地图（实际状态）
@@ -25,7 +36,7 @@
 | 种子列表 + 1s 轮询 | `DownloadsPage` + `TorrentCard` | 进度/速度/ETA/做种状态 |
 | 添加种子（文件） | `AddTorrentPage` → `torrentAdd` | **2026-08-09 修复**：picker `file://` URI → 复制到沙箱 cache 真实路径 |
 | 暂停/恢复/校验/重新通告 | `TorrentContextMenu` | 走 `runInTransmissionThread` |
-| 删除（含数据/不含数据） | `TorrentContextMenu` | ⚠️ 异步：`tr_torrentRemove` fire-and-forget，UI 靠 1s 轮询掩盖 |
+| 删除（含数据/不含数据） | `TorrentContextMenu` | ✅ 已修（2026-08-23）：`tr_torrentRemoveInSessionThread` 内联同步完成；删含数据仍占 wall-clock |
 | 迁移下载位置 | 菜单 → `torrentSetLocation` | E2E 7.11 已验证 |
 | 文件树 + 选择（DnD/优先级） | `FileTreePage` + `FileTreeView` | `setWanted` → SKIP，E2E 7.8 已验证 |
 | 多种子并发 | — | E2E 7.9（10 个并发）已验证 |
@@ -43,23 +54,23 @@
 
 | 功能 | 现状 |
 |------|------|
-| **磁力链接（Magnet）添加** | `AddTorrentPage` 有 Magnet 页签 + 解析 spinner，但 **native 侧无任何 magnet 解析代码**（grep 证实）。调用必然 `PARSE_ERR`。属已知延后项（"magnet-link native parsing"）。**当前等于是坏的入口** |
-| 系统磁力链/.torrent 意图 | `module.json5` skill 已声明（5 种 URI scheme），但同样落到失败的 magnet 路径 |
+| ~~磁力链接（Magnet）添加~~ → ✅ 已实现 | `AddTorrentPage` Magnet 页签；原生 `tr_ctorSetMetainfoFromMagnetLink` 解析（torrent.cc:172-210，D1/commit 2c488f4），支持 `magnet:` URI 与裸 40-hex info-hash，入口可用 |
+| ~~系统磁力链/.torrent 意图~~ → ✅ | `module.json5` 5 种 URI scheme 声明，落到已实现的 magnet 解析路径 |
 | 真实下载/做种 | 引擎可跑，但 **7.3/7.4 下载完整性从未在真机验证**（需可连 tracker+seed） |
-| 代理生效 | 设置已接入 session config，但未做端到端验证 |
+| 代理生效 | 设置已接入 session config，HUKS selfTest OK；但端到端代理路由未在真机验证 |
 
 ### 1.4 死代码 / 未接线（🗑️）
 
 | 模块 | 现状 |
 |------|------|
-| `services/TransmissionService.ets`（443 行） | 后台服务，**已从 module.json5 移除**（HarmonyOS NEXT system-app-only）。`EntryAbility` 仍在调用 `startUIServiceExtensionAbility` → 每次启动静默失败 |
-| `services/WakeLockManager.ets` | 仅被死掉的 TransmissionService 引用 → **实际死** |
-| `services/ConnectivityMonitor.ets` | 同上 → **实际死**（网络丢失暂停/恢复、WiFi-only 全部失效） |
-| N-API 12 个方法从未被 ArkTS 调用 | `curlDownload`、`torrentGetPiece`、`torrentGetPieceHash`、`torrentSetPiecesHiPri`、`torrentFindFile`、`semCreate/Destroy/Post`、`envUnset`、`stdRedirect`、`hashLength`、`hashGetTorrentHash` |
-| `torrentSetPiecesHiPri` | C++ 层本身就是空操作（`FIXME: need 4.1 API`），双层死 |
-| NativeBridge 死方法 | `getEncryptionMode()`、`transmissionVersion()`、`hashStringToBytes()` |
-| `models/SessionState.ets` | `@Provide sessionState` 注入了但**无任何子页面消费** |
-| `entrybackupability/EntryBackupAbility.ets` | 15 行纯日志桩 |
+| `services/TransmissionService.ets` | ✅ 文件已删除（原 443 行；HarmonyOS NEXT system-app-only，module.json5 无此项）。services/ 现仅 ConnectivityMonitor / SessionController / WakeLockManager |
+| `services/WakeLockManager.ets` | ✅ 已接线（DownloadsPage → SessionController 使用 `wakeLock`）——非死 |
+| `services/ConnectivityMonitor.ets` | ✅ 已接线（DownloadsPage → SessionController.startConnectivityMonitor）——非死 |
+| N-API 未从 ArkTS 调用的出口 | 保留（D5 顺序/边下边播）：`torrentGetPiece`、`torrentGetPieceHash`、`torrentSetPiecesHiPri`、`torrentFindFile`。R9 删 ArkTS 包装后遗留的原生注册（无害）：`transmissionVersion`、`getEncryptionMode`、`hashStringToBytes`、`envSet/envUnset`、`nativeToArktsInit/Release`、`hashBytesToString`。纯 .d.ts 幻影（已从 Index.d.ts 移除）：`semCreate/Destroy/Post`、`stdRedirect`、`hashLength`、`hashGetTorrentHash` |
+| `torrentSetPiecesHiPri` | ✅ 已改文件级实现（`tr_torrentSetFilePriorities`→`TR_PRI_HIGH`，torrent.cc:552），但**仍未接线到 UI**（D5 特性未建） |
+| NativeBridge 死方法 | ✅ 已在 R9 移除（含 `getEncryptionMode`、`transmissionVersion`、`hashStringToBytes`） |
+| `models/SessionState.ets` | ✅ 非死：`SessionState` class 已 E4 移除，本文件仅存 `enum SessionRunState`（被 TransmissionSession 广泛使用） |
+| `entrybackupability/EntryBackupAbility.ets` | 15 行纯日志桩，但 module.json5 注册为 `backup` ability（manifest 需要），暂保留 |
 
 ### 1.5 推迟到 v1.1+（⏳，见 docs/06 §11）
 

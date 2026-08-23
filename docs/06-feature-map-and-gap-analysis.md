@@ -21,6 +21,7 @@ This document maps every feature in **transmissionbtc** (v1.3.10) against a targ
 > **分类口径**（对齐 docs/10 §3 结论）：**移植欠账** = 原版 transmissionbtc 100% 实现过、可在 HarmonyOS 上补齐的功能（magnet、URL 添加、HTTP 流媒体、UPnP/DLNA、监视目录），延后是**范围决策**而非技术不可行。
 > **系统墙** = consumer HarmonyOS NEXT 上系统应用独占、无论投入多少都跑不起来的项——**开机自启**（需 `install_list_capability` 设备级预置）、**前台服务**（TransmissionService 已删，见 docs/11 E3）。这两项不在上方 feature map 里，因为它们在原版 Android 上根本不存在于这张表。
 > 2026-08-09 更新：magnet（D1 `2c488f4`）与 URL 添加（D2 `2c488f4`）两个移植欠账已补齐，见 docs/11 阶段 D。
+> **2026-08-23 刷新：** 引擎已还原到真实 4.1.0 stable；P0 remove-race（改 `tr_torrentRemoveInSessionThread`）与 piece-priority（改文件级）已修；`services/TransmissionService.ets` 已删除。上方 defer 表仍成立；其余变更以 [`docs/STATUS.md`](STATUS.md) 为准。
 
 **Legend:** ✅ = Present in source / 🔶 = Partial / ❌ = Missing / 🚫 = Deferred to v1.1+
 
