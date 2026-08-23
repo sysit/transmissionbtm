@@ -115,9 +115,10 @@ function sleep(ms: number): Promise<void> {
 
 /**
  * Poll getAllTorrents() until its length reaches `expected`, or timeout.
- * Needed for remove: tr_torrentRemove dispatches to the session's own
- * event thread and returns immediately, so the torrent disappears a few
- * milliseconds later (the production UI sees it via its 1s poll).
+ * The bridge now calls tr_torrentRemoveInSessionThread (inline, on the session
+ * thread), so a torrentRemove is NO longer fire-and-forget and the removal
+ * completes before the call returns. This poll stays as a defensive guard for
+ * the timed nature of DELETE-with-data, but the listing removal is synchronous.
  */
 async function waitForTorrentCount(session: TransmissionSession,
                                    expected: number,

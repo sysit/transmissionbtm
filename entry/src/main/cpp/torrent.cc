@@ -19,6 +19,7 @@
 #include <libtransmission/session.h>
 #include <cstring>
 #include <cstdlib>
+#include <vector>
 #include <fcntl.h>
 #include <unistd.h>
 #include <curl/curl.h>
@@ -300,7 +301,13 @@ typedef struct { int32_t id; bool removeData; } TorrentRemoveData;
 static void *torrentRemoveFunc(tr_session *s, void *d, Err *err) {
   auto *rd = (TorrentRemoveData *) d;
   tr_torrent *tor = findTorrentById(s, rd->id, err);
-  if (tor) tr_torrentRemove(tor, rd->removeData, nullptr, nullptr, nullptr, nullptr);
+  if (tor) {
+    // 4.1: tr_torrentRemove() re-dispatches to the session thread (fire-and-forget).
+    // We are ALREADY on the session thread via runInTransmissionThread, so calling it
+    // would queue a second task and return before the removal completes. Use the
+    // InSessionThread variant, which runs inline and returns when the removal is done.
+    tr_torrentRemoveInSessionThread(tor, rd->removeData, nullptr, nullptr, nullptr, nullptr);
+  }
   return nullptr;
 }
 static napi_value TorrentRemove(napi_env env, napi_callback_info info) {
@@ -525,24 +532,31 @@ static void *torrentSetPiecesHiPriFunc(tr_session *s, void *d, Err *err) {
   auto *sp = (SetPiecesHiPriData *) d;
   tr_torrent *tor = findTorrentById(s, sp->id, err);
   if (!tor) return nullptr;
-  bool changed = false;
   tr_piece_index_t pc = tor->piece_count();
   tr_piece_index_t first = (tr_piece_index_t)sp->first;
   tr_piece_index_t last = (tr_piece_index_t)sp->last;
   if (last >= pc) last = pc - 1;
-  for (tr_piece_index_t i = first; i <= last && i < pc; i++) {
-    auto prio = tor->bandwidth().get_priority();
-    if (prio != TR_PRI_HIGH) {
-      // FIXME: need 4.1 API to set piece priority per-piece
-      changed = true;
-    }
+  if (first > last) return nullptr;
+
+  // 4.1 has no per-piece priority setter — a piece's priority is derived from its
+  // containing FILE (piece_priority() is read-only). Hi-pri a piece range by setting
+  // TR_PRI_HIGH on every file whose piece span overlaps [first,last] (endPiece is
+  // exclusive, so a file covers [beginPiece, endPiece) and overlaps the range iff
+  // beginPiece <= last && endPiece > first).
+  std::vector<tr_file_index_t> files;
+  for (tr_file_index_t f = 0; f < tor->file_count(); ++f) {
+    auto const view = tr_torrentFile(tor, f);
+    if (view.beginPiece <= last && view.endPiece > first) files.push_back(f);
   }
-  if (changed) { /* set_dirty() is private in 4.1 */ }
+  if (!files.empty()) {
+    tr_torrentSetFilePriorities(tor, files.data(), (tr_file_index_t)files.size(), TR_PRI_HIGH);
+  }
   return nullptr;
 }
 // RESERVED (E1, docs/11): no ArkTS caller today. Maps to the original
 // set-pieces-high-priority feature; kept for the D5 sequential-download /
-// play-while-downloading reserve.
+// play-while-downloading reserve. Implemented as FILE-level priority — 4.1 has no
+// per-piece priority setter, so hi-pri a piece range by raising the containing files.
 static napi_value TorrentSetPiecesHiPri(napi_env env, napi_callback_info info) {
   size_t argc = 4; napi_value args[4];
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
