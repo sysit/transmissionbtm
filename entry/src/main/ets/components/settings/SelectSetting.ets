@@ -25,10 +25,18 @@ export struct SelectSetting {
       builder: SelectOptionDialog({
         title: this.label,
         options: this.options,
-        selectedIndex: $selectedIndex,
-        prefKey: this.prefKey,
-        valueType: this.valueType,
-        optionValues: this.optionValues,
+        initialIndex: this.selectedIndex,
+        onSelect: (index: number) => {
+          this.selectedIndex = index;
+          if (this.prefKey) {
+            if (this.valueType === 'string' && index < this.optionValues.length) {
+              PreferencesManager.getInstance().setString(this.prefKey, this.optionValues[index]);
+            } else {
+              PreferencesManager.getInstance().setInt(this.prefKey, index);
+            }
+          }
+          this.dialogController?.close();
+        },
       }),
       autoCancel: true,
       alignment: DialogAlignment.Center,
@@ -69,10 +77,15 @@ struct SelectOptionDialog {
   controller: CustomDialogController;
   @Prop title: string = '';
   @Prop options: string[] = [];
-  @Link selectedIndex: number;
-  @Prop prefKey: string = '';
-  @Prop valueType: string = 'int';
-  @Prop optionValues: string[] = [];
+  /** Currently-selected index copied in to highlight the right option. */
+  @Prop initialIndex: number = 0;
+  /** Called with the chosen index on select; the parent owns persistence. */
+  onSelect: (index: number) => void = () => {};
+  @State private selectedLocal: number = 0;
+
+  aboutToAppear(): void {
+    this.selectedLocal = this.initialIndex;
+  }
 
   build() {
     Column() {
@@ -86,20 +99,13 @@ struct SelectOptionDialog {
         Button(option)
           .type(ButtonType.Normal)
           .fontSize(FontSize.BODY)
-          .fontColor(index === this.selectedIndex ? '#ffffff' : Colors.TEXT)
-          .backgroundColor(index === this.selectedIndex ? Colors.DOWNLOAD : Colors.ELEVATED)
+          .fontColor(index === this.selectedLocal ? '#ffffff' : Colors.TEXT)
+          .backgroundColor(index === this.selectedLocal ? Colors.DOWNLOAD : Colors.ELEVATED)
           .width('100%')
           .margin({ bottom: Spacing.SM })
           .onClick(() => {
-            this.selectedIndex = index;
-            if (this.prefKey) {
-              if (this.valueType === 'string' && index < this.optionValues.length) {
-                PreferencesManager.getInstance().setString(this.prefKey, this.optionValues[index]);
-              } else {
-                PreferencesManager.getInstance().setInt(this.prefKey, index);
-              }
-            }
-            this.controller?.close();
+            this.selectedLocal = index;
+            this.onSelect(index);
           });
       });
 

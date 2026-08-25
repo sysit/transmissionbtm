@@ -53,7 +53,6 @@ export struct AboutPage {
       Scroll() {
         Column() {
           this.BuildHeroSection();
-          this.BuildEngineSection();
           this.BuildLicenseSection();
           this.BuildCreditsSection();
         }
@@ -146,47 +145,6 @@ export struct AboutPage {
   }
 
   // ═══════════════════════════════════════════════════════════════
-  // Engine: native stack details
-  // ═══════════════════════════════════════════════════════════════
-
-  @Builder
-  BuildEngineSection() {
-    Column() {
-      Text('Native Engine')
-        .fontSize(FontSize.SM)
-        .fontColor(Colors.TEXT_TERTIARY)
-        .fontWeight(FontWeight.Medium)
-        .textCase(TextCase.UpperCase)
-        .letterSpacing(0.5)
-        .width('100%')
-        .padding({ left: Spacing.MD, bottom: Spacing.SM });
-
-      Column() {
-        this.BuildInfoRow('Engine', AppConstants.ENGINE_VERSION);
-        this.BuildDivider();
-        this.BuildInfoRow('Platform', AppConstants.PLATFORM);
-        this.BuildDivider();
-        this.BuildInfoRow('Architecture', AppConstants.ARCH);
-        this.BuildDivider();
-        this.BuildInfoRow('Native bridge', 'N-API (40 methods)');
-        this.BuildDivider();
-        this.BuildInfoRow('RPC port', String(AppConstants.RPC_DEFAULT_PORT));
-        this.BuildDivider();
-        this.BuildInfoRow('Peer port', String(AppConstants.PEER_DEFAULT_PORT));
-      }
-      .width('100%')
-      .borderRadius(Radius.LG)
-      .backgroundColor(Colors.SURFACE)
-      .padding({
-        top: Spacing.MD,
-        bottom: Spacing.MD,
-      });
-    }
-    .width('100%')
-    .margin({ bottom: Spacing.XL });
-  }
-
-  // ═══════════════════════════════════════════════════════════════
   // Open Source Licenses
   // ═══════════════════════════════════════════════════════════════
 
@@ -242,20 +200,19 @@ export struct AboutPage {
         .padding({ left: Spacing.MD, bottom: Spacing.SM });
 
       Column() {
-        this.BuildInfoRow(
-          'Original port',
-          'transmissionbtc (Android) by Andrey Pavlenko'
-        );
+        Text('transmissionbtm © 2024–2026')
+          .fontSize(FontSize.CAPTION)
+          .fontColor(Colors.TEXT)
+          .width('100%')
+          .textAlign(TextAlign.Center)
+          .padding({ top: Spacing.SM, bottom: Spacing.SM });
         this.BuildDivider();
-        this.BuildInfoRow(
-          'HarmonyOS port',
-          'transmissionbtm © 2024–2026'
-        );
-        this.BuildDivider();
-        this.BuildInfoRow(
-          'Design',
-          'Built for HarmonyOS NEXT with ArkTS + ArkUI'
-        );
+        Text('Built for HarmonyOS NEXT with ArkTS + ArkUI')
+          .fontSize(FontSize.CAPTION)
+          .fontColor(Colors.TEXT)
+          .width('100%')
+          .textAlign(TextAlign.Center)
+          .padding({ top: Spacing.SM, bottom: Spacing.SM });
       }
       .width('100%')
       .borderRadius(Radius.LG)
@@ -270,28 +227,6 @@ export struct AboutPage {
   }
 
   // ── Shared Helpers ─────────────────────────────────────────────
-
-  @Builder
-  BuildInfoRow(label: string, value: string) {
-    Row() {
-      Text(label)
-        .fontSize(FontSize.CAPTION)
-        .fontColor(Colors.TEXT_SECONDARY)
-        .layoutWeight(1);
-      Text(value)
-        .fontSize(FontSize.CAPTION)
-        .fontColor(Colors.TEXT)
-        .fontFamily('JetBrains Mono')
-        .textAlign(TextAlign.End);
-    }
-    .width('100%')
-    .padding({
-      left: Spacing.LG,
-      right: Spacing.LG,
-      top: Spacing.SM,
-      bottom: Spacing.SM,
-    });
-  }
 
   @Builder
   BuildLicenseRow(name: string, version: string, license: string) {

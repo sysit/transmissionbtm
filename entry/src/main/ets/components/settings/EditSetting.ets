@@ -24,9 +24,21 @@ export struct EditSetting {
         title: this.label,
         hint: this.hint,
         inputType: this.inputType,
-        value: $value,
-        prefKey: this.prefKey,
-        valueType: this.valueType,
+        initialValue: this.value,
+        onSave: (text: string) => {
+          this.value = text;
+          if (this.prefKey) {
+            if (this.valueType === 'number' || this.valueType === 'float') {
+              const numVal = parseFloat(text);
+              if (!isNaN(numVal)) {
+                PreferencesManager.getInstance().setInt(this.prefKey, numVal);
+              }
+            } else {
+              PreferencesManager.getInstance().setString(this.prefKey, text);
+            }
+          }
+          this.dialogController?.close();
+        },
       }),
       autoCancel: true,
       alignment: DialogAlignment.Center,
@@ -70,13 +82,14 @@ struct EditSettingDialog {
   @Prop title: string = '';
   @Prop hint: string = '';
   @Prop inputType: InputType = InputType.Normal;
-  @Link value: string;
-  @Prop prefKey: string = '';
-  @Prop valueType: string = 'string';
+  /** Current value copied in to prefill the field. */
+  @Prop initialValue: string = '';
+  /** Called with the edited text on Save; the parent owns persistence. */
+  onSave: (text: string) => void = () => {};
   @State private inputText: string = '';
 
   aboutToAppear(): void {
-    this.inputText = this.value;
+    this.inputText = this.initialValue;
   }
 
   build() {
@@ -115,18 +128,7 @@ struct EditSettingDialog {
           .backgroundColor(Colors.DOWNLOAD)
           .margin({ left: Spacing.MD })
           .onClick(() => {
-            this.value = this.inputText;
-            if (this.prefKey) {
-              if (this.valueType === 'number' || this.valueType === 'float') {
-                const numVal = parseFloat(this.inputText);
-                if (!isNaN(numVal)) {
-                  PreferencesManager.getInstance().setInt(this.prefKey, numVal);
-                }
-              } else {
-                PreferencesManager.getInstance().setString(this.prefKey, this.inputText);
-              }
-            }
-            this.controller?.close();
+            this.onSave(this.inputText);
           });
       }
       .width('100%')
