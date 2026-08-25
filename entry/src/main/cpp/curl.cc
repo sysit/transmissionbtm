@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <cerrno>
+#include <mutex>
 #include <curl/curl.h>
 #include <libtransmission/version.h>
 #include "commons.h"
@@ -18,6 +19,16 @@
   return nullptr; \
 } while(0)
 
+// C7 (codex): one-time libcurl global init, idempotent + thread-safe. curl_global_init
+// is refcounted, so calling from both the ArkTS download path and the detached
+// probe thread is safe.
+static std::once_flag g_curlInitFlag;
+void ensureCurlGlobalInit() {
+  std::call_once(g_curlInitFlag, [] {
+    curl_global_init(CURL_GLOBAL_DEFAULT);
+  });
+}
+
 static napi_value CurlDownload(napi_env env, napi_callback_info info) {
   size_t argc = 3;
   napi_value args[3];
@@ -28,6 +39,7 @@ static napi_value CurlDownload(napi_env env, napi_callback_info info) {
     napi_throw_error(env, nullptr, "Expected arguments: url, dstPath [, timeout]");
     return nullptr;
   }
+  ensureCurlGlobalInit();
 
   char *url = getStringUtf8(env, args[0]);
   char *dst = getStringUtf8(env, args[1]);
@@ -51,8 +63,18 @@ static napi_value CurlDownload(napi_env env, napi_callback_info info) {
   }
 
   int32_t timeout = 30; // default 30s
-  if (argc >= 3) {
-    napi_get_value_int32(env, args[2], &timeout);
+  if (argc >= 3 && napi_get_value_int32(env, args[2], &timeout) != napi_ok) {
+    timeout = 30;  // C4 (codex): a bad-type timeout never silently corrupts the value
+  }
+
+  // C8 (codex P2): validate the destination path before fopen. The app's own
+  // sandbox/cache paths are absolute with no traversal; a user-supplied path
+  // could otherwise write an arbitrary file (or escape via "..").
+  if (dst[0] != '/' || strstr(dst, "..") != nullptr) {
+    free(url);
+    free(dst);
+    napi_throw_error(env, ERR_IO, "Destination path must be absolute, no traversal");
+    return nullptr;
   }
 
   FILE *file = fopen(dst, "wb");

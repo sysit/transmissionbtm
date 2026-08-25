@@ -27,10 +27,6 @@ export struct ProxyPage {
   @State proxyUsername: string = defaultSessionConfig().proxyUsername;
   @State proxyPassword: string = defaultSessionConfig().proxyPassword;
 
-  // Validation state
-  @State portError: string = '';
-  @State hostError: string = '';
-
   aboutToAppear(): void {
     this.loadPreferences();
   }
@@ -125,12 +121,6 @@ export struct ProxyPage {
                 prefKey: PrefKeys.PROXY_URL,
                 value: $proxyUrl,
               });
-              if (this.hostError.length > 0) {
-                Text(this.hostError)
-                  .fontSize(FontSize.SMALL)
-                  .fontColor(Colors.ERROR)
-                  .padding({ left: Spacing.LG, right: Spacing.LG, top: 2 });
-              }
             }
             .width('100%');
 
@@ -144,12 +134,6 @@ export struct ProxyPage {
                 inputType: InputType.Number,
                 valueType: 'number',
               });
-              if (this.portError.length > 0) {
-                Text(this.portError)
-                  .fontSize(FontSize.SMALL)
-                  .fontColor(Colors.ERROR)
-                  .padding({ left: Spacing.LG, right: Spacing.LG, top: 2 });
-              }
             }
             .width('100%');
 

@@ -36,18 +36,23 @@
 // getSession() validation: only SessionStart-created handles are accepted.
 #define TR_DEFAULT_RPC_PORT 9091
 
-// R7 (#19/#25): the composed proxy-url (with embedded user:pass@) is applied to
-// the live session at init, but must NEVER be written to settings.json — that is
-// a second plaintext-credential exposure alongside the app's own preferences
-// store (the HUKS cipher covers the latter; settings.json lives in the app's
-// settingsDir). Transmission persists proxy-url as a session setting
-// (session-settings.h Field{TR_KEY_proxy_url}), so strip it from any settings
-// variant before tr_sessionSaveSettings. The app re-applies proxy from its
-// (HUKS-encrypted) preferences on every session start, so losing it from the
-// snapshot is harmless.
-static void StripProxyUrlFromSettings(tr_variant &settings) {
+// R7 (#19/#25) + codex review P1: the composed proxy-url (with embedded
+// user:pass@) is applied to the live session at init, but must NEVER be written
+// to settings.json — that is a second plaintext-credential exposure alongside
+// the app's own preferences store (the HUKS cipher covers the latter; settings.json
+// lives in the app's settingsDir). Transmission persists proxy-url as a session
+// setting (session-settings.h Field{TR_KEY_proxy_url}), so strip it from any
+// settings variant before tr_sessionSaveSettings. The app re-applies proxy from
+// its (HUKS-encrypted) preferences on every session start, so losing it from the
+// snapshot is harmless. The RPC username/password are the same class of secret:
+// they are valid session-settings keys and would otherwise be written in
+// plaintext by tr_sessionSaveSettings, mirroring the proxy exposure — strip
+// those too.
+static void StripCredentialsFromSettings(tr_variant &settings) {
   if (auto *map = settings.get_if<tr_variant::Map>()) {
     map->erase(TR_KEY_proxy_url);
+    map->erase(TR_KEY_rpc_username);
+    map->erase(TR_KEY_rpc_password);
   }
 }
 
@@ -208,8 +213,10 @@ static napi_value SessionStart(napi_env env, napi_callback_info info) {
   // can configure — rename-partial-files, utp/pex/dht/lpd, trash-original,
   // peer/seeding limits, start-added-torrents, ... — now comes from
   // settingsJson (or libtransmission defaults). No hardcoded overrides that
-  // would shadow user config (codex P1).
-  map[TR_KEY_peer_port_random_on_start] = true;
+  // would shadow user config (codex P1). peer-port now comes exclusively from
+  // settingsJson: buildSettingsJson emits peer-port-random-on-start:false so a
+  // configured port is honored rather than randomized on every start (codex P1:
+  // the old hardcoded `= true` made the Settings peer-port control a no-op).
   map[TR_KEY_port_forwarding_enabled] = false;
 
   // RPC settings
@@ -242,10 +249,10 @@ static napi_value SessionStart(napi_env env, napi_callback_info info) {
     napi_throw_error(env, nullptr, "Failed to initialize transmission session");
     return nullptr;
   }
-  // R7: strip proxy credentials from the settings snapshot before persisting.
-  // The live session keeps the proxy (applied at init, above); only the on-disk
-  // settings.json drops the inline user:pass@.
-  StripProxyUrlFromSettings(settings);
+  // R7 + codex review: strip proxy/RPC credentials from the settings snapshot
+  // before persisting. The live session keeps the proxy (applied at init, above);
+  // only the on-disk settings.json drops the inline user:pass@ and rpc creds.
+  StripCredentialsFromSettings(settings);
   tr_sessionSaveSettings(session, configDir, settings);
   registerSessionHandle(session);
 
@@ -307,10 +314,15 @@ static napi_value SessionStop(napi_env env, napi_callback_info info) {
 
   // 4.1: tr_sessionGetSettings returns tr_variant by value
   auto settings = tr_sessionGetSettings(session);
-  // R7: strip proxy credentials from the snapshot before persisting (the
-  // session may still hold proxy-url internalized from init).
-  StripProxyUrlFromSettings(settings);
+  // R7 + codex review: strip proxy/RPC credentials from the snapshot before
+  // persisting (the session may still hold proxy-url internalized from init).
+  StripCredentialsFromSettings(settings);
   tr_sessionSaveSettings(session, configDir, settings);
+  // B1 (codex P1 UAF fix): after unregister, new dispatches fail at
+  // retainSessionForDispatch; wait for any *already-in-flight* dispatches
+  // (e.g. a taskpool relocate/add) to drain before freeing the session. Without
+  // this, tr_sessionClose can free a tr_session* a worker is still using.
+  waitSessionIdle(session);
   tr_sessionClose(session, 15.0);
   free(configDir);
 

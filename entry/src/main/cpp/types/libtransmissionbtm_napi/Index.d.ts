@@ -1,5 +1,5 @@
 // transmissionbtm — N-API type declarations (M1 full bridge)
-// All 41 methods exported from libtransmissionbtm_napi.so.
+// All 36 methods exported from libtransmissionbtm_napi.so.
 // Signatures match C++ N-API exports exactly (ground truth: napi_get_cb_info arg extraction).
 
 /**
@@ -82,6 +82,8 @@ declare module 'libtransmissionbtm_napi.so' {
   /** Returns ArrayBuffer of int64 values: [id, status, progress, sizeWhenDone,
    *   leftUntilDone, uploaded, peersUp, peersDown, speedUp, speedDown] × N torrents. */
   function torrentStatBrief(session: BigInt): ArrayBuffer;
+  /** Diagnostic: live native engine state as a compact string. */
+  function torrentState(session: BigInt, torrentId: number): string;
 
   // ── Torrent error / control ──────────────────────────
   /** Get torrent error string (empty if no error). */
@@ -99,7 +101,6 @@ declare module 'libtransmissionbtm_napi.so' {
 
   // ── Environment variables ────────────────────────────
   function envSet(name: string, value?: string): void;
-  function envUnset(name: string): void;
 
   // ── HTTP download (libcurl) ──────────────────────────
   function curlDownload(url: string, dst: string, timeout: number): void;

@@ -92,6 +92,10 @@ export class TransmissionSession {
   private buildSettingsJson(config: SessionConfig): string {
     const s: Record<string, string | number | boolean> = {};
     s['peer-port'] = config.peerPort;
+    // Honor the configured peer-port: without this, libtransmission's default
+    // randomizes the port on every start, ignoring the Settings "peer port"
+    // control (codex P1).
+    s['peer-port-random-on-start'] = false;
     s['incomplete-dir'] = config.incompleteDir;
     s['incomplete-dir-enabled'] = config.incompleteDir.length > 0;
     s['speed-limit-down'] = config.speedLimitDown;

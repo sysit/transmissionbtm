@@ -31,7 +31,11 @@ export struct EditSetting {
             if (this.valueType === 'number' || this.valueType === 'float') {
               const numVal = parseFloat(text);
               if (!isNaN(numVal)) {
-                PreferencesManager.getInstance().setInt(this.prefKey, numVal);
+                if (this.valueType === 'float') {
+                  PreferencesManager.getInstance().setFloat(this.prefKey, numVal);
+                } else {
+                  PreferencesManager.getInstance().setInt(this.prefKey, numVal);
+                }
               }
             } else {
               PreferencesManager.getInstance().setString(this.prefKey, text);

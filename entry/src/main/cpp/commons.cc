@@ -13,7 +13,10 @@
 #include <cstdio>
 #include <cstdarg>
 #include <mutex>
+#include <chrono>
+#include <condition_variable>
 #include <unordered_set>
+#include <unordered_map>
 
 // ── N-API exception helper ──────────────────────────────────────────
 extern "C" napi_value throwNapiException(const char *file, int line, napi_env env,
@@ -156,6 +159,11 @@ tr_torrent *findTorrentById(tr_session *session, int id, Err *err) {
 
 // ── File info by index (4.0.6: returns tr_file_view by value) ───────
 tr_file_view getFileInfo(tr_torrent *tor, uint32_t idx, Err *err) {
+  if (tor == nullptr) {
+    if (err != nullptr)
+      err->set(ERR_ARG, "Null torrent");
+    return {};
+  }
   if (idx >= tor->file_count()) {
     if (err != nullptr)
       err->set(ERR_ARG, "Invalid file index: %d", idx);
@@ -233,6 +241,15 @@ void *runInTransmissionThread(const char *file, int line, napi_env env,
     return nullptr;
   }
 
+  // B1 (codex UAF fix): hold a lifetime ref so a concurrent SessionStop can't
+  // tr_sessionClose under this dispatch. If the session went closing between
+  // getSession() and here, bail out rather than touch a freed session.
+  if (!retainSessionForDispatch(f.session)) {
+    sem_destroy(&(f.sem));
+    throwNapiException(file, line, env, ERR_ARG, "Session is closing");
+    return nullptr;
+  }
+
   if (f.session->am_in_session_thread()) {
     // Already on the event thread (e.g. re-entrant call from a callback or
     // from another dispatched op) — running it here avoids a self-deadlock.
@@ -243,6 +260,7 @@ void *runInTransmissionThread(const char *file, int line, napi_env env,
     while ((sem_wait(&(f.sem)) == -1) && (errno == EINTR));
   }
   sem_destroy(&(f.sem));
+  releaseSessionDispatch(f.session);
 
   if (f.err.isSet) {
     throwNapiException(file, line, env, f.err.ex, f.err.exMsg);
@@ -291,6 +309,11 @@ extern "C" napi_value newStringUtf8(napi_env env, const char *str) {
 // forged BigInt from ArkTS can never be dereferenced as a tr_session*.
 static std::mutex gSessionMutex;
 static std::unordered_set<tr_session *> gLiveSessions;
+// B1 (codex P1 UAF fix): in-flight dispatch count per session. A taskpool
+// worker retains a ref across its runInTransmissionThread call; SessionStop
+// waits for the count to hit 0 before tr_sessionClose.
+static std::unordered_map<tr_session *, int> gSessionRefs;
+static std::condition_variable gSessionCv;
 
 void registerSessionHandle(tr_session *session) {
   if (session == nullptr) return;
@@ -310,6 +333,42 @@ bool isLiveSession(tr_session *session) {
   if (session == nullptr) return false;
   std::lock_guard<std::mutex> lock(gSessionMutex);
   return gLiveSessions.count(session) != 0;
+}
+
+// ── Session lifetime guard (B1) ─────────────────────────────────────
+// retainSessionForDispatch is called immediately after getSession() validation
+// and before dispatching onto the session event thread, so a concurrent
+// SessionStop (unregister + tr_sessionClose) cannot run between the two. The
+// registry lock guards both the live-set test and the refcount increment, so
+// either this returns false (session went closing — caller throws) or the ref
+// is held and SessionStop must wait for it to drain before closing. Never
+// touches the tr_session* under lock — only the map/set, so no UAF.
+bool retainSessionForDispatch(tr_session *session) {
+  if (session == nullptr) return false;
+  std::lock_guard<std::mutex> lock(gSessionMutex);
+  if (gLiveSessions.count(session) == 0) return false;
+  gSessionRefs[session]++;
+  return true;
+}
+
+void releaseSessionDispatch(tr_session *session) {
+  if (session == nullptr) return;
+  std::lock_guard<std::mutex> lock(gSessionMutex);
+  auto it = gSessionRefs.find(session);
+  if (it != gSessionRefs.end()) {
+    if (--it->second <= 0) gSessionRefs.erase(it);
+    gSessionCv.notify_all();
+  }
+}
+
+// Bounded wait matching tr_sessionClose's 15s timeout: a wedged engine loop
+// that never runs the dispatched lambda is surfaced as a log instead of hanging
+// the UI thread (which would be worse than the race we are protecting against).
+void waitSessionIdle(tr_session *session) {
+  if (session == nullptr) return;
+  std::unique_lock<std::mutex> lock(gSessionMutex);
+  gSessionCv.wait_for(lock, std::chrono::seconds(15),
+                      [&] { return gSessionRefs.count(session) == 0; });
 }
 
 // ── Session pointer extraction (ArkTS passes BigInt) ────────────────
