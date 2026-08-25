@@ -13,3 +13,7 @@
 /.build-third-party
 /third_party
 /.hometrans
+
+# Signing config holds the real cert/key passwords — never commit it.
+# Generate locally via DevEco auto-signing; see build-profile.json5.sample.
+/build-profile.json5
