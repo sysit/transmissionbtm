@@ -214,7 +214,7 @@ export default function nativeBridgeTest() {
     });
 
     it('note_torrentMagnetToTorrentFile_not_exposed', 0, () => {
-      // transmissionbtc Native.java exposes torrentMagnetToTorrentFile(),
+      // the upstream Native.java exposes torrentMagnetToTorrentFile(),
       // a semaphore-based synchronous call that resolves a magnet URI to a
       // .torrent file. Our bridge intentionally does NOT expose it — magnet
       // links are added directly by passing the magnet: URI to torrentAdd()
@@ -223,8 +223,8 @@ export default function nativeBridgeTest() {
       expect(true).assertTrue();
     });
 
-    it('note_no_transmissionSetRpcCallbacks_unlike_transmissionbtc', 0, () => {
-      // transmissionbtc registers callbacks via Java static Runnable fields.
+    it('note_no_transmissionSetRpcCallbacks', 0, () => {
+      // the upstream registers callbacks via Java static Runnable fields.
       // Our bridge uses N-API ThreadSafeFunction (TSFN) instead, handled
       // internally by the bridge (no public nativeToArktsInit/Release wrappers).
       expect(true).assertTrue();

@@ -47,7 +47,7 @@ export interface SessionConfig {
   seedRatioLimited: boolean;
   idleSeedingLimit: number;
   idleSeedingLimitEnabled: boolean;
-  // Session-critical (transmissionbtc, not exposed in UI)
+// Session-critical (not exposed in UI)
   enableRpc: boolean;
   enableRpcWhitelist: boolean;
   increaseSoBuf: boolean;

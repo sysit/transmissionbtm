@@ -1,8 +1,8 @@
-# 07 — Development Plan (ArkTS Rewrite, v1.0 Simplified)
+# 07 — Development Plan (v1.0 Simplified)
 
 ## Overview
 
-This document provides a phased development plan for implementing **transmissionbtm** — a HarmonyOS BitTorrent client ported from transmissionbtc. The plan assumes **all Java code is discarded** and the entire application layer is rewritten in **ArkTS + ArkUI**. The C/C++ native layer (libtransmission + dependencies) is preserved and adapted from JNI to N-API.
+This document provides a phased development plan for implementing **transmissionbtm** — a HarmonyOS BitTorrent client built on upstream Transmission's libtransmission via the N-API. The application layer is written in **ArkTS + ArkUI**, and the native layer (libtransmission + dependencies) is adapted to the N-API.
 
 **v1.0 Scope Decisions (2026-06-28, revised same day):** 22 features deferred to v1.1+ (UPnP/DLNA/SSDP ×9, HTTP server/streaming ×7, M3U playlists, Watch Dirs, Dark Theme, RU locale, RSS, Alt Web UI). Storage simplified to sandbox-only POSIX I/O — no bidirectional FileAccessHelper bridge. See `docs/06-feature-map-and-gap-analysis.md` §11 for details.
 
@@ -17,7 +17,7 @@ This document provides a phased development plan for implementing **transmission
 | # | Task | Source Reference | Target | Verification |
 |---|------|-----------------|--------|-------------|
 | 0.1 | Create DevEco Studio project with Hvigor | — | `entry/` + `hvigor/` | Empty app deploys to device/emulator |
-| 0.2 | Port CMake build: libtransmission + 4 deps for OH | `CMakeLists.txt`, `cmake/*.cmake` | OH NDK CMake | `libtransmissionbtc.so` compiles arm64-v8a |
+| 0.2 | Port CMake build: libtransmission + 4 deps for OH | `CMakeLists.txt`, `cmake/*.cmake` | OH NDK CMake | `libtransmissionbtm_napi.so` compiles arm64-v8a |
 | 0.3 | Compile OpenSSL 1.1.1l for OH | `cmake/OpenSSL.cmake` | OH musl toolchain | `libssl.a` + `libcrypto.a` link |
 | 0.4 | Compile libcurl 7.78.0 for OH | `cmake/cURL.cmake` | OH musl toolchain | `libcurl.a` links |
 | 0.5 | Compile libevent 2.1.12 for OH | `cmake/Event.cmake` | OH musl toolchain | `libevent.a` links |
@@ -206,7 +206,7 @@ With 2 developers, M2+M3 can overlap with M1 once the N-API callback infrastruct
 
 | Decision | Rationale | Impact |
 |----------|-----------|--------|
-| Discard all Java | No JVM on OH | Must rewrite 65 files in ArkTS |
+| ArkTS/ArkUI app layer | OH runs ArkTS, not JVM | Application layer written in ArkTS + ArkUI |
 | Preserve C/C++ | libtransmission is the engine | Only adaptation needed |
 | N-API over FFI | Type-safe, supported by OH | More boilerplate but safer |
 | java.net for HTTP | Available on OH stdlib | Reduces rewrite effort for HTTP layer |

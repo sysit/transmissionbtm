@@ -1,5 +1,5 @@
 // transmissionbtm — Hash utilities (N-API)
-// Adapted from transmissionbtc hash.cc (JNI → N-API)
+// transmissionbtm — SHA-1 utilities via N-API
 //
 // Key changes:
 //   jbyteArray → napi_value (ArrayBuffer)

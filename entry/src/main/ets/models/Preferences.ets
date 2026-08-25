@@ -85,7 +85,7 @@ export class PrefKeys {
   static readonly IDLE_SEEDING_LIMIT: string = 'idle_seeding_limit';
   static readonly IDLE_SEEDING_LIMIT_ENABLED: string = 'idle_seeding_limit_enabled';
 
-  // Session-critical (transmissionbtc, not exposed in UI)
+// Session-critical (not exposed in UI)
   static readonly ENABLE_RPC: string = 'enable_rpc';
   static readonly ENABLE_RPC_WHITELIST: string = 'enable_rpc_whitelist';
   static readonly INCREASE_SO_BUF: string = 'increase_so_buf';

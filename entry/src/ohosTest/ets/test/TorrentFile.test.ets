@@ -2,7 +2,7 @@
 //
 // Tests FilePriority enum, TorrentFile.fromNative() factory, percentComplete
 // getter, isDirectory, and structural defaults. No native calls.
-// Cross-referenced against transmissionbtc TorrentFile.java patterns.
+// Cross-referenced against upstream file patterns.
 
 import { describe, it, expect } from '@ohos/hypium';
 import { TorrentFile, FilePriority, RawFileEntry } from '../../../main/ets/models/TorrentFile';

@@ -6,7 +6,7 @@
 // for method existence only; actual invocation is guarded by try/catch
 // since the native .so may not be available in the test environment.
 //
-// Cross-referenced against transmissionbtc Transmission.java state machine.
+// Cross-referenced against the upstream state machine.
 
 import { describe, it, expect } from '@ohos/hypium';
 import { TransmissionSession } from '../../../main/ets/models/TransmissionSession';
@@ -98,9 +98,9 @@ export default function transmissionSessionTest() {
       expect(SessionRunState.SUSPENDED).assertEqual(4);
     });
 
-    // ── Divergence from transmissionbtc ──────────────────────────────
+    // ── Divergence from upstream ──────────────────────────────
     //
-    // transmissionbtc Transmission.java defines:
+    // the upstream implementation defines:
     //   STATE_STOPPING=4 (bitmask), used between RUNNING and STOPPED.
     //   State is tracked as a bitmask integer (0x01=STARTING, 0x02=RUNNING,
     //   0x04=STOPPING, 0x08=SUSPENDING, 0x10=SUSPENDED).
@@ -113,7 +113,7 @@ export default function transmissionSessionTest() {
     // without a STOPPING guard, which is simpler but loses the ability
     // to prevent concurrent stop/start races.
 
-    it('note_no_STOPPING_state_unlike_transmissionbtc', 0, () => {
+    it('note_no_STOPPING_state', 0, () => {
       // Verify STOPPED is value 0 (not a bitmask).
       expect(SessionRunState.STOPPED).assertEqual(0);
       // Verify RUNNING is value 2.

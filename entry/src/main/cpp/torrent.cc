@@ -1,5 +1,5 @@
 // transmissionbtm — Torrent CRUD + statistics (N-API)
-// Adapted from transmissionbtc torrent.cc (JNI → N-API)
+// transmissionbtm — torrent CRUD + stat collection via N-API
 // Updated for Transmission 4.1 C++ API (2026-07-12)
 // 20 exported functions
 //

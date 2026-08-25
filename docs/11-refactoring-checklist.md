@@ -1,6 +1,6 @@
 # transmissionbtm 重构清单（2026-08-09）
 
-> 合并自：docs/09（功能地图）+ docs/10（架构对照）+ RPC/Web 半成品发现 +
+> 合并自：docs/06（功能地图）+ RPC/Web 半成品发现 +
 > 本次对 `.ai-review/codex-review.md` 的**逐项核实**。
 > 清单按可执行性分级，每项标注 位置 / 工作量 / 状态。
 
@@ -37,7 +37,7 @@
 
 | # | 事项 | 为什么 | 位置 | 量 | 状态 |
 |---|------|--------|------|----|------|
-| B1 | **真实事件线程派发** | 引擎 `tr_*` 直接跑在 ArkTS/UI 线程（`DEF_TORRENT_OP` 等）；`runInTransmissionThread`(commons.cc:210) **零调用方**且 sem 空转（post 后立刻 wait）。这是 codex-review P0 + docs/10 §2 的唯一结构性退化 | `commons.cc` + `torrent.cc` 全部 op | L | ✅ `2ca65f8`：全部 tr_* op 路由进事件线程 |
+| B1 | **真实事件线程派发** | 引擎 `tr_*` 直接跑在 ArkTS/UI 线程（`DEF_TORRENT_OP` 等）；`runInTransmissionThread`(commons.cc:210) **零调用方**且 sem 空转（post 后立刻 wait）。这是 codex-review P0 的唯一结构性退化 | `commons.cc` + `torrent.cc` 全部 op | L | ✅ `2ca65f8`：全部 tr_* op 路由进事件线程 |
 | B2 | **TSFN 竞态收口** | `tsfnReleased` 裸 bool 跨线程读写；用 `release` 而非 `abort`，停止时可能用已释放句柄。re-init 复位已修，竞态本体未修 | `native_to_arkts.cc` | M | ✅ 基线内（`26d3d0f` codex P0）：tsfnMutex 守卫全部句柄访问 + 全 release（无 abort）+ re-init 复位 + freeOnEnqueueFailure |
 | B3 | **会话句柄注册表** | `getSession` 信任 JS 传入 BigInt → 野指针；`toPtr` 返回 BigInt(0) 时原生空指针解引用 | `commons.cc` + `NativeBridge.ets` | M | ✅ `d2537c9`：live-session 注册表 + 原子 check-and-erase |
 
@@ -83,7 +83,7 @@
 | F1 | CLAUDE.md 失实计数：~21→**30** 个 ets、12→**10** 个 cpp、40→**42** 方法、compatibleSdk 实为 **6.1.1(24)**、third_party_stubs.cc 已不存在、删除「所有 codex 发现已修复」措辞 | ✅ `3aee5f5`：实为 **33 ets / 8 cpp / 35 native 方法 / 32 NativeBridge 方法**，SDK 版本、third_party_stubs.cc、磁力欠账(DONE) 全部校准 |
 | F2 | docs/01 引擎版本过时：OpenSSL 3.0.15 / curl 8.5.0 / Transmission 4.1 | ✅ `3aee5f5`：cmake 表 + 依赖树版本号全部修正，另补 libpsl.a / libMadlerCrcany.a |
 | F3 | docs/06「v1.1 延后」重标注：**移植欠账**（magnet/流媒体/UPnP/监视目录/URL 添加）vs **系统墙**（开机自启/前台服务） | ✅ `3aee5f5`：延后表加「分类」列 + 表下结论注；5.6 URL/magnet 添加标为完成（D1/D2） |
-| F4 | 本清单链接进 docs/09、docs/10 | ✅ 已在（docs/09:11-12、docs/10:157），核验无悬挂链接 |
+| F4 | 本清单交叉引用指向 docs/06、docs/11 | ✅ 已核验无悬挂链接 |
 
 ---
 

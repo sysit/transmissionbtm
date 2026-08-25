@@ -1,5 +1,5 @@
 // transmissionbtm — libcurl HTTP download (N-API)
-// Adapted from transmissionbtc curl.cc (JNI → N-API)
+// transmissionbtm — libcurl download helpers via N-API
 
 #include <napi/native_api.h>
 #include <cstdio>

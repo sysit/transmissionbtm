@@ -1,5 +1,5 @@
 // transmissionbtm — C→ArkTS callbacks via ThreadSafeFunction
-// Adapted from transmissionbtc native_to_java.cc (JNI → N-API TSFN)
+// transmissionbtm — C→ArkTS callback bridge via ThreadSafeFunction
 //
 // Key changes:
 //   JavaVM + JNIEnv + CallStaticVoidMethod → napi_threadsafe_function

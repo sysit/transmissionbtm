@@ -11,7 +11,7 @@
 - [ ] 安装 DevEco Studio (5.0+)
 - [ ] 安装 HarmonyOS SDK (API 12+)
 - [ ] 安装 OH NDK (musl toolchain, arm64-v8a)
-- [ ] 克隆 transmissionbtc 源码: `~/projects/transmissionbtc`
+- [ ] 获取上游 Transmission 源码（由 `scripts/build-third-party.sh` 交叉编译）
 - [ ] 确认 C++ 构建工具链可用: `cmake`, `make`, `git`
 
 ---

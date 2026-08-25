@@ -1,5 +1,5 @@
 // transmissionbtm — Common utilities for N-API native bridge
-// Adapted from transmissionbtc commons.h (JNI → N-API)
+// transmissionbtm — shared N-API helpers (macros, CHECK_STATUS, CATCH)
 // Updated for Transmission 4.1 C++ API (2026-07-12)
 //
 // Key 3.00→4.0.6 changes:

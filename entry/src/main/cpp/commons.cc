@@ -1,5 +1,5 @@
 // transmissionbtm — Common utilities for N-API native bridge
-// Adapted from transmissionbtc commons.cc (JNI → N-API)
+// transmissionbtm — shared N-API macros + helpers
 // Updated for Transmission 4.1 C++ API (2026-07-12)
 //
 // Key 3.00→4.0.6 changes:
@@ -208,7 +208,7 @@ void Err::set(const char *exception, const char *msg, ...) {
 // equivalent is tr_session::run_in_session_thread(), which is non-blocking
 // (queues onto the event thread and returns). We add the caller-side
 // sem_wait on top so the N-API call keeps its synchronous return
-// semantics — exactly the transmissionbtc JNI pattern (docs/10 §2-A).
+// semantics — the JNI-side pattern for bounded session teardown.
 struct Future {
   Err err;
   sem_t sem;

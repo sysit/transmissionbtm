@@ -9,7 +9,7 @@
 //   - >= 1000 → divide by 1000, one decimal place
 //   - GB is the highest unit for speed; TB for size
 //
-// Cross-referenced against transmissionbtc Utils.java patterns:
+// Cross-referenced against the reference format patterns:
 //   - formatSpeed mirrors Utils.bytesToString() for rate display
 //   - formatSize mirrors Utils.bytesToString() for file size display
 //   - formatETA mirrors Utils.etaToString() for remaining time

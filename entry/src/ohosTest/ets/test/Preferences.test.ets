@@ -2,7 +2,7 @@
 //
 // Pure logic tests — no async store operations.
 // PreferencesManager async methods are tested via integration tests.
-// Cross-referenced against transmissionbtc Prefs.java key semantics.
+// Cross-referenced against upstream prefs key semantics.
 
 import { describe, it, expect } from '@ohos/hypium';
 import { PrefKeys, PreferencesManager } from '../../../main/ets/models/Preferences';

@@ -1,7 +1,7 @@
 // transmissionbtm — TorrentInfo domain model unit tests
 //
 // Tests cover:
-//   - TorrentStatus (5-value enum matching transmissionbtc TorrentStat.Status)
+//   - TorrentStatus (5-value Status enum)
 //   - TorrentError enum values
 //   - fromStatArray with the 10-element native stat array layout
 //   - fromNativeJson parsing of the native text format
@@ -10,7 +10,7 @@
 //   - getStatusString and getStatusColor display helpers
 //
 // Native stat array index mapping (from TorrentInfo.fromStatArray,
-// matching transmissionbtc torrent.cc:718-777):
+// matching transmission.cc:718-777):
 //   arr[0] = torrentId       → id
 //   arr[1] = status (0-4)    → TorrentStatus
 //   arr[2] = progress (0-100)→ percentComplete (÷100)
@@ -22,7 +22,7 @@
 //   arr[8] = speedUp         → rateUpload
 //   arr[9] = speedDown       → rateDownload
 //
-// Status values (matching transmissionbtc TorrentStat.Status):
+// Status values:
 //   STOPPED=0, CHECK=1, DOWNLOAD=2, SEED=3, ERROR=4
 //
 // Error values (matching libtransmission tr_stat_errtype):
@@ -38,7 +38,7 @@ import {
 
 export default function torrentInfoTest(): void {
   // ═══════════════════════════════════════════════════════════════════
-  // TorrentStatus enum (5 values, matching transmissionbtc)
+  // TorrentStatus enum (5 values)
   // ═══════════════════════════════════════════════════════════════════
   describe('TorrentStatus', () => {
     it('TorrentStatus_hasFiveValues_matchingTransmissionbtc', 0, (): void => {

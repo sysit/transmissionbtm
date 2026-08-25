@@ -1,5 +1,5 @@
 // transmissionbtm — Session lifecycle (N-API)
-// Adapted from transmissionbtc transmission.cc (JNI → N-API)
+// transmissionbtm — session lifecycle via N-API
 // Updated for Transmission 4.1 C++ API (2026-07-12)
 //
 // Key 4.0.6→4.1 changes:
@@ -195,7 +195,7 @@ static napi_value SessionStart(napi_env env, napi_callback_info info) {
     free(settingsJson);
   }
 
-  // Mirror transmissionbtc: the bundled libcurl has no OS CA store (native
+  // Note: the bundled libcurl has no OS CA store (native
   // libcurl on Android/HarmonyOS can't reach the system trust store), so HTTPS
   // tracker announces fail TLS with "Could not connect to tracker" (rc=60
   // peer failed verification). Android upstream disables engine cert

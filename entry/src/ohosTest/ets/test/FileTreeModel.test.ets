@@ -1,7 +1,7 @@
 // transmissionbtm — FileTreeModel.buildTree() and TorrentDir tests
 //
 // Pure logic tests for the recursive file tree builder.
-// Cross-referenced against transmissionbtc PathItem.split() and
+// Cross-referenced against PathItem.split() and
 // MiscTest.testPathItem() tree-building patterns.
 
 import { describe, it, expect } from '@ohos/hypium';
@@ -358,7 +358,7 @@ export default function fileTreeModelTest(): void {
   });
 
   describe('FileTreeModel buildTree parity with upstream PathItem', () => {
-    // transmissionbtc MiscTest.testPathItem() builds a tree from paths
+// the reference test builds a tree from paths
     // like "/a/b/c/d", "a/b/c/e", "c", etc. and verifies sorted output.
     // This test mirrors that structure with our TorrentFile model.
 

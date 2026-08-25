@@ -1,6 +1,6 @@
 // transmissionbtm — SessionConfig and EncryptionMode tests
 //
-// Cross-referenced against transmissionbtc Prefs.java defaults.
+// Cross-referenced against upstream prefs defaults.
 // Notable divergence: upstream defaults to EncrMode.Allow;
 // our fork defaults to EncryptionMode.PREFER as a hardening measure.
 
@@ -94,11 +94,11 @@ export default function sessionConfigTest(): void {
       expect(config.settingsDir).assertEqual('/storage/transmission');
     });
 
-    // Upstream transmissionbtc Prefs.java: ENCR_MODE defaults to EncrMode.Allow.
+    // Upstream Prefs.java: ENCR_MODE defaults to EncrMode.Allow.
     // Our fork deliberately defaults to PREFER as a hardening measure.
     it('encryptionMode_default_diverges_from_upstream', 0, (): void => {
       const config: SessionConfig = defaultSessionConfig();
-      // NOTE: upstream transmissionbtc defaults to ALLOW.
+      // NOTE: upstream defaults to ALLOW.
       // Our fork deliberately defaults to PREFER as a hardening measure.
       expect(config.encryptionMode).assertEqual(EncryptionMode.PREFER);
     });

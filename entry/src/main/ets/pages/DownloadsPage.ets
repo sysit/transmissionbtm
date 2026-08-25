@@ -144,7 +144,7 @@ export struct DownloadsPage {
       // Re-wire native TSFN events → controller.reload(). MUST run before
       // sessionStart (sessionStart wires the tr_session RPC callbacks that fire
       // them). All four funnel to reload() (poll + invalidate), matching
-      // transmissionbtc's refresh-on-event behavior, so a move/add is never dropped.
+// refresh-on-event behavior, so a move/add is never dropped.
       NativeBridge.getInstance().nativeToArktsInit(
         () => this.controller.reload(),
         () => this.controller.reload(),
@@ -441,7 +441,7 @@ export struct DownloadsPage {
   /**
    * Run the offloaded torrentSetLocation. The native call moves file data on
    * disk, so it wraps the synchronous native torrentSetLocation in a taskpool
-   * worker to keep the UI thread responsive (transmissionbtc mirrors this with a
+* worker to keep the UI thread responsive (mirrors the classic poll+wake pattern
    * background ThreadPoolExecutor). The target must stay inside the app sandbox,
    * the only path libtransmission can write on API 24.
    */
