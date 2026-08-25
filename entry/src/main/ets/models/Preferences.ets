@@ -285,7 +285,7 @@ export class PreferencesManager {
   async getString(key: string, def: string = ''): Promise<string> {
     try {
       const raw = await this.guard().get(key, def) as string;
-      if (key === PrefKeys.PROXY_PASSWORD) {
+      if (key === PrefKeys.PROXY_PASSWORD || key === PrefKeys.RPC_PASSWORD) {
         // Decrypt the stored envelope. Legacy plaintext (no huk1: prefix) is
         // returned as-is. A broken envelope decrypts to null → fall back to def
         // (an unset password) rather than surfacing ciphertext to the UI.
@@ -321,9 +321,19 @@ export class PreferencesManager {
     }
   }
 
+  async setFloat(key: string, value: number): Promise<void> {
+    try {
+      await this.guard().put(key, value);
+      await this.guard().flush();
+    } catch (err) {
+      hilog.error(0x0001, TAG,
+        'setFloat(%{private}s) failed: %{private}s', key, String(err));
+    }
+  }
+
   async setString(key: string, value: string): Promise<void> {
     try {
-      const toStore = key === PrefKeys.PROXY_PASSWORD
+      const toStore = (key === PrefKeys.PROXY_PASSWORD || key === PrefKeys.RPC_PASSWORD)
         ? await this.passwordCipher.encrypt(value)
         : value;
       await this.guard().put(key, toStore);
@@ -413,7 +423,7 @@ export class PreferencesManager {
       await store.put(PrefKeys.RPC_WHITELIST, config.rpcWhitelist);
       await store.put(PrefKeys.RPC_AUTHENTICATION, config.rpcAuthentication);
       await store.put(PrefKeys.RPC_USERNAME, config.rpcUsername);
-      await store.put(PrefKeys.RPC_PASSWORD, config.rpcPassword);
+      await this.setString(PrefKeys.RPC_PASSWORD, config.rpcPassword);
       await store.put(PrefKeys.SPEED_LIMIT_DOWN, config.speedLimitDown);
       await store.put(PrefKeys.SPEED_LIMIT_UP, config.speedLimitUp);
       await store.put(PrefKeys.SPEED_LIMIT_DOWN_ENABLED, config.speedLimitDownEnabled);

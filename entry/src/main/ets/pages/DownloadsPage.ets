@@ -97,9 +97,14 @@ export struct DownloadsPage {
   private sessionDownloadDir: string = '';
   /** <filesDir>/transmissionbtm — libtransmission torrent/resume state dir. */
   private sessionSettingsDir: string = '';
+  // B2 (codex P1): set in aboutToDisappear and checked after each await in
+  // initSession, so an async start that outlives page teardown can't wire the
+  // native session + 5s poll with no page left to stop it.
+  private isDisposed: boolean = false;
 
   aboutToAppear(): void {
     hilog.info(0x0001, TAG, 'DownloadsPage aboutToAppear');
+    this.isDisposed = false;
     this.controller.onTorrents = (list: TorrentInfo[]) => {
       this.torrents = list;
       this.syncTorrentVms(list);
@@ -109,6 +114,9 @@ export struct DownloadsPage {
   }
 
   aboutToDisappear(): void {
+    // B2 (codex P1): mark disposed so a still-running initSession short-circuits
+    // after its next await instead of wiring a session/poll with no page left.
+    this.isDisposed = true;
     // D3/D4 (docs/11): controller.stop() releases the wake lock, unregisters the
     // connectivity monitor, stops polling, and tears the session down.
     this.controller.stop();
@@ -130,6 +138,7 @@ export struct DownloadsPage {
       // the live engine. applySandboxPaths then overrides the three directory
       // fields to the app sandbox (those /storage/... defaults don't exist on device).
       const config = await PreferencesManager.getInstance().getSessionConfig();
+      if (this.isDisposed) { return; }
       this.applySandboxPaths(config);
       this.sessionDownloadDir = config.downloadDir;
       // Re-wire native TSFN events → controller.reload(). MUST run before
@@ -142,6 +151,7 @@ export struct DownloadsPage {
         () => this.controller.reload(),
         () => this.controller.reload(),
       );
+      if (this.isDisposed) { return; }
       await this.controller.start(config);
     } catch (e) {
       hilog.error(0x0001, TAG, 'Session start failed: %{private}s', String(e));
@@ -610,7 +620,7 @@ export struct DownloadsPage {
         TorrentContextMenu({
           torrent: this.contextMenuTorrent,
           sessionId: this.controller.sessionId,
-          isVisible: this.showContextMenu,
+          isVisible: $showContextMenu,
           onAction: (action: TorrentAction, _torrent: TorrentInfo) => {
             this.onContextMenuAction(action);
           },

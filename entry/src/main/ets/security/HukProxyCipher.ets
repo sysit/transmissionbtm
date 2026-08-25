@@ -134,8 +134,11 @@ export class HukProxyCipher implements ProxyCipher {
       };
       const session = await huks.initSession(KEY_ALIAS, opts);
       const result = await huks.finishSession(session.handle, opts);
-      const out = result.outData ?? new Uint8Array(0); // ciphertext || tag
-      if (out.length < IV_LEN + TAG_LEN) { throw new Error('HUKS short output'); }
+      const out = result.outData ?? new Uint8Array(0); // ciphertext || tag (nonce not included)
+      // Non-empty plaintext always yields >= 1 ciphertext byte, so out.length > TAG_LEN.
+      // Guard only rejects an all-tag / empty output (a genuine HUKS error) instead of
+      // misreading the 12-byte nonce as part of `out` and throwing for short passwords.
+      if (out.length <= TAG_LEN) { throw new Error('HUKS short output'); }
       const ciphertext = out.slice(0, out.length - TAG_LEN);
       const tag = out.slice(out.length - TAG_LEN);
       return HUKS_PREFIX +

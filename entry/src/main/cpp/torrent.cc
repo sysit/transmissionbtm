@@ -20,6 +20,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <vector>
+#include <thread>
 #include <fcntl.h>
 #include <unistd.h>
 #include <curl/curl.h>
@@ -345,7 +346,7 @@ static void *TorrentStartFunc(tr_session *s, void *d, Err *err) {
     auto dir = tor->queue_direction();
     auto errs = std::string(tor->error().errmsg());
     OH_LOG_Print(LOG_APP, LOG_INFO, LOG_DOMAIN, LOG_TAG,
-                 "[DBG] start %{public}s id=%{public}d act=%{public}d run=%{public}d queued=%{public}d dir=%{public}d total=%{public}lld localerr=%{public}d err='%{public}s'",
+                 "[DBG] start %{public}s id=%{public}d act=%{public}d run=%{public}d queued=%{public}d dir=%{public}d total=%{public}lld localerr=%{public}d err='%{private}s'",
                  tag, tr_torrentId(tor), (int)tor->activity(), tor->is_running()?1:0,
                  tor->is_queued(dir)?1:0, (int)dir, (long long)tor->size_when_done(),
                  tor->error().error_type() == TR_STAT_LOCAL_ERROR?1:0, errs.c_str());
@@ -672,9 +673,21 @@ static napi_value TorrentGetFileStat(napi_env env, napi_callback_info info) {
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
   FileStatData d = {getInt32Napi(env, args[1]), getInt32Napi(env, args[2]), 0, nullptr, false};
   runInTransmissionThread(__FILE__, __LINE__, env, args[0], torrentGetFileStatFunc, &d);
+  // C5 (codex): runInTransmissionThread may have thrown (e.g. invalid file
+  // index); with an exception pending, napi_create_arraybuffer would fail and
+  // leave `out`/`r` uninitialized. Bail first and never touch a bad buffer.
+  if (hasPendingException(env)) {
+    if (d.alloc) free(d.bf);
+    return nullptr;
+  }
   napi_value r; void *out;
-  napi_create_arraybuffer(env, d.bfLen * sizeof(int64_t), &out, &r);
-  memcpy(out, d.bf, d.bfLen * sizeof(int64_t));
+  size_t bfBytes = (size_t)d.bfLen * sizeof(int64_t);
+  napi_create_arraybuffer(env, bfBytes, &out, &r);
+  // C11 (codex): guard the copy — a 0-length stat (null/invalid-index torrent)
+  // leaves d.bf null or unallocated; memcpy(dst, null, 0) is UB even at len 0.
+  if (d.bf != nullptr && bfBytes > 0) {
+    memcpy(out, d.bf, bfBytes);
+  }
   if (d.alloc) free(d.bf);
   return r;
 }
@@ -769,6 +782,10 @@ static napi_value TorrentGetPiece(napi_env env, napi_callback_info info) {
                     len, getInt64FromBigInt(env, args[2]),
                     (uint8_t *) dst};
   runInTransmissionThread(__FILE__, __LINE__, env, args[0], torrentGetPieceFunc, &d);
+  // C5 (codex): don't touch napi while a dispatch exception is pending.
+  if (hasPendingException(env)) {
+    return nullptr;
+  }
   napi_value r; napi_get_undefined(env, &r); return r;
 }
 
@@ -781,6 +798,9 @@ typedef struct { int64_t *stat; int32_t statLen; bool alloc; } StatBriefData;
 static size_t HttpProbeDiscard(void *, size_t sz, size_t nm, void *) { return sz * nm; }
 
 static void HttpProbeFetch(const char *label, const char *url) {
+  // C7 (codex): ensure libcurl is globally initialized before the first
+  // curl_easy_init on this detached probe thread.
+  ensureCurlGlobalInit();
   CURL *c = curl_easy_init();
   if (!c) {
     OH_LOG_Print(LOG_APP, LOG_WARN, LOG_DOMAIN, LOG_TAG,
@@ -816,7 +836,11 @@ static void *torrentStatBriefFunc(tr_session *s, void *d, Err *err) {
   static bool s_probe_done = false;
   if (!s_probe_done) {
     s_probe_done = true;
-    HttpProbeOnce();
+    // C1 (codex P1): the two synchronous curl probes block the session event
+    // thread for up to ~16s on the first stats poll, stalling torrent ops and
+    // the first UI refresh. Fire them on a detached thread; the first poll now
+    // returns immediately. Probes are diagnostic-only (logged, never fatal).
+    std::thread(HttpProbeOnce).detach();
   }
   auto *sb = (StatBriefData *) d;
   int n = (int)s->torrents().size();
@@ -1043,6 +1067,13 @@ static napi_value TorrentSetLocation(napi_env env, napi_callback_info info) {
   char *path = getStringUtf8(env, args[2]);
   if (path == nullptr) {
     napi_throw_error(env, nullptr, "Destination path must be a non-empty string");
+    return nullptr;
+  }
+  // C9 (codex): validate the relocate path like curl.cc — prevent a
+  // user-supplied path from being non-absolute or escaping via "..".
+  if (path[0] != '/' || strstr(path, "..") != nullptr) {
+    free(path);
+    napi_throw_error(env, ERR_IO, "Destination path must be absolute, no traversal");
     return nullptr;
   }
   SetLocationData d = {getInt32Napi(env, args[1]), path};

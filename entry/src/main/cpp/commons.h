@@ -118,6 +118,11 @@ void *runInTransmissionThread(const char *file, int line, napi_env env,
                               void *(*func)(tr_session *session, void *userData, Err *err),
                               void *userData);
 
+// C7 (codex): libcurl needs a one-time curl_global_init before any
+// curl_easy_init. The app inits libcurl from two threads (the ArkTS download
+// path and the detached tracker probe), so this is idempotent + thread-safe.
+void ensureCurlGlobalInit();
+
 // ── N-API type helpers ──────────────────────────────────────────
 inline bool isNapiNull(napi_env env, napi_value val) {
   napi_valuetype type;
@@ -140,6 +145,18 @@ void registerSessionHandle(tr_session *session);
 // Returns true if the handle was live (idempotent — second call is a no-op).
 bool unregisterSessionHandle(tr_session *session);
 bool isLiveSession(tr_session *session);
+
+// ── Session lifetime guard (B1, codex P1 UAF fix) ───────────────────
+// getSession() validates the pointer, but the registry lock is released before
+// the caller dispatches onto the session event thread. Meanwhile SessionStop
+// can unregister + tr_sessionClose, freeing a tr_session* a taskpool worker is
+// about to use. These refcount helpers hold the session alive across each
+// dispatch and let a close drain in-flight ops instead of freeing a live one.
+bool retainSessionForDispatch(tr_session *session);
+void releaseSessionDispatch(tr_session *session);
+// Wait (bounded, ~tr_sessionClose's 15s timeout) for in-flight dispatches on
+// `session` to drain before the caller proceeds to tr_sessionClose.
+void waitSessionIdle(tr_session *session);
 
 // ── Hex conversion (4.0.6: tr_binary_to_hex / tr_hex_to_binary removed) ─
 void tr_binary_to_hex(void const *input, char *output, size_t byte_length);

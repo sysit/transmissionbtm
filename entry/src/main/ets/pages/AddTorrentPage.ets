@@ -61,6 +61,16 @@ export struct AddTorrentPage {
   @State statusIsError: boolean = false;
   onTorrentAdded?: () => void;
   onCancel?: () => void;
+  // D1 (codex P2): the 600ms success-to-navigation timer must be cleared if the
+  // page is torn down before it fires, else it navigates a detached page.
+  private addSuccessTimer: number = -1;
+
+  aboutToDisappear(): void {
+    if (this.addSuccessTimer >= 0) {
+      clearTimeout(this.addSuccessTimer);
+      this.addSuccessTimer = -1;
+    }
+  }
 
   build() {
     Column() {
@@ -561,8 +571,10 @@ export struct AddTorrentPage {
     // and showed "Failed to add torrent (code: 0)".
     if (tid === TorrentAddResult.OK || tid === TorrentAddResult.OK_DELETE) {
       this.showSuccess('Torrent added');
-      // Notify parent after a brief delay so user sees success
-      setTimeout(() => {
+      // Notify parent after a brief delay so user sees success. Track the timer
+      // (D1) so aboutToDisappear can clear it if the page is torn down first.
+      this.addSuccessTimer = setTimeout(() => {
+        this.addSuccessTimer = -1;
         this.isAdding = false;
         this.onTorrentAdded?.();
       }, 600);

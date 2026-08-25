@@ -102,7 +102,9 @@ export class SessionController {
     }
     this.wakeLockActive = false;
     if (this.connectivity !== null) {
-      this.connectivity.destroy().then(() => {});
+      this.connectivity.destroy().catch((e: Error) => {
+        hilog.error(0x0001, TAG, 'connectivity destroy failed: %{private}s', String(e));
+      });
       this.connectivity = null;
     }
     this.netPaused = false;
@@ -221,7 +223,10 @@ export class SessionController {
     const active = this.hasDownloading();
     if (active && !this.wakeLockActive) {
       this.wakeLockActive = true;
-      this.wakeLock.acquire('active torrent transfer').then(() => {});
+      this.wakeLock.acquire('active torrent transfer').catch((e: Error) => {
+        hilog.error(0x0001, TAG, 'wake lock acquire failed: %{private}s', String(e));
+        this.wakeLockActive = false;
+      });
     } else if (!active && this.wakeLockActive) {
       this.wakeLockActive = false;
       this.wakeLock.release();
@@ -239,6 +244,8 @@ export class SessionController {
       () => { this.suspend(true); }
     );
     this.netPaused = false;
-    this.connectivity.start().then(() => {});
+    this.connectivity.start().catch((e: Error) => {
+      hilog.error(0x0001, TAG, 'connectivity start failed: %{private}s', String(e));
+    });
   }
 }

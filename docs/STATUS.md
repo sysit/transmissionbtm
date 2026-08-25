@@ -9,6 +9,34 @@
 
 ---
 
+## 2026-08-26 — codex review fix batch (B1 + C1–C11 + D1–D4), build + vitest green
+
+Second pass over the merged codex architecture + code review findings. All correctness/security/memory-safety items landed; host **vitest 93/93** and `assembleHap` both green. (The `.ai-review` reports were re-read; a few E/F findings were false positives or deferred — see below.)
+
+- **B1 session use-after-free guard** — `runInTransmissionThread` now takes a **lifetime ref** (`retainSessionForDispatch`/`releaseSessionDispatch`, `gSessionRefs` map behind `gSessionMutex`); a concurrent `SessionStop` can no longer `tr_sessionClose` underneath an in-flight dispatch. `SessionStop` unregisters → saves → `waitSessionIdle` (15s bounded) → `tr_sessionClose`, draining in-flight dispatches first. Guards both the `getSession`→dispatch gap and the close path.
+- **C3b honor configured peer port** — `buildSettingsJson()` now emits `'peer-port-random-on-start' = false`, so the Settings "peer port" control actually applies instead of libtransmission randomizing the port every start.
+- **C1 tracker probe off the session thread** — the two synchronous curl probes (`HttpProbeOnce`) that stalled torrent ops up to ~16s on first poll now run on a `std::thread(...).detach()` (was already in place; re-verified).
+- **C2 context-menu `isVisible` `@Link`** — `TorrentContextMenu` is constructed with `isVisible: $showContextMenu` (was a value copy `isVisible: this.showContextMenu`, so the flag never propagated back → menu couldn't close).
+- **C4/C8 curlDownload** — bad-type `timeout` arg silently resets to the 30s default instead of corrupting the value; the destination path is validated **before** `fopen` (must be absolute, no `..`), closing an arbitrary-file-write via a user-supplied path.
+- **C5 pending-exception bail** — `TorrentGetFileStat` / `TorrentGetPiece` now `hasPendingException(env)` early-return (and free `d.bf`) after `runInTransmissionThread`, instead of calling `napi_create_arraybuffer`/`napi_get_undefined` with an exception pending (which leaves the return value uninitialized).
+- **C6 file index range guard** — `getFileInfo` bounds-checks `idx >= file_count()` (re-added null-torrent guard); the `int32→uint32` cast makes a negative index huge → caught by the same check.
+- **C7 `curl_global_init`** — new `ensureCurlGlobalInit()` (`std::call_once`) called from both `CurlDownload` (ArkTS thread) and `HttpProbeFetch` (detached thread); libcurl's global init is refcounted/idempotent so the two callers race safely.
+- **C9 `torrentSetLocation` path validation** — relocate path must be absolute and free of `..` (mirrors C8), like the curl path check.
+- **C10 redacted a log leak** — `TorrentStart` `err='%{public}s'` → `%{private}s` (the torrent error string carries user/torrent data). The PROBE/TRK lines only log hardcoded-host diagnostics with no passkey, so they stay public for diagnosability.
+- **C11 `TorrentGetFileStat` `memcpy` guard** — copy only when `d.bf != nullptr && bfBytes > 0`; previously `memcpy(out, null, 0)` ran on the every-stat-0 path.
+- **D1 add-dialog auto-close race** — `AddTorrentPage.handleAddResult` OK branch now sets an `addSuccessTimer` (600ms) and clears it in `aboutToDisappear`, so `onTorrentAdded` isn't fired after the page has been removed.
+- **D2 swallowed promise rejections** — `SessionController` `.destroy()`/`.acquire()`/`.start()` on the connectivity monitor + wake lock now `.catch` and `hilog.error` instead of `then(() => {})` (silently swallowed).
+- **D3 float→`setInt` truncation + ProxyPage dead state** — `EditSetting` `valueType:'float'` now routes to a new `Preferences.setFloat()` (was `setInt`, truncating e.g. seed-ratio `1.5`→`1`); `number` still routes to `setInt`. Removed `ProxyPage` dead `hostError`/`portError` `@State` + their never-rendering display blocks.
+- **D4 Index.d.ts accuracy** — comment "All 36 methods"; added `torrentState(session, torrentId)` diagnostic; removed `envUnset` (never registered in `env.cc`).
+
+**Deferred (with rationale):**
+- **A4 TLS cert verify global-off** — libcurl has no per-request bypass here and the CA bundle is a build/asset lift; documented, not changed.
+- **D5 FileTreePage batch/taskpool** — perf refactor, not a correctness bug; orthogonal to the already-offloaded add/relocate.
+- **E1–E9 dead-code/simplification** — several findings conflicted with actual call sites (false positives); all were verified against `git grep` and only the confirmed-safe ones (D4, ProxyPage dead state) were touched.
+- **F1–F4 larger refactors** — high blast radius, low correctness value; deliberately skipped to avoid regressions on the current green state.
+
+---
+
 ## 2026-08-26 — input-dialog crash fix (all Settings/Proxy inputs) + About page cleanup
 
 - **`@CustomDialog` + `$@Link` ReferenceError crash FIXED (root cause of the whole "tap any input → 秒崩" cluster)** — `EditSetting` and `SelectSetting` built their dialogs by passing a parent `@Link` down via `$` (`value: $value` / `selectedIndex: $selectedIndex`), which compiles but throws `ReferenceError: $value is not defined` the instant the `@CustomDialog` builder runs on `open()`. Both rewrote to the project's `SettingsResetDialog` pattern — pass a plain **value copy** (`@Prop initialValue` / `@Prop initialIndex`) + an **`onSave`/`onSelect` callback**, and let the **parent own persistence** (set the `@Link` + write `PreferencesManager` inside the closure). Covers all 21 `EditSetting` call sites in SettingsPage (SSID, download/upload speed limit, RPC port, peer port, etc.) + 4 in ProxyPage (Host/Port/Username/Password) + the Encryption `SelectSetting` — every text-configured setting in the app. **On-device verified** (Pura 80 `4VM0125513000074`): string/number/edit-save and select dialogs all open, edit, and persist without crash.
