@@ -1,7 +1,7 @@
 {
   "name": "transmissionbtm",
   "version": "1.0.0",
-  "description": "**HarmonyOS BitTorrent Client** — 基于 [transmissionbtc](https://github.com/AndreyPavlenko/transmissionbtc) (Android v1.3.10) 移植，Java 应用层全部废弃，改用 **ArkTS + ArkUI** 重写。C/C++ 原生引擎 (libtransmission) 保留，JNI → N-API 适配。",
+  "description": "**HarmonyOS BitTorrent Client** — 原生引擎基于上游 Transmission libtransmission 4.1.0 stable (GPLv2)，经 N-API 桥接;UI 与业务层以 ArkTS + ArkUI 从零实现。",
   "main": "index.js",
   "directories": {
     "doc": "docs"

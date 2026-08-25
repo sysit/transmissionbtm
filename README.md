@@ -1,6 +1,6 @@
 # transmissionbtm
 
-**HarmonyOS BitTorrent 客户端** —— 从 [transmissionbtc](https://github.com/AndreyPavlenko/transmissionbtc)(Android v1.3.10) 移植。原 Java 应用层全部废弃,改用 **ArkTS + ArkUI** 从零重写;C/C++ 原生引擎(libtransmission 4.1.0 stable + 依赖)完整保留,适配层由 JNI 改为 **N-API**。
+**HarmonyOS BitTorrent 客户端** —— 原生引擎基于上游 [Transmission](https://github.com/transmission/transmission) 的 [libtransmission](https://github.com/transmission/transmission) 4.1.0 stable(**GPLv2**),经 **N-API** 桥接;UI 与业务层用 **ArkTS + ArkUI** 从零实现。
 
 当前版本:**v0.1.1**(HarmonyOS 6.1.1 / API 24,arm64-v8a)
 
@@ -153,4 +153,3 @@ hdc shell aa test -b com.9bt.transmissionbtm -m entry@ohosTest ...
 | [`docs/07-development-plan.md`](docs/07-development-plan.md) | 里程碑计划与任务分解(ground truth) |
 | [`docs/06-feature-map-and-gap-analysis.md`](docs/06-feature-map-and-gap-analysis.md) | 功能地图 + 差距分析 |
 | [`docs/01-native-bridge-and-core-engine.md`](docs/01-native-bridge-and-core-engine.md) | N-API 方法规格、C++ 文件清单 |
-| [`docs/08-java-to-arkts-mapping.md`](docs/08-java-to-arkts-mapping.md) | 65 个 Java 文件 → ArkTS 映射 |
