@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "harmonyos": {
+      "command": "npx",
+      "args": ["-y", "harmonyos-mcp"],
+      "env": {
+        "DEVECO_STUDIO_HOME": "/Applications/DevEco-Studio.app/Contents"
+      }
+    }
+  }
+}

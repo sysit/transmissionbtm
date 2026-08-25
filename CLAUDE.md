@@ -81,7 +81,8 @@ Source repo for the transmission fork: `/Users/xiphis/projects/transmissionbtc` 
 - **Engine:** real Transmission 4.1.0 stable (tag `2724011`), M-Team-compatible. HAP builds + signs; on-device verified.
 - **Live-refresh:** torrent cards re-render every 5s via a `TorrentVM` `@ObjectLink` wrapper (`DownloadsPage.syncTorrentVms`).
 - **Tests:** 231/231 on-device ohosTest (unit + in-process E2E, Pura 80 `4VM0125513000074`); 80/80 host vitest.
-- **Owed code:** P0 remove-race is FIXED; piece-priority reserved export implemented at file level. Remaining: non-blocking async completion primitive for slow ops (add-from-file / relocate), permanently-deferred service re-enable needs `install_list_capability`.
+- **Remaining:** P0 remove-race is FIXED; piece-priority reserved export implemented at file level; add-from-file / magnet / URL + relocate are offloaded to `@ohos.taskpool` (no UI block), and the add-torrent "could not access the selected file" + `File name too long` (ENAMETOOLONG) bugs are FIXED and verified on-device. Only permanently-deferred: service re-enable needs `install_list_capability`.
+- **On-device fixes (2026-08-25, all verified on Pura 80):** publish-folder picker no longer writes a stray file (save() proxy + `autoCreateEmptyFile=false`); speeds corrected KB/s→B/s (`KBPS_TO_BPS=1000`, no more "32B/s"); Save-to-Files export re-done tree-preserving (dir copy + fd→fd fallback); removed-torrent metainfo pruned so no "corpse card" resurrects. **WiFi-only gate:** new SSID allowlist toggle (`wifi_ssid`), `ConnectivityMonitor.isSsidAllowed()` fail-open, `GET_WIFI_INFO` permission.
 - Full change log + deferred debt → **`docs/STATUS.md`**.
 
 ## Critical Docs
