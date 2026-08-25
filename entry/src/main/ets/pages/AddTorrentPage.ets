@@ -9,6 +9,7 @@ import { NativeBridge } from '../bridge/NativeBridge';
 import { TorrentAddResult } from '../utils/constants';
 import { Colors, FontSize, Spacing, Radius } from '../utils/constants';
 import { picker, fileIo as fs } from '@kit.CoreFileKit';
+import { common } from '@kit.AbilityKit';
 import { taskpool } from '@kit.ArkTS';
 import { FilePreview } from '../components/add/FilePreview';
 import { TorrentStatusBanner } from '../components/add/TorrentStatusBanner';
@@ -383,7 +384,12 @@ export struct AddTorrentPage {
 
   private async onBrowseFile(): Promise<void> {
     try {
-      const dp = new picker.DocumentViewPicker();
+      // Pass the app context to the picker. A no-arg DocumentViewPicker can
+      // return URIs that fs.openSync() cannot read back from the app's context
+      // ("could not access the selected file" bug), because the read grant is
+      // bound to the context that opened the picker. The working publish-folder
+      // and Save-to-Files pickers both pass getContext(this) — match them.
+      const dp = new picker.DocumentViewPicker(getContext(this) as common.UIAbilityContext);
       const options = new picker.DocumentSelectOptions();
       options.maxSelectNumber = 1;
       options.selectMode = picker.DocumentSelectMode.FILE;
@@ -417,6 +423,11 @@ export struct AddTorrentPage {
       } else if (!baseName.toLowerCase().endsWith('.torrent')) {
         baseName = `${baseName}.torrent`;
       }
+      // A picker filename (e.g. a long Chinese M-Team name) can exceed the FS
+      // NAME_MAX (255 bytes), making fs.copyFileSync() throw ENAMETOOLONG ("File
+      // name too long"). The cache name is throwaway — native parses the true
+      // torrent name from the file's metainfo, not this filename — so cap it.
+      baseName = this.safeCacheName(baseName);
       const destPath = `${getContext(this).cacheDir}/${baseName}`;
       // DocumentViewPicker returns a file:// URI. copyFileSync() does NOT
       // understand that scheme (it only takes a real path or an fd), so open
@@ -427,10 +438,41 @@ export struct AddTorrentPage {
       hilog.info(0x0001, TAG, 'Picked torrent copied to %{private}s', destPath);
       return destPath;
     } catch (err) {
-      this.showError('Could not access the selected file');
-      hilog.error(0x0001, TAG, 'copyPickerUriToCache failed: %{private}s', String(err));
+      // Log the raw URI + real error at %{public}s so the add-torrent "could not
+      // access the selected file" regression is diagnosable in hilog (the
+      // previous %{private}s hid both). Distinguish a remote/cloud URI (which a
+      // consumer app can't open as a local file — tell the user to save it to
+      // local Download first) from a local file whose open failed for another
+      // reason (surface the real error).
+      const eStr = String(err);
+      hilog.error(0x0001, TAG, 'copyPickerUriToCache FAILED uri=%{public}s err=%{public}s',
+        uri, eStr);
+      this.showError(uri.startsWith('file://')
+        ? `无法访问所选文件: ${eStr}`
+        : '所选文件位于远程/云位置，暂不支持直接添加，请先保存到本地 Download');
       return '';
     }
+  }
+
+  /**
+   * Bound a picker-provided filename to a safe UTF-8 byte length so
+   * copyPickerUriToCache() can't throw ENAMETOOLONG ("File name too long") on
+   * long Chinese M-Team names. Falls back to a short generated name when > MAX
+   * bytes. The .torrent extension is preserved (native expects a .torrent
+   * container); the name is a throwaway cache name — native reads the real
+   * torrent name from the metainfo.
+   */
+  private safeCacheName(name: string): string {
+    const MAX = 100; // UTF-8 bytes — well under the FS NAME_MAX (255)
+    let bytes = 0;
+    for (let i = 0; i < name.length; i++) {
+      const code = name.charCodeAt(i);
+      bytes += code < 0x80 ? 1 : code < 0x800 ? 2 : code < 0x10000 ? 3 : 4;
+      if (bytes > MAX) {
+        return `torrent_${Date.now()}.torrent`;
+      }
+    }
+    return name;
   }
 
   private async onAddTorrent(): Promise<void> {

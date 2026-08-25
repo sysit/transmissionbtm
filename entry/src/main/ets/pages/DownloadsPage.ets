@@ -11,7 +11,8 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { TorrentInfo } from '../models/TorrentInfo';
 import { SessionConfig } from '../models/SessionConfig';
 import { PreferencesManager, PrefKeys } from '../models/Preferences';
-import { picker, fileIo as fs } from '@kit.CoreFileKit';
+import { fileIo as fs, picker } from '@kit.CoreFileKit';
+import { common } from '@kit.AbilityKit';
 import { promptAction } from '@kit.ArkUI';
 import { taskpool } from '@kit.ArkTS';
 import { TorrentCard } from '../components/torrent/TorrentCard';
@@ -28,6 +29,29 @@ import { SessionController } from '../services/SessionController';
 import { NativeBridge } from '../bridge/NativeBridge';
 
 const TAG = 'DownloadsPage';
+
+// Save-to-Files export target (HarmonyOS NEXT public Download).
+//
+// A consumer app CANNOT write the public Download dir by permission on a phone:
+// READ_WRITE_DOWNLOAD_DIRECTORY is user_grant but only supported on 2-in-1 /
+// tablet — a phone rejects the runtime request (authResults=2, "device-type
+// condition not met"), so it never appears in system settings (verified: the app
+// shows only Notification + Internet). The device-independent, permission-free
+// way to put a file into the user's Download is the system
+// DocumentViewPicker.save() in DEFAULT mode: it honors newFileNames +
+// defaultFilePathUri, creates the file, and returns a writable file://docs URI we
+// then fs.copy() into. DOWNLOAD mode is a dead end (picker.d.ts says it ignores
+// newFileNames/defaultFilePathUri/fileSuffixChoices and returns a folder URI that
+// fs cannot write).
+const DOWNLOAD_DIR_URI = 'file://docs/storage/Users/currentUser/Download';
+
+/** A completed torrent file pending export: its sanitized publish name and the
+ *  sandbox path to copy from. ArkTS forbids inline object-literal types, so this
+ *  is a declared interface (arkts-no-obj-literals-as-types). */
+interface FileJob {
+  name: string;
+  src: string;
+}
 
 /**
  * Offload the blocking native torrentSetLocation (libtransmission moves the
@@ -71,6 +95,8 @@ export struct DownloadsPage {
   // writes torrent data here; the "Save to Files" action copies completed files from
   // here into the public Download dir via the picker.
   private sessionDownloadDir: string = '';
+  /** <filesDir>/transmissionbtm — libtransmission torrent/resume state dir. */
+  private sessionSettingsDir: string = '';
 
   aboutToAppear(): void {
     hilog.info(0x0001, TAG, 'DownloadsPage aboutToAppear');
@@ -134,6 +160,7 @@ export struct DownloadsPage {
     config.downloadDir = `${filesDir}/downloads`;
     config.incompleteDir = `${filesDir}/downloads/.incomplete`;
     config.settingsDir = `${filesDir}/transmissionbtm`;
+    this.sessionSettingsDir = config.settingsDir;
     this.ensureDir(config.downloadDir);
     this.ensureDir(config.incompleteDir);
     this.ensureDir(config.settingsDir);
@@ -161,6 +188,36 @@ export struct DownloadsPage {
 
   private onRemove(t: TorrentInfo): void {
     this.controller.remove(t.id);
+    this.pruneTorrentMetainfo(t);
+  }
+
+  /**
+   * Delete a removed torrent's leftover metainfo so a fresh session can't
+   * resurrect it. native.torrentRemove (cpp, uneditable) frees the torrent from
+   * the running session but leaves its resident .torrent and .resume files in
+   * settingsDir — so the next session start re-loads it as a broken "corpse"
+   * card (verified: Big Buck Bunny's dd8255ec… .torrent/.resume survived a
+   * Remove and re-appeared at 0%/Error). We unlink both hash-named files after
+   * the native remove. unlinkSync only targets exact files (guarded by hash
+   * length), never the whole settings or downloads dir.
+   */
+  private pruneTorrentMetainfo(t: TorrentInfo): void {
+    if (!t || t.hashString.length !== 40) {
+      return;
+    }
+    const paths: string[] = [
+      `${this.sessionSettingsDir}/torrents/${t.hashString}.torrent`,
+      `${this.sessionSettingsDir}/resume/${t.hashString}.resume`,
+    ];
+    for (let i = 0; i < paths.length; i++) {
+      try {
+        if (fs.accessSync(paths[i])) {
+          fs.unlinkSync(paths[i]);
+        }
+      } catch (e) {
+        // Torrent metainfo cleanup is best-effort — never break the remove.
+      }
+    }
   }
 
   private onVerify(t: TorrentInfo): void {
@@ -179,53 +236,21 @@ export struct DownloadsPage {
 
   /**
    * D5 (docs/11): export a torrent's downloaded data into the user-visible
-   * public Download directory.
+   * public Download directory via the system document-save picker.
    *
-   * HarmonyOS NEXT grants NO shared-dir write permission to a consumer app on
-   * a phone (READ_WRITE_DOWNLOAD_DIRECTORY resolves to authResults=2). The
-   * browser model applies instead: libtransmission writes into the app sandbox
-   * (a real POSIX path) and we publish completed files to Download via
-   * DocumentViewPicker.save() DOWNLOAD mode — returns a write-granted
-   * `Download/<bundle>/` dir URI that needs NO permission and IS user-visible.
+   * On a phone the READ_WRITE_DOWNLOAD_DIRECTORY permission is tablet/2-in-1-only
+   * and rejected (auth=2), so the ONLY supported path is the DocumentViewPicker:
+   * the app calls save() in DEFAULT mode with the real file name + the Download
+   * default path, the system creates the file and returns a writable file://docs
+   * URI, and we fs.copy the sandbox file into it. Unsupported-name collisions are
+   * auto-suffixed by the system; the user confirms the save dialog once per call.
    */
   private async onSaveToFiles(t: TorrentInfo): Promise<void> {
     try {
-      // Reuse the persisted publish folder picked in Settings, if any; otherwise
-      // prompt once via the system DOWNLOAD-mode picker.
-      let dirUri = await PreferencesManager.getInstance().getString(PrefKeys.PUBLISH_DIR, '');
-      if (!dirUri) {
-        const dp = new picker.DocumentViewPicker();
-        const opts = new picker.DocumentSaveOptions();
-        opts.pickerMode = picker.DocumentPickerMode.DOWNLOAD;
-        const uris: string[] = await dp.save(opts);
-        if (!uris || uris.length === 0) {
-          return; // picker dismissed
-        }
-        dirUri = uris[0];
-      }
-      const files = this.controller.listFiles(t.id);
-      let copied = 0;
-      for (let i = 0; i < files.length; i++) {
-        const f = files[i];
-        if (f.isDirectory) {
-          continue;
-        }
-        // Torrent file names are untrusted .torrent metadata. Sanitize the
-        // relative path so a malicious name can't escape the download dir
-        // (read via buildSandboxFilePath) or the publish dir (write baseName).
-        const safeRel = this.sanitizeRelPath(f.name);
-        if (!safeRel) {
-          continue; // traversal / malformed / empty — skip this file
-        }
-        const segs = safeRel.split('/');
-        const safeBase = segs[segs.length - 1];
-        const srcAbs = this.buildSandboxFilePath(safeRel);
-        if (!fs.accessSync(srcAbs)) {
-          continue; // not yet on disk (still downloading / in incomplete dir)
-        }
-        fs.copyFileSync(srcAbs, `${dirUri}/${safeBase}`);
-        copied++;
-      }
+      this.diagReset();
+      this.diag(`onSaveToFiles name=${t.name}`);
+      const copied = await this.copyTorrentToPublic(t);
+      hilog.info(0x0001, TAG, 'SaveToFiles: final copied=%{public}d', copied);
       promptAction.showToast({
         message: copied > 0
           ? `已保存 ${copied} 个文件到 Download`
@@ -239,6 +264,160 @@ export struct DownloadsPage {
         duration: 2000,
       });
     }
+  }
+
+  /**
+   * Append one line to a sandboxed diagnostic file (readable via hdc). The app's
+   * hilog (domain 0x0001, tag DownloadsPage) does not reliably surface in
+   * `hilog -d` on-device, so a file is the deterministic way to trace the export
+   * path. Diagnostics are best-effort and must never break the export.
+   */
+  private diag(msg: string): void {
+    try {
+      const p = `${getContext(this).filesDir}/export-diag.txt`;
+      const file = fs.openSync(p, fs.OpenMode.APPEND | fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY);
+      fs.writeSync(file.fd, `${msg}\n`);
+      fs.closeSync(file);
+    } catch (e) {
+      // ignore — diagnostics must not break the export
+    }
+  }
+
+  /** Reset the sandboxed export diag file at the start of a save attempt. */
+  private diagReset(): void {
+    try {
+      const p = `${getContext(this).filesDir}/export-diag.txt`;
+      const file = fs.openSync(p, fs.OpenMode.CREATE | fs.OpenMode.TRUNC | fs.OpenMode.WRITE_ONLY);
+      fs.closeSync(file);
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  /**
+   * Build the list of on-disk (completed) files of `t`, ask the system picker to
+   * create a destination for each in public Download (one confirmation dialog),
+   * then fs.copy the sandbox source into each returned file://docs URI.
+   *
+   * Torrent metadata is untrusted → sanitize each relative path first (see
+   * sanitizeRelPath) so a malicious name can't escape the download dir (read via
+   * buildSandboxFilePath) or smuggle traversal into the picker file name. Returns
+   * the count of files actually copied.
+   */
+  private async copyTorrentToPublic(t: TorrentInfo): Promise<number> {
+    const files = this.controller.listFiles(t.id);
+    this.diag(`copy begin nFiles=${files.length}`);
+    // Whole-torrent directory copy. BT multi-file torrents live under a single
+    // top-level dir in the sandbox (downloads/<torrentName>/), so copy that whole
+    // directory into public Download in ONE fs.copy(...) to keep the folder tree
+    // (incl. nested dirs like Preview/) instead of flattening to the Download root.
+    // fs.copy is the URI overload (both args "URI of the file or directory"). On a
+    // phone we can't pre-create a subfolder (mkdir rejects a docs-URI) and the
+    // folder-picker is 2-in-1-only, so fs.copy(dir, Download/<name>) is the only way
+    // to get a real tree. Guard: only trust it once every file is already on disk.
+    const dirSafe = this.sanitizeRelPath(t.name);
+    if (dirSafe) {
+      const dirAbs = this.buildSandboxFilePath(dirSafe);
+      try {
+        if (fs.statSync(dirAbs).isDirectory()) {
+          let allOnDisk = true;
+          let fileCount = 0;
+          for (let i = 0; i < files.length; i++) {
+            if (!files[i].isDirectory) {
+              fileCount++;
+              const sRel = this.sanitizeRelPath(files[i].name);
+              if (!sRel || !fs.accessSync(this.buildSandboxFilePath(sRel))) {
+                allOnDisk = false;
+              }
+            }
+          }
+          if (allOnDisk) {
+            const destDir = `${DOWNLOAD_DIR_URI}/${encodeURIComponent(dirSafe)}`;
+            this.diag(`dir-copy src=${dirAbs} dest=${destDir} nFiles=${fileCount}`);
+            await fs.copy(dirAbs, destDir);
+            this.diag(`dir-copy ok copied=${fileCount}`);
+            return fileCount;
+          }
+        }
+      } catch (e) {
+        this.diag(`dir-copy failed err=${String(e)}`);
+      }
+    }
+    // Gather (safeBase, srcAbs) for every completed, non-directory file.
+    const jobs: FileJob[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      if (f.isDirectory) {
+        continue;
+      }
+      const safeRel = this.sanitizeRelPath(f.name);
+      if (!safeRel) {
+        continue; // traversal / malformed / empty — skip this file
+      }
+      const segs = safeRel.split('/');
+      const safeBase = segs[segs.length - 1];
+      const srcAbs = this.buildSandboxFilePath(safeRel);
+      const onDisk = fs.accessSync(srcAbs);
+      this.diag(`rel=${safeRel} src=${srcAbs} onDisk=${onDisk}`);
+      if (!onDisk) {
+        this.diag(`skip not-on-disk ${safeRel}`);
+        continue; // not yet on disk (still downloading / in incomplete dir)
+      }
+      jobs.push({ name: safeBase, src: srcAbs });
+    }
+    if (jobs.length === 0) {
+      this.diag('no on-disk files');
+      return 0;
+    }
+    // One picker save() to create the destination files in public Download. The
+    // system grants write access to each returned URI for this save, so the
+    // subsequent fs.copy needs no extra permission. DEFAULT mode honors
+    // newFileNames + defaultFilePathUri (DOWNLOAD mode ignores both — dead end).
+    let uris: Array<string> = [];
+    try {
+      const opts = new picker.DocumentSaveOptions();
+      opts.pickerMode = picker.DocumentPickerMode.DEFAULT;
+      opts.newFileNames = jobs.map((j) => j.name);
+      // Prefer the user's "Publish folder" when set, else the system Download.
+      const pubDir = await PreferencesManager.getInstance().getString(PrefKeys.PUBLISH_DIR, '');
+      opts.defaultFilePathUri = pubDir.length > 0 ? pubDir : DOWNLOAD_DIR_URI;
+      const pv = new picker.DocumentViewPicker(getContext(this) as common.UIAbilityContext);
+      uris = await pv.save(opts);
+      this.diag(`save returned ${uris.length} uris`);
+    } catch (e) {
+      this.diag(`save picker error=${String(e)}`);
+      return 0;
+    }
+    if (uris.length === 0) {
+      this.diag('save returned 0 uris (user cancelled)');
+      return 0;
+    }
+    let copied = 0;
+    const n = Math.min(uris.length, jobs.length);
+    for (let i = 0; i < n; i++) {
+      // fs.copy() rejects a file://docs URI as dest ("input parameter is invalid")
+      // and copyFileSync/copyFile don't understand the URI scheme either (they want
+      // a real path or an fd) — see AddTorrentPage.copyPickerUriToCache. So open
+      // each side as an fd (open() IS URI-aware, @since 12, honoring the picker's
+      // write grant) and copy fd → fd.
+      try {
+        this.diag(`copy ${jobs[i].name} -> ${uris[i]}`);
+        const s = fs.openSync(jobs[i].src, fs.OpenMode.READ_ONLY);
+        const d = fs.openSync(uris[i], fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
+        try {
+          await fs.copyFile(s.fd, d.fd);
+          copied++;
+          this.diag(`copied ok ${jobs[i].name}`);
+        } finally {
+          try { fs.closeSync(s); } catch (e1) { /* ignore */ }
+          try { fs.closeSync(d); } catch (e2) { /* ignore */ }
+        }
+      } catch (e) {
+        this.diag(`copyFail ${jobs[i].name} err=${String(e)}`);
+      }
+    }
+    this.diag(`copy done copied=${copied}`);
+    return copied;
   }
 
   /** Move a torrent's data to a new sandbox dir (taskpool-offloaded). Sets up
@@ -337,6 +516,7 @@ export struct DownloadsPage {
         break;
       case TorrentAction.REMOVE_WITH_DATA:
         this.controller.removeWithData(t.id);
+        this.pruneTorrentMetainfo(t);
         break;
       case TorrentAction.VERIFY:
         this.onVerify(t);
