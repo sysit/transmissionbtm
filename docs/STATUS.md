@@ -9,6 +9,12 @@
 
 ---
 
+## 2026-08-26 — v0.1.1 release
+
+- **Version bump** — `AppScope/app.json5` versionName `0.1.0`→`0.1.1`, versionCode `1`→`2`; native `getVersion()` (`napi_init.cpp`) `"0.1.0-m6"`→`"0.1.1"` (drop the `-m6` milestone suffix); `NativeProbe.test.ets` assertion updated to match; `AppConstants.APP_VERSION` (`utils/constants.ets`) `"0.1.0-m6"`→`"0.1.1"` (About page display). `oh-package.json5` (N-API types package version) left as-is — project hook forbids direct edits; use DevEco's project-structure panel if it needs a bump.
+
+---
+
 ## 2026-08-26 — codex review fix batch (B1 + C1–C11 + D1–D4), build + vitest green
 
 Second pass over the merged codex architecture + code review findings. All correctness/security/memory-safety items landed; host **vitest 93/93** and `assembleHap` both green. (The `.ai-review` reports were re-read; a few E/F findings were false positives or deferred — see below.)

@@ -104,7 +104,7 @@ export class Duration {
 
 export class AppConstants {
   static readonly APP_NAME: string = 'transmissionbtm';
-  static readonly APP_VERSION: string = '0.1.0-m6';
+  static readonly APP_VERSION: string = '0.1.1';
   static readonly BUILD_DATE: string = '2026-06-28';
   static readonly BUILD_MILESTONE: string = 'M6';
   static readonly RPC_DEFAULT_PORT: number = 9091;

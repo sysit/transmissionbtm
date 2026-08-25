@@ -30,7 +30,7 @@ static napi_value GetVersion(napi_env env, napi_callback_info info) {
   napi_value result;
   // P3 (codex review): check the N-API status — a failed string creation
   // previously returned an undefined handle silently.
-  if (napi_create_string_utf8(env, "0.1.0-m6", NAPI_AUTO_LENGTH, &result) != napi_ok) {
+  if (napi_create_string_utf8(env, "0.1.1", NAPI_AUTO_LENGTH, &result) != napi_ok) {
     napi_throw_error(env, nullptr, "Failed to create version string");
     return nullptr;
   }
