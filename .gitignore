@@ -17,3 +17,7 @@
 # Signing config holds the real cert/key passwords — never commit it.
 # Generate locally via DevEco auto-signing; see build-profile.json5.sample.
 /build-profile.json5
+
+# Local dev tooling + AI assistant instructions — keep on disk, never in the repo.
+/resume.sh
+/CLAUDE.md
