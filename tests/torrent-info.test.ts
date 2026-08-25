@@ -32,8 +32,9 @@ describe('TorrentInfo.fromStatArray', () => {
     expect(info.status).toBe(TorrentStatus.DOWNLOAD);
     expect(info.totalSize).toBe(1000000);
     expect(info.haveValid).toBe(500000);
-    expect(info.rateDownload).toBe(131072);
-    expect(info.rateUpload).toBe(524288);
+    // arr idx8/9 carry native KBps (piece*Speed_KBps); model fields are bytes/s.
+    expect(info.rateDownload).toBe(131072 * 1000);
+    expect(info.rateUpload).toBe(524288 * 1000);
     expect(info.peersConnected).toBe(10);
     expect(info.peersTotal).toBe(25);
     expect(info.name).toBe('test.torrent');

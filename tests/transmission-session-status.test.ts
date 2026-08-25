@@ -83,7 +83,7 @@ describe('TransmissionSession.getAllTorrents status merge', () => {
     expect(list[0].totalSize).toBe(1000);
     expect(list[0].haveValid).toBe(250);
     expect(list[0].percentDone).toBe(0.25);
-    expect(list[0].rateDownload).toBe(1024);
+    expect(list[0].rateDownload).toBe(1024 * 1000); // idx9 is KBps → bytes/s
     expect(list[0].rateUpload).toBe(0);
     expect(list[0].peersConnected).toBe(3);
     expect(list[0].peersTotal).toBe(5);

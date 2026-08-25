@@ -7,6 +7,16 @@
 import { hilog } from '@kit.PerformanceAnalysisKit';
 
 /**
+ * Native brief-stat array carries speeds in KB/s (pieceDownloadSpeed_KBps) —
+ * the C++ bridge stored the KBps variant, whereas the reference transmissionbtc
+ * put bytes/sec (bandwidth.getPieceSpeedBytesPerSecond) into these same slots.
+ * formatSpeed() consumes bytes/s (base-1000). Convert here at the model boundary
+ * using the same factor as transmission's toSpeedBytes()/toSpeedKBps()
+ * (tr_speed_K = SPEED_K = 1000), which is also formatSpeed's base-1000.
+ */
+export const KBPS_TO_BPS = 1000;
+
+/**
  * BitTorrent status constants for the brief stat array.
  * Matches transmissionbtc TorrentStat.Status enum:
  *   STOPPED=0, CHECK=1, DOWNLOAD=2, SEED=3, ERROR=4.
@@ -134,8 +144,8 @@ export class TorrentInfo {
     info.uploadedEver = arr[5] ?? 0;
     info.peersConnected = arr[6] ?? 0;
     info.peersTotal = arr[7] ?? 0;
-    info.rateUpload = arr[8] ?? 0;
-    info.rateDownload = arr[9] ?? 0;
+    info.rateUpload = (arr[8] ?? 0) * KBPS_TO_BPS;
+    info.rateDownload = (arr[9] ?? 0) * KBPS_TO_BPS;
 
     info.haveValid = totalLength - remainingLength;
     info.percentDone = totalLength > 0

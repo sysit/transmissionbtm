@@ -15,7 +15,7 @@
 
 import { NativeBridge } from '../bridge/NativeBridge';
 import { SessionConfig, EncryptionMode } from './SessionConfig';
-import { TorrentInfo, TorrentStatus, TorrentError } from './TorrentInfo';
+import { TorrentInfo, TorrentStatus, TorrentError, KBPS_TO_BPS } from './TorrentInfo';
 import { TorrentFile, RawFileEntry } from './TorrentFile';
 import { SessionRunState } from './SessionState';
 import { hilog } from '@kit.PerformanceAnalysisKit';
@@ -292,8 +292,8 @@ export class TransmissionSession {
       info.uploadedEver = Number(view[base + 5]);
       info.peersConnected = Number(view[base + 6]);
       info.peersTotal = Number(view[base + 7]);
-      info.rateUpload = Number(view[base + 8]);
-      info.rateDownload = Number(view[base + 9]);
+      info.rateUpload = Number(view[base + 8]) * KBPS_TO_BPS;
+      info.rateDownload = Number(view[base + 9]) * KBPS_TO_BPS;
       info.haveValid = total - remaining;
       info.percentDone = total > 0 ? info.haveValid / total : 0;
       info.downloadedEver = info.haveValid;
