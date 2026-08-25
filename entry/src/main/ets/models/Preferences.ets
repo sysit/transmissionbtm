@@ -61,6 +61,12 @@ export class PrefKeys {
   static readonly RENAME_PARTIAL_FILES: string = 'rename_partial_files';
   static readonly TRASH_ORIGINAL_TORRENT_FILE: string = 'trash_original_torrent_file';
 
+  // WiFi-only gating (ConnectivityMonitor reads these two directly by the
+  // same string keys; they are NOT SessionConfig fields — they gate transfers
+  // at runtime, they don't configure the engine.)
+  static readonly WIFI_ONLY: string = 'wifi_only';
+  static readonly WIFI_SSID: string = 'wifi_ssid';
+
   // Proxy
   static readonly PROXY_ENABLED: string = 'proxy_enabled';
   static readonly PROXY_URL: string = 'proxy_url';
@@ -184,6 +190,7 @@ export class PreferencesManager {
       [PrefKeys.ENABLE_RPC_WHITELIST, defaults.enableRpcWhitelist],
       [PrefKeys.INCREASE_SO_BUF, defaults.increaseSoBuf],
       [PrefKeys.ENABLE_SEQ_DOWNLOAD, defaults.enableSeqDownload],
+      [PrefKeys.WIFI_ONLY, false],
     ];
 
     const intDefaults: [string, number][] = [
@@ -214,6 +221,7 @@ export class PreferencesManager {
       [PrefKeys.PROXY_PASSWORD, defaults.proxyPassword],
       [PrefKeys.BLOCKLIST_URL, defaults.blocklistUrl],
       [PrefKeys.SETTINGS_DIR, defaults.settingsDir],
+      [PrefKeys.WIFI_SSID, ''],
     ];
 
     // ArkTS: no destructuring in for-of. Use indexed access.

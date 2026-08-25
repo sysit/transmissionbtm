@@ -25,6 +25,10 @@
       "value": "Detect WiFi/Ethernet connectivity for auto-suspend on mobile data"
     },
     {
+      "name": "perm_wifi_info_reason",
+      "value": "Read the connected WiFi SSID to enforce the WiFi-only SSID allowlist"
+    },
+    {
       "name": "perm_boot_completed_reason",
       "value": "Auto-start download service after device reboot"
     },

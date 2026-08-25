@@ -14,6 +14,7 @@
 //   monitor.destroy();
 
 import { connection } from '@kit.NetworkKit';
+import { wifiManager } from '@kit.ConnectivityKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { PreferencesManager } from '../models/Preferences';
@@ -22,6 +23,8 @@ const TAG = 'ConnectivityMonitor';
 
 /** Preference key for WiFi-only download mode (added by M4). */
 const KEY_WIFI_ONLY = 'wifi_only';
+/** Allowlist of SSIDs (comma-separated) honored when WiFi-only is on. */
+const KEY_WIFI_SSID = 'wifi_ssid';
 
 interface NetCapabilitiesChangeData {
   netHandle: connection.NetHandle;
@@ -146,6 +149,11 @@ export class ConnectivityMonitor {
           'WiFi-only mode: ignoring non-WiFi network');
         return;
       }
+      if (!(await this.isSsidAllowed())) {
+        hilog.info(0x0001, TAG,
+          'WiFi-only mode: not on an allowed SSID — ignoring');
+        return;
+      }
     }
 
     if (!this.wasAvailable) {
@@ -187,10 +195,12 @@ export class ConnectivityMonitor {
       this.wasAvailable = false;
       this.onLost();
     } else if (hasWifi && !this.wasAvailable) {
-      hilog.info(0x0001, TAG,
-        'WiFi-only mode: WiFi network detected — resuming');
-      this.wasAvailable = true;
-      this.onAvailable();
+      if (await this.isSsidAllowed()) {
+        hilog.info(0x0001, TAG,
+          'WiFi-only mode: WiFi network detected — resuming');
+        this.wasAvailable = true;
+        this.onAvailable();
+      }
     }
   }
 
@@ -209,6 +219,36 @@ export class ConnectivityMonitor {
       hilog.error(0x0001, TAG,
         'isWifiOnlyEnabled failed: %{private}s', String(err));
       return false;
+    }
+  }
+
+  /**
+   * When WiFi-only mode has an SSID allowlist configured, require the current
+   * SSID to be in it. Fail-open: no allowlist, or the active SSID can't be read
+   * (permission denied / STA off / unsupported) → treat as allowed so the robust
+   * bearer-type gate still governs. Never block a transfer because of a transient
+   * SSID-read failure.
+   */
+  private async isSsidAllowed(): Promise<boolean> {
+    try {
+      const allowRaw = await PreferencesManager.getInstance().getString(KEY_WIFI_SSID, '');
+      const allow = allowRaw.trim();
+      if (allow.length === 0) {
+        return true; // no allowlist → no SSID constraint
+      }
+      const info = await wifiManager.getLinkedInfo();
+      const ssid = (info?.ssid ?? '').trim();
+      if (ssid.length === 0) {
+        return true; // cannot read active SSID → fail open
+      }
+      const names = allow.split(',')
+        .map((s: string) => s.trim())
+        .filter((s: string) => s.length > 0);
+      return names.includes(ssid);
+    } catch (err) {
+      hilog.warn(0x0001, TAG,
+        'SSID check failed (fail-open): %{private}s', String(err));
+      return true;
     }
   }
 

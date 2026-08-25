@@ -63,6 +63,12 @@ export struct SettingsPage {
   @State dhtEnabled: boolean = defaultSessionConfig().dhtEnabled;
   @State lpdEnabled: boolean = defaultSessionConfig().lpdEnabled;
 
+  // ── WiFi-only gating (Network) ─────────────────────────────────
+  // Read by ConnectivityMonitor directly via PrefKeys.WIFI_ONLY /
+  // WIFI_SSID — they gate transfers at runtime, not engine config.
+  @State wifiOnly: boolean = false;
+  @State wifiSsid: string = '';
+
   // ── Blocklist ──────────────────────────────────────────────────
   @State blocklistEnabled: boolean = defaultSessionConfig().blocklistEnabled;
   @State blocklistUrl: string = defaultSessionConfig().blocklistUrl;
@@ -121,6 +127,8 @@ export struct SettingsPage {
       this.pexEnabled = await pm.getBoolean(PrefKeys.PEX_ENABLED, this.pexEnabled);
       this.dhtEnabled = await pm.getBoolean(PrefKeys.DHT_ENABLED, this.dhtEnabled);
       this.lpdEnabled = await pm.getBoolean(PrefKeys.LPD_ENABLED, this.lpdEnabled);
+      this.wifiOnly = await pm.getBoolean(PrefKeys.WIFI_ONLY, false);
+      this.wifiSsid = await pm.getString(PrefKeys.WIFI_SSID, '');
 
       // Blocklist
       this.blocklistEnabled = await pm.getBoolean(PrefKeys.BLOCKLIST_ENABLED, this.blocklistEnabled);
@@ -242,18 +250,18 @@ export struct SettingsPage {
       // DownloadsPage.applySandboxPaths() overrides the session dirs to the app
       // filesDir. A folder picked here would be silently ignored — show the real
       // sandbox path, and publish finished data via the torrent "Save to Files".
+      // Download dir is read-only: HarmonyOS NEXT sandboxes third-party apps and
+      // the engine needs a real POSIX path, so DownloadsPage.applySandboxPaths()
+      // overrides the session dir to the app filesDir. Publish folder is the one
+      // actionable control — it copies finished files to a system-visible place.
       SandboxSettingRow({ label: 'Download dir', value: this.getSandboxDir() });
-      SandboxSettingRow({ label: 'Incomplete dir', value: this.getSandboxDir() + '/.incomplete' });
       PublishFolderRow({ publishDir: $publishDir });
       Row() {
-        Text('Downloads are written to the app sandbox (the engine needs a real POSIX path, '
-          + 'and HarmonyOS NEXT gives a phone app no shared-dir write). Pick a "Publish folder" '
-          + 'above, or use the torrent "Save to Files" action, to copy finished files into a '
-          + 'system-visible Download folder.')
+        Text('Downloads live in the app sandbox. Use "Publish folder" (or a torrent\'s '
+          + 'Save to Files) to copy finished files into a system-visible Download folder.')
           .fontSize(FontSize.CAPTION)
           .fontColor(Colors.TEXT_SECONDARY)
-          .layoutWeight(1)
-          .padding({ right: Spacing.SM });
+          .layoutWeight(1);
       }
       .width('100%')
       .padding({ left: Spacing.LG, right: Spacing.LG, top: 2, bottom: Spacing.MD });
@@ -432,6 +440,20 @@ export struct SettingsPage {
         prefKey: PrefKeys.LPD_ENABLED,
         checked: $lpdEnabled,
       });
+      ToggleSetting({
+        label: 'WiFi/Ethernet only',
+        description: 'Pause transfers off WiFi to save cellular data',
+        prefKey: PrefKeys.WIFI_ONLY,
+        checked: $wifiOnly,
+      });
+      if (this.wifiOnly) {
+        EditSetting({
+          label: 'Allowed SSIDs',
+          hint: 'e.g. Home WiFi, Office',
+          prefKey: PrefKeys.WIFI_SSID,
+          value: $wifiSsid,
+        });
+      }
     }
   }
 

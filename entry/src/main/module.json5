@@ -91,6 +91,11 @@
         "name": "ohos.permission.GET_NETWORK_INFO",
         "reason": "$string:perm_network_info_reason",
         "usedScene": { "abilities": ["EntryAbility"], "when": "always" }
+      },
+      {
+        "name": "ohos.permission.GET_WIFI_INFO",
+        "reason": "$string:perm_wifi_info_reason",
+        "usedScene": { "abilities": ["EntryAbility"], "when": "always" }
       }
     ]
   }
