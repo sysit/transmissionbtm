@@ -17,6 +17,7 @@
 //   DownloadsPage — owns a SessionController, subscribes, and renders.
 
 import { TransmissionSession } from '../models/TransmissionSession';
+import { PreferencesManager } from '../models/Preferences';
 import { SessionConfig } from '../models/SessionConfig';
 import { TorrentInfo } from '../models/TorrentInfo';
 import { TorrentFile } from '../models/TorrentFile';
@@ -45,6 +46,8 @@ export class SessionController {
   private _started: boolean = false;
   /** Mirror of the last emitted list, for synchronous remove-hide timing. */
   private latest: TorrentInfo[] = [];
+  /** PreferencesManager settings-listener handle (unregistered in stop()). */
+  private unregisterSettingsListener: (() => void) | null = null;
 
   // ── Reactive outputs (the page subscribes and mirrors into @State) ──
   onTorrents: (torrents: TorrentInfo[]) => void = () => {};
@@ -83,6 +86,13 @@ export class SessionController {
       await this.session.start(config);
       hilog.info(0x0001, TAG, 'Session started, id=%{public}d', this.session.sessionId);
       this._started = true;
+      this.unregisterSettingsListener = PreferencesManager.getInstance()
+        .registerSettingsListener((config: SessionConfig) => {
+          // Live re-apply: settings edited mid-session reach the RUNNING engine
+          // immediately (native tr_sessionSet on the session thread). No-op if
+          // the session is not running — config is still persisted for next start.
+          this.session.updateSettings(config);
+        });
       this.refresh();
       this.startPolling();
       this.startConnectivityMonitor();
@@ -96,6 +106,12 @@ export class SessionController {
 
   /** Tear down the poll, wake lock, connectivity monitor, and session. */
   stop(): void {
+    // Unsub from the settings change-notifier first so a concurrent settings
+    // edit can't re-apply to a session we're about to close.
+    if (this.unregisterSettingsListener !== null) {
+      this.unregisterSettingsListener();
+      this.unregisterSettingsListener = null;
+    }
     this.stopPolling();
     if (this.wakeLock !== null) {
       this.wakeLock.release();

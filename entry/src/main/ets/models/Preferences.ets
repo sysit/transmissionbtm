@@ -118,6 +118,10 @@ export class PreferencesManager {
   private store: preferences.Preferences | null = null;
   private context: Context | null = null;
   private passwordCipher: ProxyCipher = new LegacyProxyCipher();
+  /** Live re-apply listeners. Each takes the freshly re-read SessionConfig.
+   *  Only SessionController registers one, and only while a session is running,
+   *  so a change is applied to the live engine exactly when it should be. */
+  private settingsListeners: Set<(config: SessionConfig) => void> = new Set();
 
   /**
    * Swap in the on-device HUKS cipher. Called once at app startup (EntryAbility)
@@ -305,6 +309,7 @@ export class PreferencesManager {
     try {
       await this.guard().put(key, value);
       await this.guard().flush();
+      await this.notifySettingsChanged();
     } catch (err) {
       hilog.error(0x0001, TAG,
         'setBoolean(%{private}s) failed: %{private}s', key, String(err));
@@ -315,6 +320,7 @@ export class PreferencesManager {
     try {
       await this.guard().put(key, value);
       await this.guard().flush();
+      await this.notifySettingsChanged();
     } catch (err) {
       hilog.error(0x0001, TAG,
         'setInt(%{private}s) failed: %{private}s', key, String(err));
@@ -325,6 +331,7 @@ export class PreferencesManager {
     try {
       await this.guard().put(key, value);
       await this.guard().flush();
+      await this.notifySettingsChanged();
     } catch (err) {
       hilog.error(0x0001, TAG,
         'setFloat(%{private}s) failed: %{private}s', key, String(err));
@@ -338,9 +345,53 @@ export class PreferencesManager {
         : value;
       await this.guard().put(key, toStore);
       await this.guard().flush();
+      await this.notifySettingsChanged();
     } catch (err) {
       hilog.error(0x0001, TAG,
         'setString(%{private}s) failed: %{private}s', key, String(err));
+    }
+  }
+
+  // ── Live settings change notification ─────────────────────────────
+
+  /**
+   * Register a callback fired after any session-config-affecting preference
+   * is persisted. Returns an unsubscribe function. SessionController uses this
+   * to live re-apply settings to a RUNNING session (no restart). The listener
+   * receives a freshly re-read SessionConfig.
+   */
+  registerSettingsListener(listener: (config: SessionConfig) => void): () => void {
+    this.settingsListeners.add(listener);
+    return () => {
+      this.settingsListeners.delete(listener);
+    };
+  }
+
+  /**
+   * Best-effort notify after a successful setter write. Re-reads the full
+   * SessionConfig and fans it out. Errors are swallowed — the write already
+   * succeeded, so a notifier failure must not appear as a settings-save error.
+   */
+  private async notifySettingsChanged(): Promise<void> {
+    if (this.settingsListeners.size === 0) {
+      return;
+    }
+    let config: SessionConfig;
+    try {
+      config = await this.getSessionConfig();
+    } catch (err) {
+      hilog.error(0x0001, TAG,
+        'notifySettingsChanged re-read failed: %{private}s', String(err));
+      return;
+    }
+    const listeners = Array.from(this.settingsListeners);
+    for (const listener of listeners) {
+      try {
+        listener(config);
+      } catch (err) {
+        hilog.error(0x0001, TAG,
+          'settings listener failed: %{private}s', String(err));
+      }
     }
   }
 

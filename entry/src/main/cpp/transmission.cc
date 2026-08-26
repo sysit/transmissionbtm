@@ -364,6 +364,72 @@ static napi_value SessionSuspend(napi_env env, napi_callback_info info) {
   return result;
 }
 
+// ── sessionSettingsUpdate ───────────────────────────────────────────
+// Live re-apply of settings changed while the session is running — no
+// restart. The ArkTS side rebuilds the same kebab-case settings JSON that
+// SessionStart merges at init; here we funnel it through tr_sessionSet (the
+// single 4.1 runtime setter) on the session's event thread so a change takes
+// effect immediately. We deliberately do NOT re-persist settings.json here:
+// tr_sessionSet mutates the running session, and SessionStop already saves the
+// canonical (credentials-stripped) settings at teardown. Persisting on every
+// update would need a second credential-strip and is redundant with stop.
+struct SettingsUpdateData {
+  tr_variant settings;
+};
+
+static void *transmissionSettingsUpdateFunc(tr_session *session, void *data, Err *err) {
+  (void)err;
+  auto *sd = (SettingsUpdateData *) data;
+  tr_sessionSet(session, sd->settings);
+  return nullptr;
+}
+
+static napi_value SessionSettingsUpdate(napi_env env, napi_callback_info info) {
+  size_t argc = 2;
+  napi_value args[2];
+  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+  if (argc < 2) {
+    napi_throw_error(env, nullptr, "Expected 2 arguments: session, settingsJson");
+    return nullptr;
+  }
+
+  tr_session *session = getSession(env, args[0]);
+  if (session == nullptr) {
+    napi_throw_error(env, nullptr, "Invalid session handle");
+    return nullptr;
+  }
+
+  char *settingsJson = getStringUtf8(env, args[1]);
+  if (settingsJson == nullptr || settingsJson[0] == '\0') {
+    free(settingsJson);
+    napi_throw_type_error(env, nullptr, "Argument 1 must be a non-empty JSON string");
+    return nullptr;
+  }
+
+  // Same parse as SessionStart: parse() is the public entry point on
+  // tr_variant_serde, with an explicit std::string_view (the CharSpan
+  // template overload can't deduce from a raw char*).
+  auto parsed = tr_variant_serde::json().parse(std::string_view{settingsJson});
+  free(settingsJson);
+  if (!parsed.has_value()) {
+    napi_throw_error(env, nullptr, "Failed to parse settings JSON");
+    return nullptr;
+  }
+
+  // tr_variant is move-only; runInTransmissionThread needs a stable pointer
+  // for the duration of the synchronous worker, so heap-hold the parsed
+  // variant and free it once the dispatch returns.
+  auto *sd = new SettingsUpdateData();
+  sd->settings = std::move(*parsed);
+  runInTransmissionThread(__FILE__, __LINE__, env, args[0], transmissionSettingsUpdateFunc, sd);
+  delete sd;
+
+  napi_value result;
+  napi_get_undefined(env, &result);
+  return result;
+}
+
 // ── hasDownloadingTorrents ──────────────────────────────────────────
 static void *transmissionHasDownloadingTorrents(tr_session *session, void *data, Err *err) {
   (void)data;
@@ -508,6 +574,7 @@ void RegisterTransmission(napi_env env, napi_value exports) {
     {"sessionStart",                nullptr, SessionStart,                nullptr, nullptr, nullptr, napi_default, nullptr},
     {"sessionStop",                 nullptr, SessionStop,                 nullptr, nullptr, nullptr, napi_default, nullptr},
     {"sessionSuspend",              nullptr, SessionSuspend,              nullptr, nullptr, nullptr, napi_default, nullptr},
+    {"sessionSettingsUpdate",       nullptr, SessionSettingsUpdate,       nullptr, nullptr, nullptr, napi_default, nullptr},
     {"hasDownloadingTorrents",      nullptr, HasDownloadingTorrents,      nullptr, nullptr, nullptr, napi_default, nullptr},
     {"listTorrentNames",            nullptr, ListTorrentNames,            nullptr, nullptr, nullptr, napi_default, nullptr},
     {"getEncryptionMode",           nullptr, GetEncryptionMode,           nullptr, nullptr, nullptr, napi_default, nullptr}

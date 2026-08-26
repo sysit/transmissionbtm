@@ -52,9 +52,7 @@ export class TransmissionSession {
 
     // EncryptionMode is a string enum ('allow'|'prefer'|'require');
     // native sessionStart expects 0=ALLOW, 1=PREFER, 2=REQUIRE.
-    const encrMode: number =
-      config.encryptionMode === EncryptionMode.ALLOW  ? 0 :
-      config.encryptionMode === EncryptionMode.PREFER ? 1 : 2;
+    const encrMode: number = this.encrModeNumber(config);
 
     this.sessionId = this.bridge.sessionStart(
       config.settingsDir,
@@ -80,16 +78,26 @@ export class TransmissionSession {
     return this;
   }
 
+  /** EncryptionMode string enum → native tr_encryption_mode int (0/1/2). */
+  private encrModeNumber(config: SessionConfig): number {
+    return config.encryptionMode === EncryptionMode.ALLOW  ? 0 :
+           config.encryptionMode === EncryptionMode.PREFER ? 1 : 2;
+  }
+
   /**
-   * Serialize the persisted SessionConfig into a settings JSON string for
-   * native tr_sessionInit (codex P1 fix: settingsJson was previously sent
-   * but discarded — now it is parsed and merged over defaults).
-   *
-   * Keys use transmission 4.1 setting names (kebab-case). Keys covered by
-   * explicit native args — download-dir, encryption, rpc-* — are excluded;
-   * the explicit args are authoritative and override these in native code.
+   * Build the transmission 4.1 kebab-case session-settings object for a
+   * SessionConfig. Shared by session init and live re-apply:
+   *   - includeCore=false: excludes download-dir/encryption (native sessionStart
+   *     receives those as explicit args, which override the JSON there).
+   *   - includeCore=true : adds download-dir + encryption so updateSettings()
+   *     can re-apply the whole config to a RUNNING session via tr_sessionSet,
+   *     where no native args exist to cover them.
+   * rpc-* keys stay excluded in both — RPC is session-critical internal config
+   * (init-only), not a user-editable live setting here.
    */
-  private buildSettingsJson(config: SessionConfig): string {
+  private buildSettingsObject(
+    config: SessionConfig, includeCore: boolean
+  ): Record<string, string | number | boolean> {
     const s: Record<string, string | number | boolean> = {};
     s['peer-port'] = config.peerPort;
     // Honor the configured peer-port: without this, libtransmission's default
@@ -140,7 +148,45 @@ export class TransmissionSession {
       }
       s['proxy-url'] = url;
     }
-    return JSON.stringify(s);
+    if (includeCore) {
+      s['download-dir'] = config.downloadDir;
+      s['encryption'] = this.encrModeNumber(config);
+    }
+    return s;
+  }
+
+  /**
+   * Serialize the persisted SessionConfig into a settings JSON string for
+   * native tr_sessionInit (codex P1 fix: settingsJson was previously sent
+   * but discarded — now it is parsed and merged over defaults).
+   *
+   * Keys use transmission 4.1 setting names (kebab-case). Keys covered by
+   * explicit native args — download-dir, encryption, rpc-* — are excluded;
+   * the explicit args are authoritative and override these in native code.
+   */
+  private buildSettingsJson(config: SessionConfig): string {
+    return JSON.stringify(this.buildSettingsObject(config, false));
+  }
+
+  /**
+   * Live re-apply the current config to a RUNNING session — no restart.
+   * Native funnels the JSON through tr_sessionSet on the session's event
+   * thread, so a settings change takes effect immediately. No-op if the
+   * session is not running (config still persisted; the next start() applies
+   * it at init). Invoked by SessionController via the PreferencesManager
+   * change-notifier.
+   */
+  updateSettings(config: SessionConfig): void {
+    if (this.sessionId <= 0 || this.state === SessionRunState.STOPPED) {
+      return;
+    }
+    const json = JSON.stringify(this.buildSettingsObject(config, true));
+    try {
+      this.bridge.sessionSettingsUpdate(this.sessionId, json);
+    } catch (e) {
+      hilog.error(0x0001, 'TransmissionSession',
+        'updateSettings failed: %{private}s', String(e));
+    }
   }
 
   /** Stop the native session and release resources. Idempotent. */

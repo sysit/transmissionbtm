@@ -104,6 +104,16 @@ export class NativeBridge {
     native.sessionSuspend(this.toPtr(sessionId), suspend);
   }
 
+  /**
+   * Live re-apply of engine settings to the RUNNING session — no restart.
+   * The JSON uses the same kebab-case session-setting keys
+   * (TransmissionSession.buildSettingsJson) that sessionStart merges at init;
+   * native funnels it through tr_sessionSet on the session's event thread.
+   */
+  sessionSettingsUpdate(sessionId: number, settingsJson: string): void {
+    native.sessionSettingsUpdate(this.toPtr(sessionId), settingsJson);
+  }
+
   hasDownloadingTorrents(sessionId: number): boolean {
     return native.hasDownloadingTorrents(this.toPtr(sessionId));
   }

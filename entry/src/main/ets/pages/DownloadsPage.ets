@@ -10,8 +10,8 @@
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { TorrentInfo } from '../models/TorrentInfo';
 import { SessionConfig } from '../models/SessionConfig';
-import { PreferencesManager, PrefKeys } from '../models/Preferences';
-import { fileIo as fs, picker } from '@kit.CoreFileKit';
+import { PreferencesManager } from '../models/Preferences';
+import { fileIo as fs, picker, fileUri } from '@kit.CoreFileKit';
 import { common } from '@kit.AbilityKit';
 import { promptAction } from '@kit.ArkUI';
 import { taskpool } from '@kit.ArkTS';
@@ -40,16 +40,19 @@ const TAG = 'DownloadsPage';
 // way to put a file into the user's Download is the system
 // DocumentViewPicker.save() in DEFAULT mode: it honors newFileNames +
 // defaultFilePathUri, creates the file, and returns a writable file://docs URI we
-// then fs.copy() into. DOWNLOAD mode is a dead end (picker.d.ts says it ignores
-// newFileNames/defaultFilePathUri/fileSuffixChoices and returns a folder URI that
-// fs cannot write).
-const DOWNLOAD_DIR_URI = 'file://docs/storage/Users/currentUser/Download';
-
+// then fs.copy() into. DOWNLOAD mode grants a writable DIRECTORY under
+// Download/<bundleName> (it ignores newFileNames/defaultFilePathUri — you
+// populate it yourself) — see copyTorrentToPublic.
 /** A completed torrent file pending export: its sanitized publish name and the
  *  sandbox path to copy from. ArkTS forbids inline object-literal types, so this
  *  is a declared interface (arkts-no-obj-literals-as-types). */
 interface FileJob {
+  /** Leaf file name for the publish destination. */
   name: string;
+  /** Torrent-relative directory part ('' when the file sits at the torrent root),
+   *  reused verbatim to rebuild the downloaded tree in the public dir. */
+  rel: string;
+  /** Sandbox path to copy from. */
   src: string;
 }
 
@@ -317,43 +320,12 @@ export struct DownloadsPage {
   private async copyTorrentToPublic(t: TorrentInfo): Promise<number> {
     const files = this.controller.listFiles(t.id);
     this.diag(`copy begin nFiles=${files.length}`);
-    // Whole-torrent directory copy. BT multi-file torrents live under a single
-    // top-level dir in the sandbox (downloads/<torrentName>/), so copy that whole
-    // directory into public Download in ONE fs.copy(...) to keep the folder tree
-    // (incl. nested dirs like Preview/) instead of flattening to the Download root.
-    // fs.copy is the URI overload (both args "URI of the file or directory"). On a
-    // phone we can't pre-create a subfolder (mkdir rejects a docs-URI) and the
-    // folder-picker is 2-in-1-only, so fs.copy(dir, Download/<name>) is the only way
-    // to get a real tree. Guard: only trust it once every file is already on disk.
-    const dirSafe = this.sanitizeRelPath(t.name);
-    if (dirSafe) {
-      const dirAbs = this.buildSandboxFilePath(dirSafe);
-      try {
-        if (fs.statSync(dirAbs).isDirectory()) {
-          let allOnDisk = true;
-          let fileCount = 0;
-          for (let i = 0; i < files.length; i++) {
-            if (!files[i].isDirectory) {
-              fileCount++;
-              const sRel = this.sanitizeRelPath(files[i].name);
-              if (!sRel || !fs.accessSync(this.buildSandboxFilePath(sRel))) {
-                allOnDisk = false;
-              }
-            }
-          }
-          if (allOnDisk) {
-            const destDir = `${DOWNLOAD_DIR_URI}/${encodeURIComponent(dirSafe)}`;
-            this.diag(`dir-copy src=${dirAbs} dest=${destDir} nFiles=${fileCount}`);
-            await fs.copy(dirAbs, destDir);
-            this.diag(`dir-copy ok copied=${fileCount}`);
-            return fileCount;
-          }
-        }
-      } catch (e) {
-        this.diag(`dir-copy failed err=${String(e)}`);
-      }
-    }
-    // Gather (safeBase, srcAbs) for every completed, non-directory file.
+
+    // Rebuild the torrent's directory tree: mirror each completed (on-disk)
+    // file's torrent-relative path under the granted public directory. This
+    // preserves the folder hierarchy (incl. nested dirs like Preview/) AND
+    // respects DnD (only on-disk files) — the prior per-file copy flattened
+    // every file to the Download root, destroying the structure.
     const jobs: FileJob[] = [];
     for (let i = 0; i < files.length; i++) {
       const f = files[i];
@@ -364,70 +336,110 @@ export struct DownloadsPage {
       if (!safeRel) {
         continue; // traversal / malformed / empty — skip this file
       }
-      const segs = safeRel.split('/');
-      const safeBase = segs[segs.length - 1];
       const srcAbs = this.buildSandboxFilePath(safeRel);
-      const onDisk = fs.accessSync(srcAbs);
-      this.diag(`rel=${safeRel} src=${srcAbs} onDisk=${onDisk}`);
-      if (!onDisk) {
+      if (!fs.accessSync(srcAbs)) {
         this.diag(`skip not-on-disk ${safeRel}`);
         continue; // not yet on disk (still downloading / in incomplete dir)
       }
-      jobs.push({ name: safeBase, src: srcAbs });
+      // Split into the directory part (kept verbatim → rebuilt as real folders)
+      // and the file leaf. Separators are already normalized by sanitizeRelPath.
+      const slash = safeRel.lastIndexOf('/');
+      const rel = slash >= 0 ? safeRel.slice(0, slash) : '';
+      const name = slash >= 0 ? safeRel.slice(slash + 1) : safeRel;
+      jobs.push({ name, rel, src: srcAbs });
+      this.diag(`job rel=${rel} name=${name} onDisk=true`);
     }
     if (jobs.length === 0) {
       this.diag('no on-disk files');
       return 0;
     }
-    // One picker save() to create the destination files in public Download. The
-    // system grants write access to each returned URI for this save, so the
-    // subsequent fs.copy needs no extra permission. DEFAULT mode honors
-    // newFileNames + defaultFilePathUri (DOWNLOAD mode ignores both — dead end).
+
+    // One picker save() in DOWNLOAD mode → a writable DIRECTORY grant under the
+    // public Download/<bundleName>/. Unlike DEFAULT mode (which returns one flat
+    // per-file URI and flattens the tree), DOWNLOAD grants the DIRECTORY so we
+    // can mkdir subfolders and rebuild the hierarchy. It ignores newFileNames /
+    // defaultFilePathUri — we build the tree ourselves from the granted dir.
+    // (The prior verdict that DOWNLOAD was a dead end was wrong: it doesn't make
+    // named files, it grants a dir you populate yourself.)
     let uris: Array<string> = [];
     try {
       const opts = new picker.DocumentSaveOptions();
-      opts.pickerMode = picker.DocumentPickerMode.DEFAULT;
-      opts.newFileNames = jobs.map((j) => j.name);
-      // Prefer the user's "Publish folder" when set, else the system Download.
-      const pubDir = await PreferencesManager.getInstance().getString(PrefKeys.PUBLISH_DIR, '');
-      opts.defaultFilePathUri = pubDir.length > 0 ? pubDir : DOWNLOAD_DIR_URI;
+      opts.pickerMode = picker.DocumentPickerMode.DOWNLOAD;
       const pv = new picker.DocumentViewPicker(getContext(this) as common.UIAbilityContext);
       uris = await pv.save(opts);
-      this.diag(`save returned ${uris.length} uris`);
+      this.diag(`DOWNLOAD save returned ${uris.length} uris`);
     } catch (e) {
+      // A picker throw is a real failure (permission / DOWNLOAD unsupported),
+      // NOT "no files" — rethrow so the caller shows "保存失败: <err>".
       this.diag(`save picker error=${String(e)}`);
-      return 0;
+      throw new Error(String(e));
     }
     if (uris.length === 0) {
       this.diag('save returned 0 uris (user cancelled)');
       return 0;
     }
+
+    // Critical: convert the granted DIRECTORY URI → a physical path. fs.open /
+    // fs.copyFile reject a file://docs URI as a target ("input parameter is
+    // invalid"); the real path (e.g. /storage/Users/currentUser/Download/<bundle>)
+    // is writable because the picker granted it. Same URI→path rule as
+    // AddTorrentPage.copyPickerUriToCache.
+    let baseDir: string;
+    try {
+      baseDir = new fileUri.FileUri(uris[0]).path;
+      this.diag(`baseDir=${baseDir}`);
+    } catch (e) {
+      this.diag(`FileUri convert err=${String(e)}`);
+      throw new Error(String(e));
+    }
+
     let copied = 0;
-    const n = Math.min(uris.length, jobs.length);
-    for (let i = 0; i < n; i++) {
-      // fs.copy() rejects a file://docs URI as dest ("input parameter is invalid")
-      // and copyFileSync/copyFile don't understand the URI scheme either (they want
-      // a real path or an fd) — see AddTorrentPage.copyPickerUriToCache. So open
-      // each side as an fd (open() IS URI-aware, @since 12, honoring the picker's
-      // write grant) and copy fd → fd.
+    for (let i = 0; i < jobs.length; i++) {
+      const j = jobs[i];
+      const destDir = j.rel.length > 0 ? `${baseDir}/${j.rel}` : baseDir;
       try {
-        this.diag(`copy ${jobs[i].name} -> ${uris[i]}`);
-        const s = fs.openSync(jobs[i].src, fs.OpenMode.READ_ONLY);
-        const d = fs.openSync(uris[i], fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
+        this.mkdirRecursive(destDir);
+        const destPath = `${destDir}/${j.name}`;
+        this.diag(`copy ${j.rel}/${j.name} -> ${destPath}`);
+        const s = fs.openSync(j.src, fs.OpenMode.READ_ONLY);
+        const d = fs.openSync(destPath, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
         try {
           await fs.copyFile(s.fd, d.fd);
           copied++;
-          this.diag(`copied ok ${jobs[i].name}`);
+          this.diag(`copied ok ${j.rel}/${j.name}`);
         } finally {
           try { fs.closeSync(s); } catch (e1) { /* ignore */ }
           try { fs.closeSync(d); } catch (e2) { /* ignore */ }
         }
       } catch (e) {
-        this.diag(`copyFail ${jobs[i].name} err=${String(e)}`);
+        this.diag(`copyFail ${j.rel}/${j.name} err=${String(e)}`);
       }
     }
     this.diag(`copy done copied=${copied}`);
     return copied;
+  }
+
+  /** Create a nested directory chain at a physical path. fs.mkdirSync can throw
+   *  EEXIST on an existing dir, so create level-by-level and swallow the race.
+   *  Used to rebuild the torrent's folder tree under the granted public dir. */
+  private mkdirRecursive(dir: string): void {
+    if (!dir || fs.accessSync(dir)) {
+      return;
+    }
+    const segments = dir.split('/').filter((s: string) => s.length > 0);
+    let cur = '';
+    for (let i = 0; i < segments.length; i++) {
+      cur = `${cur}/${segments[i]}`;
+      try {
+        if (!fs.accessSync(cur)) {
+          fs.mkdirSync(cur);
+        }
+      } catch (e) {
+        // EEXIST from a concurrent creator, or a reserved/read-only base segment
+        // (e.g. an already-existing root path) — ignore; the next accessSync
+        // confirms it is usable.
+      }
+    }
   }
 
   /** Move a torrent's data to a new sandbox dir (taskpool-offloaded). Sets up
