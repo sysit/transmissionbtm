@@ -2,7 +2,7 @@
 
 **HarmonyOS BitTorrent 客户端** —— 原生引擎基于上游 [Transmission](https://github.com/transmission/transmission) 的 [libtransmission](https://github.com/transmission/transmission) 4.1.0 stable(**GPLv2**),经 **N-API** 桥接;UI 与业务层用 **ArkTS + ArkUI** 从零实现。
 
-当前版本:**v0.1.1**(HarmonyOS 6.1.1 / API 24,arm64-v8a)
+当前版本:**v1.0.0**(HarmonyOS 6.1.1 / API 24,arm64-v8a)
 
 ---
 
