@@ -89,11 +89,12 @@
 | 项 | 位置 |
 |----|------|
 | 商店文案（名称/简介/描述/关键词/类目/分级） | `docs/store-copy.md` |
-| 隐私政策 | `docs/privacy-policy.md`（**需公网托管后回填 URL**） |
-| 1080×1920 截图 ×5 | `docs/store-screenshots/downloads-active.png` 等（已生成） |
-| 应用图标 1024×1024 | `docs/store-screenshots/app_icon_1024.png`（已生成） |
+| 隐私政策 | **已上线** `https://sysit.github.io/transmissionbtm/privacy-policy.html`（直接用这个 URL 回填 AGC） |
+| 1080×1920 截图 ×5 | `docs/store-screenshots/downloads-active.png` 等（已生成，**未入仓**，上架时上传 AGC） |
+| 应用图标 1024×1024 | `docs/store-screenshots/app_icon_1024.png`（已生成，**未入仓**） |
 
-**还需人工补的字段**：客服邮箱、主体名称、开源仓库 URL（GPLv2 分发需提供源码）、隐私政策托管 URL。
+**已填字段**：客服邮箱 `21801713@qq.com`、主体名称 `陈锡金`、开源仓库 `https://github.com/sysit/transmissionbtm`、隐私政策 URL（上线完成）。
+**剩余待办**：ICP 备案（材料 `docs/icp-filing.md` 已备）、软著、上传 AGC 提审。
 
 ---
 

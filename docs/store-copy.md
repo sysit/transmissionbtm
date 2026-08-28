@@ -83,10 +83,10 @@ BitTorrent  下载工具  磁力链  BT下载
 
 ## 8. 来源与合规备注
 
-- **隐私政策 URL**：需公网可访问，见 `docs/privacy-policy.md` 底稿（布到 GitHub Pages / 自建站点后再回填）
-- **开源仓库 URL**：（待填，如 `https://github.com/<owner>/transmissionbtm`）——GPLv2 下分发需提供源代码
+- **隐私政策 URL（已上线）**：https://sysit.github.io/transmissionbtm/privacy-policy.html
+- **开源仓库 URL（已确认）**：https://github.com/sysit/transmissionbtm —— GPLv2 下分发需提供源代码
 - **软著**：企业上架建议尽早办理（约 60 天）；个人开发者视类目要求
-- **ICP 备案**：中国大陆境内 app 上架需 ICP 备案（7–20 天），需 bundleName + 证书公钥 + 证书 MD5 指纹
+- **ICP 备案**：中国大陆境内 app 上架需 ICP 备案（7–20 天），需 bundleName + 证书公钥 + 证书 MD5 指纹 —— 材料见 `docs/icp-filing.md`（叶子 MD5 `72:E6:92:4E:90:50:2F:EF:17:F0:44:F3:F2:51:D7:8B`）
 
 ## 9. 待办（其余上架步骤）
 

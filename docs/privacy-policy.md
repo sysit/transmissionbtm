@@ -1,6 +1,9 @@
 # transmissionbtm 隐私政策
 
-> 底稿。上线后需公网托管——可布置到 GitHub Pages（`https://<owner>.github.io/transmissionbtm/privacy.html`）或自有站点，把最终 URL 回填到 AGC。
+> 底稿（Markdown）。**正式托管页为同目录 `privacy-policy.html`（已上线 GitHub Pages）**：
+> 线上 URL → **https://sysit.github.io/transmissionbtm/privacy-policy.html**（回填到 AGC）。
+>
+> 编译/预览用 JavaScript 引用本文件即可；HTML 版已同步更新。
 >
 > 发布时间：2026-08-28　｜　运营者：陈锡金
 > 联系邮箱：21801713@qq.com
