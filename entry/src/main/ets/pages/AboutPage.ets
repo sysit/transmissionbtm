@@ -13,7 +13,7 @@ const TAG = 'AboutPage';
 export struct AboutPage {
   @State version: string = AppConstants.APP_VERSION;
   @State isLoadingVersion: boolean = true;
-  @State versionError: string = '';
+  @State versionError: ResourceStr = '';
 
   aboutToAppear(): void {
     this.fetchVersion();
@@ -28,7 +28,7 @@ export struct AboutPage {
         this.version = v;
       }
     } catch (err) {
-      this.versionError = 'Could not read native version';
+      this.versionError = $r('app.string.about_version_error');
       hilog.error(0x0001, TAG,
         'fetchVersion failed: %{private}s', String(err));
     } finally {
@@ -39,7 +39,7 @@ export struct AboutPage {
   build() {
     Column() {
       // Page header
-      Text('About')
+      Text($r('app.string.about_title'))
         .fontSize(FontSize.XL)
         .fontWeight(FontWeight.Bold)
         .fontColor(Colors.TEXT)
@@ -110,13 +110,14 @@ export struct AboutPage {
             .width(16)
             .height(16)
             .color(Colors.TEXT_SECONDARY);
-          Text(' Reading native version...')
+          Text($r('app.string.about_reading_version'))
             .fontSize(FontSize.SMALL)
-            .fontColor(Colors.TEXT_TERTIARY);
+            .fontColor(Colors.TEXT_TERTIARY)
+            .margin({ left: Spacing.SM });
         }
         .margin({ bottom: Spacing.SM });
-      } else if (this.versionError.length > 0) {
-        Text(`v${this.version} (fallback)`)
+      } else if (this.versionError) {
+        Text($r('app.string.about_version_fallback', this.version))
           .fontSize(FontSize.MD)
           .fontColor(Colors.TEXT_SECONDARY)
           .fontFamily('JetBrains Mono')
@@ -134,7 +135,7 @@ export struct AboutPage {
       }
 
       // Build info
-      Text(`Build ${AppConstants.BUILD_MILESTONE}  •  ${AppConstants.BUILD_DATE}`)
+      Text($r('app.string.about_build', AppConstants.BUILD_MILESTONE, AppConstants.BUILD_DATE))
         .fontSize(FontSize.SM)
         .fontColor(Colors.TEXT_TERTIARY)
         .margin({ bottom: Spacing.XXL });
@@ -151,7 +152,7 @@ export struct AboutPage {
   @Builder
   BuildLicenseSection() {
     Column() {
-      Text('Open Source Licenses')
+      Text($r('app.string.about_opensource'))
         .fontSize(FontSize.SM)
         .fontColor(Colors.TEXT_TERTIARY)
         .fontWeight(FontWeight.Medium)
@@ -190,7 +191,7 @@ export struct AboutPage {
   @Builder
   BuildCreditsSection() {
     Column() {
-      Text('Credits')
+      Text($r('app.string.about_credits'))
         .fontSize(FontSize.SM)
         .fontColor(Colors.TEXT_TERTIARY)
         .fontWeight(FontWeight.Medium)
@@ -207,7 +208,7 @@ export struct AboutPage {
           .textAlign(TextAlign.Center)
           .padding({ top: Spacing.SM, bottom: Spacing.SM });
         this.BuildDivider();
-        Text('Built for HarmonyOS NEXT with ArkTS + ArkUI')
+        Text($r('app.string.about_built_with'))
           .fontSize(FontSize.CAPTION)
           .fontColor(Colors.TEXT)
           .width('100%')

@@ -7,11 +7,11 @@ import { Colors, Spacing, FontSize } from '../../utils/constants';
 
 @Component
 export struct TorrentStatusBanner {
-  @Prop message: string = '';
+  @Prop message: ResourceStr = '';
   @Prop isError: boolean = false;
 
   build() {
-    if (this.message.length > 0) {
+    if (this.message) {
       Row() {
         Text(this.isError ? '✕' : '✓')
           .fontSize(FontSize.CAPTION)

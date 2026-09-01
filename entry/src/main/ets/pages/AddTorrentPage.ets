@@ -57,7 +57,7 @@ export struct AddTorrentPage {
   @State urlInput: string = '';
   @State addPaused: boolean = false;
   @State isAdding: boolean = false;
-  @State statusMessage: string = '';
+  @State statusMessage: ResourceStr = '';
   @State statusIsError: boolean = false;
   onTorrentAdded?: () => void;
   onCancel?: () => void;
@@ -92,7 +92,7 @@ export struct AddTorrentPage {
   @Builder
   buildHeader() {
     Row() {
-      Text('Add Torrent')
+      Text($r('app.string.addtorrent_title'))
         .fontSize(FontSize.TITLE)
         .fontWeight(FontWeight.Bold)
         .fontColor(Colors.TEXT)
@@ -117,16 +117,16 @@ export struct AddTorrentPage {
   @Builder
   buildTabBar() {
     Row() {
-      this.TabButton('📄 File', AddTab.FILE);
-      this.TabButton('🧲 Magnet', AddTab.MAGNET);
-      this.TabButton('🔗 URL', AddTab.URL);
+      this.TabButton($r('app.string.addtorrent_tab_file'), AddTab.FILE);
+      this.TabButton($r('app.string.addtorrent_tab_magnet'), AddTab.MAGNET);
+      this.TabButton($r('app.string.addtorrent_tab_url'), AddTab.URL);
     }
     .width('100%')
     .padding({ left: Spacing.LG, right: Spacing.LG });
   }
 
   @Builder
-  TabButton(label: string, tab: AddTab) {
+  TabButton(label: ResourceStr, tab: AddTab) {
     Column() {
       Text(label)
         .fontSize(FontSize.BODY)
@@ -172,7 +172,7 @@ export struct AddTorrentPage {
   @Builder
   buildFileTab() {
     Column() {
-      Text('Select a .torrent file to add')
+      Text($r('app.string.addtorrent_select_file_hint'))
         .fontSize(FontSize.CAPTION)
         .fontColor(Colors.TEXT_SECONDARY)
         .width('100%')
@@ -192,7 +192,7 @@ export struct AddTorrentPage {
             this.filePath = value;
           });
 
-        Button('Browse')
+        Button($r('app.string.addtorrent_browse'))
           .fontSize(FontSize.CAPTION)
           .fontColor('#ffffff')
           .backgroundColor(Colors.DOWNLOAD)
@@ -209,7 +209,7 @@ export struct AddTorrentPage {
       Row() {
         Text('💡 ')
           .fontSize(FontSize.SMALL);
-        Text('Valid file extensions: .torrent')
+        Text($r('app.string.addtorrent_valid_ext_hint'))
           .fontSize(FontSize.SMALL)
           .fontColor(Colors.TEXT_TERTIARY);
       }
@@ -227,7 +227,7 @@ export struct AddTorrentPage {
   @Builder
   buildMagnetTab() {
     Column() {
-      Text('Paste a magnet link or info-hash')
+      Text($r('app.string.addtorrent_paste_magnet'))
         .fontSize(FontSize.CAPTION)
         .fontColor(Colors.TEXT_SECONDARY)
         .width('100%')
@@ -259,7 +259,7 @@ export struct AddTorrentPage {
   @Builder
   buildUrlTab() {
     Column() {
-      Text('Download a .torrent from a URL')
+      Text($r('app.string.addtorrent_from_url'))
         .fontSize(FontSize.CAPTION)
         .fontColor(Colors.TEXT_SECONDARY)
         .width('100%')
@@ -289,7 +289,7 @@ export struct AddTorrentPage {
   @Builder
   buildDirectorySection() {
     Column() {
-      Text('Download Directory')
+      Text($r('app.string.addtorrent_download_dir'))
         .fontSize(FontSize.SMALL)
         .fontColor(Colors.TEXT_TERTIARY)
         .width('100%')
@@ -301,11 +301,11 @@ export struct AddTorrentPage {
       // publish a completed download into the public Download dir.
       Row() {
         Column() {
-          Text(this.downloadDir.length > 0 ? 'App sandbox (system-isolated)' : 'App sandbox')
+          Text(this.downloadDir.length > 0 ? $r('app.string.addtorrent_sandbox_isolated') : $r('app.string.addtorrent_sandbox'))
             .fontSize(FontSize.BODY)
             .fontColor(Colors.TEXT)
             .width('100%');
-          Text(this.downloadDir.length > 0 ? this.downloadDir : '(app sandbox)')
+          Text(this.downloadDir.length > 0 ? this.downloadDir : $r('app.string.addtorrent_sandbox_fallback'))
             .fontSize(FontSize.CAPTION)
             .fontColor(Colors.TEXT_SECONDARY)
             .width('100%')
@@ -319,9 +319,7 @@ export struct AddTorrentPage {
       }
       .width('100%');
 
-      Text('Downloads always go to the app sandbox — HarmonyOS NEXT lets no phone app '
-        + 'write the public Download dir, so this path cannot be changed. Publish finished '
-        + 'files with the "Save to Files" action on a torrent.')
+      Text($r('app.string.addtorrent_sandbox_desc'))
         .fontSize(FontSize.SMALL)
         .fontColor(Colors.TEXT_TERTIARY)
         .width('100%')
@@ -344,7 +342,7 @@ export struct AddTorrentPage {
     Column() {
       // Start paused toggle
       Row() {
-        Text('Add in paused state')
+        Text($r('app.string.addtorrent_add_paused'))
           .fontSize(FontSize.CAPTION)
           .fontColor(Colors.TEXT)
           .layoutWeight(1);
@@ -359,7 +357,7 @@ export struct AddTorrentPage {
       .padding({ left: Spacing.LG, right: Spacing.LG, bottom: Spacing.MD });
 
       // Add button
-      Button(this.isAdding ? 'Adding...' : 'Add Torrent')
+      Button(this.isAdding ? $r('app.string.addtorrent_adding') : $r('app.string.addtorrent_add'))
         .fontSize(FontSize.BODY)
         .fontWeight(FontWeight.Medium)
         .fontColor('#ffffff')
@@ -372,7 +370,7 @@ export struct AddTorrentPage {
         .onClick(() => { this.onAddTorrent(); });
 
       // Cancel
-      Button('Cancel')
+      Button($r('app.string.common_cancel'))
         .fontSize(FontSize.BODY)
         .fontColor(Colors.TEXT_SECONDARY)
         .width('90%')
@@ -458,8 +456,8 @@ export struct AddTorrentPage {
       hilog.error(0x0001, TAG, 'copyPickerUriToCache FAILED uri=%{public}s err=%{public}s',
         uri, eStr);
       this.showError(uri.startsWith('file://')
-        ? `无法访问所选文件: ${eStr}`
-        : '所选文件位于远程/云位置，暂不支持直接添加，请先保存到本地 Download');
+        ? $r('app.string.addtorrent_error_access', eStr)
+        : $r('app.string.addtorrent_error_remote'));
       return '';
     }
   }
@@ -496,25 +494,25 @@ export struct AddTorrentPage {
 
     if (input.length === 0) {
       this.showError(
-        this.currentTab === AddTab.FILE ? 'Please select a .torrent file'
-          : this.currentTab === AddTab.MAGNET ? 'Please enter a magnet URI'
-          : 'Please enter a torrent URL'
+        this.currentTab === AddTab.FILE ? $r('app.string.addtorrent_error_no_file')
+          : this.currentTab === AddTab.MAGNET ? $r('app.string.addtorrent_error_no_magnet')
+          : $r('app.string.addtorrent_error_no_url')
       );
       return;
     }
 
     if (this.currentTab === AddTab.FILE) {
       if (!this.validateTorrentFile(input)) {
-        this.showError('File must have a .torrent extension');
+        this.showError($r('app.string.addtorrent_error_extension'));
         return;
       }
     } else if (this.currentTab === AddTab.MAGNET) {
       if (!this.validateMagnetUri(input)) {
-        this.showError('Enter a magnet:?xt=urn:btih:... URI or a 40-hex info-hash');
+        this.showError($r('app.string.addtorrent_error_magnet_format'));
         return;
       }
     } else if (!this.validateUrl(input)) {
-      this.showError('Invalid URL. Must be http(s)://...');
+      this.showError($r('app.string.addtorrent_error_url_format'));
       return;
     }
 
@@ -542,7 +540,7 @@ export struct AddTorrentPage {
       this.handleAddResult(await taskpool.execute(
         concurrentTorrentAdd, ptr, input, this.downloadDir, false, this.addPaused) as number);
     } catch (e) {
-      this.showError(`Error: ${String(e)}`);
+      this.showError($r('app.string.addtorrent_error_generic', String(e)));
       this.isAdding = false;
     }
   }
@@ -550,7 +548,7 @@ export struct AddTorrentPage {
   /** D2 (docs/11): curlDownload the URL into the app cache, then add the file. */
   private async addFromUrl(ptr: BigInt, url: string): Promise<void> {
     try {
-      this.statusMessage = 'Downloading .torrent...';
+      this.statusMessage = $r('app.string.addtorrent_downloading');
       this.statusIsError = false;
       const dstPath = `${getContext(this).cacheDir}/url_${Date.now()}.torrent`;
       // Blocking libcurl fetch → taskpool worker, so the UI thread stays live.
@@ -558,7 +556,7 @@ export struct AddTorrentPage {
       this.handleAddResult(await taskpool.execute(
         concurrentTorrentAdd, ptr, dstPath, this.downloadDir, false, this.addPaused) as number);
     } catch (e) {
-      this.showError(`Download failed: ${String(e)}`);
+      this.showError($r('app.string.addtorrent_error_download', String(e)));
       this.isAdding = false;
     }
   }
@@ -570,7 +568,7 @@ export struct AddTorrentPage {
     // The old `tid > 0` check treated every success (code 0) as a failure
     // and showed "Failed to add torrent (code: 0)".
     if (tid === TorrentAddResult.OK || tid === TorrentAddResult.OK_DELETE) {
-      this.showSuccess('Torrent added');
+      this.showSuccess($r('app.string.addtorrent_added'));
       // Notify parent after a brief delay so user sees success. Track the timer
       // (D1) so aboutToDisappear can clear it if the page is torn down first.
       this.addSuccessTimer = setTimeout(() => {
@@ -579,13 +577,13 @@ export struct AddTorrentPage {
         this.onTorrentAdded?.();
       }, 600);
     } else if (tid === TorrentAddResult.DUPLICATE) {
-      this.showError('This torrent is already in the list');
+      this.showError($r('app.string.addtorrent_error_duplicate'));
       this.isAdding = false;
     } else if (tid === TorrentAddResult.PARSE_ERR) {
-      this.showError('Failed to parse torrent file. It may be corrupted.');
+      this.showError($r('app.string.addtorrent_error_parse'));
       this.isAdding = false;
     } else {
-      this.showError(`Failed to add torrent (code: ${tid})`);
+      this.showError($r('app.string.addtorrent_error_add_code', String(tid)));
       this.isAdding = false;
     }
   }
@@ -636,14 +634,14 @@ export struct AddTorrentPage {
   // Status helpers
   // ═══════════════════════════════════════════════════════════════════
 
-  private showSuccess(message: string): void {
+  private showSuccess(message: ResourceStr): void {
     this.statusMessage = message;
     this.statusIsError = false;
   }
 
-  private showError(message: string): void {
+  private showError(message: ResourceStr): void {
     this.statusMessage = message;
     this.statusIsError = true;
-    hilog.error(0x0001, TAG, 'Add torrent failed: %{private}s', message);
+    hilog.error(0x0001, TAG, 'Add torrent failed: %{private}s', String(message));
   }
 }

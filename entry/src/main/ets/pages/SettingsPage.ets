@@ -25,6 +25,7 @@ import { PublishFolderRow } from '../components/settings/PublishFolderRow';
 import { PreferencesManager, PrefKeys } from '../models/Preferences';
 import { defaultSessionConfig } from '../models/SessionConfig';
 import { hilog } from '@kit.PerformanceAnalysisKit';
+import { promptAction } from '@kit.ArkUI';
 
 const TAG = 'SettingsPage';
 
@@ -32,7 +33,7 @@ const TAG = 'SettingsPage';
 export struct SettingsPage {
   // ── Loading / Error ──────────────────────────────────────────────
   @State isLoading: boolean = true;
-  @State loadError: string = '';
+  @State loadError: ResourceStr = '';
   @State showResetDialog: boolean = false;
 
   // ── Downloads ──────────────────────────────────────────────────
@@ -89,6 +90,18 @@ export struct SettingsPage {
   private encryptionOptions: string[] = PreferencesManager.ENCRYPTION_MODE_LABELS;
   private encryptionOptionValues: string[] = ['allow', 'prefer', 'require'];
 
+  // ── General (language) ──────────────────────────────────────────
+  // Lengths must match: [, zh-CN, en-US].
+  @Watch('onLanguageChanged') @State languageIndex: number = 0;
+  private languageOptions: ResourceStr[] = [
+    $r('app.string.language_system'),
+    $r('app.string.language_zh_cn'),
+    $r('app.string.language_en_us'),
+  ];
+  private languageOptionValues: string[] = ['system', 'zh-CN', 'en-US'];
+  /** Armed only after loadPreferences completes, so the startup load never fires the toast. */
+  private languageLoaded: boolean = false;
+
   aboutToAppear(): void {
     this.loadPreferences();
   }
@@ -123,6 +136,10 @@ export struct SettingsPage {
       this.peerLimitPerTorrent = String(await pm.getInt(PrefKeys.PEER_LIMIT_PER_TORRENT, Number(this.peerLimitPerTorrent)));
       const encMode = await pm.getString(PrefKeys.ENCRYPTION_MODE, 'prefer');
       this.encryptionIndex = encMode === 'allow' ? 0 : encMode === 'require' ? 2 : 1;
+
+      // General (language)
+      const lang = await pm.getString(PrefKeys.APP_LANGUAGE, 'system');
+      this.languageIndex = lang === 'zh-CN' ? 1 : lang === 'en-US' ? 2 : 0;
       this.utpEnabled = await pm.getBoolean(PrefKeys.UTP_ENABLED, this.utpEnabled);
       this.pexEnabled = await pm.getBoolean(PrefKeys.PEX_ENABLED, this.pexEnabled);
       this.dhtEnabled = await pm.getBoolean(PrefKeys.DHT_ENABLED, this.dhtEnabled);
@@ -147,12 +164,23 @@ export struct SettingsPage {
       this.idleSeedingLimitEnabled = await pm.getBoolean(PrefKeys.IDLE_SEEDING_LIMIT_ENABLED, this.idleSeedingLimitEnabled);
       this.idleSeedingLimit = String(await pm.getInt(PrefKeys.IDLE_SEEDING_LIMIT, Number(this.idleSeedingLimit)));
     } catch (err) {
-      this.loadError = 'Failed to load settings. Using defaults.';
+      this.loadError = $r('app.string.settings_load_error');
       hilog.error(0x0001, TAG,
         'loadPreferences failed: %{private}s', String(err));
     } finally {
       this.isLoading = false;
+      this.languageLoaded = true;
     }
+  }
+
+  /** Show a restart-to-apply hint when the user changes the language. The @Watch
+   * is armed after loadPreferences so the startup assignment (line 139) doesn't toast. */
+  onLanguageChanged(): void {
+    if (!this.languageLoaded) { return; }
+    promptAction.showToast({
+      message: $r('app.string.settings_language_restart_toast'),
+      duration: 2000,
+    });
   }
 
   /** Actual sandbox download dir; the engine always writes here (see
@@ -177,7 +205,7 @@ export struct SettingsPage {
     Stack() {
       Column() {
         // Page header
-        Text('Settings')
+        Text($r('app.string.settings_title'))
           .fontSize(FontSize.XL)
           .fontWeight(FontWeight.Bold)
           .fontColor(Colors.TEXT)
@@ -214,13 +242,14 @@ export struct SettingsPage {
   BuildContent() {
     Column() {
       // Error banner
-      if (this.loadError.length > 0) {
+      if (this.loadError) {
         SettingsErrorBanner({ error: this.loadError });
       }
 
       // Scrollable settings body
       Scroll() {
         Column() {
+          this.BuildGeneralSection();
           this.BuildDownloadsSection();
           this.BuildSpeedSection();
           this.BuildNetworkSection();
@@ -239,12 +268,30 @@ export struct SettingsPage {
   }
 
   // ═══════════════════════════════════════════════════════════════
+  // General Section (language)
+  // ═══════════════════════════════════════════════════════════════
+
+  @Builder
+  BuildGeneralSection() {
+    SettingsGroup({ title: $r('app.string.settings_general') }) {
+      SelectSetting({
+        label: $r('app.string.settings_language'),
+        options: this.languageOptions,
+        prefKey: PrefKeys.APP_LANGUAGE,
+        selectedIndex: $languageIndex,
+        valueType: 'string',
+        optionValues: this.languageOptionValues,
+      });
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
   // Downloads Section
   // ═══════════════════════════════════════════════════════════════
 
   @Builder
   BuildDownloadsSection() {
-    SettingsGroup({ title: 'Downloads' }) {
+    SettingsGroup({ title: $r('app.string.settings_section_downloads') }) {
       // Download & incomplete dirs are read-only (see getSandboxDir). HarmonyOS
       // NEXT sandboxes third-party apps; the engine needs a real POSIX path, so
       // DownloadsPage.applySandboxPaths() overrides the session dirs to the app
@@ -254,11 +301,10 @@ export struct SettingsPage {
       // the engine needs a real POSIX path, so DownloadsPage.applySandboxPaths()
       // overrides the session dir to the app filesDir. Publish folder is the one
       // actionable control — it copies finished files to a system-visible place.
-      SandboxSettingRow({ label: 'Download dir', value: this.getSandboxDir() });
+      SandboxSettingRow({ label: $r('app.string.settings_download_dir'), value: this.getSandboxDir() });
       PublishFolderRow({ publishDir: $publishDir });
       Row() {
-        Text('Downloads live in the app sandbox. Use "Publish folder" (or a torrent\'s '
-          + 'Save to Files) to copy finished files into a system-visible Download folder.')
+        Text($r('app.string.settings_sandbox_desc'))
           .fontSize(FontSize.CAPTION)
           .fontColor(Colors.TEXT_SECONDARY)
           .layoutWeight(1);
@@ -267,20 +313,20 @@ export struct SettingsPage {
       .padding({ left: Spacing.LG, right: Spacing.LG, top: 2, bottom: Spacing.MD });
 
       ToggleSetting({
-        label: 'Start when added',
-        description: 'Begin downloading torrents immediately',
+        label: $r('app.string.settings_start_when_added'),
+        description: $r('app.string.settings_start_when_added_desc'),
         prefKey: PrefKeys.START_ADDED_TORRENTS,
         checked: $startAddedTorrents,
       });
       ToggleSetting({
-        label: 'Rename partial files',
-        description: 'Append .part to incomplete files',
+        label: $r('app.string.settings_rename_partial_files'),
+        description: $r('app.string.settings_rename_partial_files_desc'),
         prefKey: PrefKeys.RENAME_PARTIAL_FILES,
         checked: $renamePartialFiles,
       });
       ToggleSetting({
-        label: 'Trash original torrent file',
-        description: 'Move .torrent file to trash after adding',
+        label: $r('app.string.settings_trash_original'),
+        description: $r('app.string.settings_trash_original_desc'),
         prefKey: PrefKeys.TRASH_ORIGINAL_TORRENT_FILE,
         checked: $trashOriginalTorrentFile,
       });
@@ -293,16 +339,16 @@ export struct SettingsPage {
 
   @Builder
   BuildSpeedSection() {
-    SettingsGroup({ title: 'Speed' }) {
+    SettingsGroup({ title: $r('app.string.settings_section_speed') }) {
       ToggleSetting({
-        label: 'Limit download speed',
+        label: $r('app.string.settings_limit_download_speed'),
         prefKey: PrefKeys.SPEED_LIMIT_DOWN_ENABLED,
         checked: $speedLimitDownEnabled,
       });
       if (this.speedLimitDownEnabled) {
         EditSetting({
-          label: 'Download limit (KB/s)',
-          hint: '0 = unlimited',
+          label: $r('app.string.settings_download_limit'),
+          hint: $r('app.string.settings_speed_hint_unlimited'),
           prefKey: PrefKeys.SPEED_LIMIT_DOWN,
           value: $speedLimitDown,
           inputType: InputType.Number,
@@ -311,14 +357,14 @@ export struct SettingsPage {
       }
 
       ToggleSetting({
-        label: 'Limit upload speed',
+        label: $r('app.string.settings_limit_upload_speed'),
         prefKey: PrefKeys.SPEED_LIMIT_UP_ENABLED,
         checked: $speedLimitUpEnabled,
       });
       if (this.speedLimitUpEnabled) {
         EditSetting({
-          label: 'Upload limit (KB/s)',
-          hint: '0 = unlimited',
+          label: $r('app.string.settings_upload_limit'),
+          hint: $r('app.string.settings_speed_hint_unlimited'),
           prefKey: PrefKeys.SPEED_LIMIT_UP,
           value: $speedLimitUp,
           inputType: InputType.Number,
@@ -327,14 +373,14 @@ export struct SettingsPage {
       }
 
       ToggleSetting({
-        label: 'Alternative speed',
-        description: 'Scheduled lower speed limits',
+        label: $r('app.string.settings_alt_speed'),
+        description: $r('app.string.settings_alt_speed_desc'),
         prefKey: PrefKeys.ALT_SPEED_ENABLED,
         checked: $altSpeedEnabled,
       });
       if (this.altSpeedEnabled) {
         EditSetting({
-          label: 'Alt download (KB/s)',
+          label: $r('app.string.settings_alt_download'),
           hint: '50',
           prefKey: PrefKeys.ALT_SPEED_DOWN,
           value: $altSpeedDown,
@@ -342,7 +388,7 @@ export struct SettingsPage {
           valueType: 'number',
         });
         EditSetting({
-          label: 'Alt upload (KB/s)',
+          label: $r('app.string.settings_alt_upload'),
           hint: '50',
           prefKey: PrefKeys.ALT_SPEED_UP,
           value: $altSpeedUp,
@@ -350,24 +396,24 @@ export struct SettingsPage {
           valueType: 'number',
         });
         EditSetting({
-          label: 'Begin (minutes)',
-          hint: '480 = 8:00 AM',
+          label: $r('app.string.settings_alt_begin'),
+          hint: $r('app.string.settings_alt_begin_hint'),
           prefKey: PrefKeys.ALT_SPEED_TIME_BEGIN,
           value: $altSpeedTimeBegin,
           inputType: InputType.Number,
           valueType: 'number',
         });
         EditSetting({
-          label: 'End (minutes)',
-          hint: '1080 = 6:00 PM',
+          label: $r('app.string.settings_alt_end'),
+          hint: $r('app.string.settings_alt_end_hint'),
           prefKey: PrefKeys.ALT_SPEED_TIME_END,
           value: $altSpeedTimeEnd,
           inputType: InputType.Number,
           valueType: 'number',
         });
         EditSetting({
-          label: 'Days (bitmask)',
-          hint: '127 = every day',
+          label: $r('app.string.settings_alt_days'),
+          hint: $r('app.string.settings_alt_days_hint'),
           prefKey: PrefKeys.ALT_SPEED_DAY,
           value: $altSpeedDay,
           inputType: InputType.Number,
@@ -383,9 +429,9 @@ export struct SettingsPage {
 
   @Builder
   BuildNetworkSection() {
-    SettingsGroup({ title: 'Network' }) {
+    SettingsGroup({ title: $r('app.string.settings_section_network') }) {
       EditSetting({
-        label: 'Peer port',
+        label: $r('app.string.settings_peer_port'),
         hint: '51413',
         prefKey: PrefKeys.PEER_PORT,
         value: $peerPort,
@@ -393,7 +439,7 @@ export struct SettingsPage {
         valueType: 'number',
       });
       EditSetting({
-        label: 'Global peer limit',
+        label: $r('app.string.settings_global_peer_limit'),
         hint: '200',
         prefKey: PrefKeys.PEER_LIMIT_GLOBAL,
         value: $peerLimitGlobal,
@@ -401,7 +447,7 @@ export struct SettingsPage {
         valueType: 'number',
       });
       EditSetting({
-        label: 'Peers per torrent',
+        label: $r('app.string.settings_peers_per_torrent'),
         hint: '50',
         prefKey: PrefKeys.PEER_LIMIT_PER_TORRENT,
         value: $peerLimitPerTorrent,
@@ -409,7 +455,7 @@ export struct SettingsPage {
         valueType: 'number',
       });
       SelectSetting({
-        label: 'Encryption',
+        label: $r('app.string.settings_encryption'),
         options: this.encryptionOptions,
         prefKey: PrefKeys.ENCRYPTION_MODE,
         selectedIndex: $encryptionIndex,
@@ -417,39 +463,39 @@ export struct SettingsPage {
         optionValues: this.encryptionOptionValues,
       });
       ToggleSetting({
-        label: 'uTP',
-        description: 'Micro Transport Protocol',
+        label: $r('app.string.settings_utp'),
+        description: $r('app.string.settings_utp_desc'),
         prefKey: PrefKeys.UTP_ENABLED,
         checked: $utpEnabled,
       });
       ToggleSetting({
-        label: 'PEX',
-        description: 'Peer Exchange',
+        label: $r('app.string.settings_pex'),
+        description: $r('app.string.settings_pex_desc'),
         prefKey: PrefKeys.PEX_ENABLED,
         checked: $pexEnabled,
       });
       ToggleSetting({
-        label: 'DHT',
-        description: 'Distributed Hash Table',
+        label: $r('app.string.settings_dht'),
+        description: $r('app.string.settings_dht_desc'),
         prefKey: PrefKeys.DHT_ENABLED,
         checked: $dhtEnabled,
       });
       ToggleSetting({
-        label: 'LPD',
-        description: 'Local Peer Discovery',
+        label: $r('app.string.settings_lpd'),
+        description: $r('app.string.settings_lpd_desc'),
         prefKey: PrefKeys.LPD_ENABLED,
         checked: $lpdEnabled,
       });
       ToggleSetting({
-        label: 'WiFi/Ethernet only',
-        description: 'Pause transfers off WiFi to save cellular data',
+        label: $r('app.string.settings_wifi_only'),
+        description: $r('app.string.settings_wifi_only_desc'),
         prefKey: PrefKeys.WIFI_ONLY,
         checked: $wifiOnly,
       });
       if (this.wifiOnly) {
         EditSetting({
-          label: 'Allowed SSIDs',
-          hint: 'e.g. Home WiFi, Office',
+          label: $r('app.string.settings_wifi_ssids'),
+          hint: $r('app.string.settings_wifi_ssids_hint'),
           prefKey: PrefKeys.WIFI_SSID,
           value: $wifiSsid,
         });
@@ -463,16 +509,16 @@ export struct SettingsPage {
 
   @Builder
   BuildBlocklistSection() {
-    SettingsGroup({ title: 'Blocklist' }) {
+    SettingsGroup({ title: $r('app.string.settings_section_blocklist') }) {
       ToggleSetting({
-        label: 'Enable blocklist',
-        description: 'Block known malicious IP ranges',
+        label: $r('app.string.settings_enable_blocklist'),
+        description: $r('app.string.settings_enable_blocklist_desc'),
         prefKey: PrefKeys.BLOCKLIST_ENABLED,
         checked: $blocklistEnabled,
       });
       if (this.blocklistEnabled) {
         EditSetting({
-          label: 'Blocklist URL',
+          label: $r('app.string.settings_blocklist_url'),
           hint: 'https://list.iblocklist.com/blist.txt',
           prefKey: PrefKeys.BLOCKLIST_URL,
           value: $blocklistUrl,
@@ -487,17 +533,16 @@ export struct SettingsPage {
 
   @Builder
   BuildRpcSection() {
-    SettingsGroup({ title: 'Remote Control (RPC)' }) {
+    SettingsGroup({ title: $r('app.string.settings_section_rpc') }) {
       ToggleSetting({
-        label: 'Enable RPC server',
-        description: 'Off by default — no web UI is bundled. ' +
-          'Enabling binds the RPC port; keep whitelist & auth set.',
+        label: $r('app.string.settings_enable_rpc'),
+        description: $r('app.string.settings_enable_rpc_desc'),
         prefKey: PrefKeys.ENABLE_RPC,
         checked: $rpcEnabled,
       });
       if (this.rpcEnabled) {
         EditSetting({
-          label: 'RPC port',
+          label: $r('app.string.settings_rpc_port'),
           hint: '9091',
           prefKey: PrefKeys.RPC_PORT,
           value: $rpcPort,
@@ -505,20 +550,20 @@ export struct SettingsPage {
           valueType: 'number',
         });
         ToggleSetting({
-          label: 'Authentication',
-          description: 'Require username & password for RPC access',
+          label: $r('app.string.settings_authentication'),
+          description: $r('app.string.settings_authentication_desc'),
           prefKey: PrefKeys.RPC_AUTHENTICATION,
           checked: $rpcAuthentication,
         });
         if (this.rpcAuthentication) {
           EditSetting({
-            label: 'Username',
+            label: $r('app.string.settings_username'),
             hint: 'admin',
             prefKey: PrefKeys.RPC_USERNAME,
             value: $rpcUsername,
           });
           EditSetting({
-            label: 'Password',
+            label: $r('app.string.settings_password'),
             hint: '••••••••',
             prefKey: PrefKeys.RPC_PASSWORD,
             value: $rpcPassword,
@@ -535,16 +580,16 @@ export struct SettingsPage {
 
   @Builder
   BuildSeedingSection() {
-    SettingsGroup({ title: 'Seeding' }) {
+    SettingsGroup({ title: $r('app.string.settings_section_seeding') }) {
       ToggleSetting({
-        label: 'Stop seeding at ratio',
-        description: 'Stop when share ratio is reached',
+        label: $r('app.string.settings_stop_at_ratio'),
+        description: $r('app.string.settings_stop_at_ratio_desc'),
         prefKey: PrefKeys.SEED_RATIO_LIMITED,
         checked: $seedRatioLimited,
       });
       if (this.seedRatioLimited) {
         EditSetting({
-          label: 'Seed ratio limit',
+          label: $r('app.string.settings_seed_ratio_limit'),
           hint: '2.0',
           prefKey: PrefKeys.SEED_RATIO_LIMIT,
           value: $seedRatioLimit,
@@ -554,14 +599,14 @@ export struct SettingsPage {
       }
 
       ToggleSetting({
-        label: 'Stop if idle',
-        description: 'Stop seeding after idle timeout',
+        label: $r('app.string.settings_stop_if_idle'),
+        description: $r('app.string.settings_stop_if_idle_desc'),
         prefKey: PrefKeys.IDLE_SEEDING_LIMIT_ENABLED,
         checked: $idleSeedingLimitEnabled,
       });
       if (this.idleSeedingLimitEnabled) {
         EditSetting({
-          label: 'Idle timeout (min)',
+          label: $r('app.string.settings_idle_timeout'),
           hint: '30',
           prefKey: PrefKeys.IDLE_SEEDING_LIMIT,
           value: $idleSeedingLimit,
@@ -578,7 +623,7 @@ export struct SettingsPage {
 
   @Builder
   BuildResetButton() {
-    Button('Reset to Defaults')
+    Button($r('app.string.settings_reset_defaults'))
       .fontSize(FontSize.CAPTION)
       .fontColor(Colors.ERROR)
       .backgroundColor(Colors.ELEVATED)

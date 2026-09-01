@@ -5,11 +5,11 @@ import { Colors, FontSize, Spacing } from '../../utils/constants';
 
 @Component
 export struct SettingsErrorBanner {
-  @Prop error: string = '';
+  @Prop error: ResourceStr = '';
 
   build() {
     Row() {
-      Text('⚠ ' + this.error)
+      Text(this.error)
         .fontSize(FontSize.CAPTION)
         .fontColor(Colors.ERROR)
         .layoutWeight(1);

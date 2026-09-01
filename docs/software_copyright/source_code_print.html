@@ -1,0 +1,3209 @@
+<!DOCTYPE html><html><head><meta charset='utf-8'></head>
+<style>@page{size:A4;margin:12mm;} body{font-family:'Menlo','Courier New',monospace;font-size:8.5px;line-height:1.25;}
+.page{page-break-after:always;} .hdr{font-weight:bold;font-size:12px;text-align:right;border-bottom:1px solid #000;margin-bottom:2mm;}
+.ftr{font-size:11px;border-top:1px solid #000;margin-top:2mm;} pre{margin:0;white-space:pre-wrap;word-break:break-word;font-size:8.5px;}</style></head><body>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 1 页</div>
+<pre>// ===== FILE: entry/src/main/ets/entryability/EntryAbility.ets ===
+// transmissionbtm — App entry point (M5)
+// Initializes preferences and handles external intents (magnet links,
+// .torrent files). The background TransmissionService was removed in M7
+// (HarmonyOS NEXT service = system-app-only) — the session runs in-process.
+
+import { UIAbility, Want, AbilityConstant } from &#x27;@kit.AbilityKit&#x27;;
+import { hilog } from &#x27;@kit.PerformanceAnalysisKit&#x27;;
+import { window } from &#x27;@kit.ArkUI&#x27;;
+import { PreferencesManager } from &#x27;../models/Preferences&#x27;;
+import { HukProxyCipher } from &#x27;../security/HukProxyCipher&#x27;;
+
+const TAG = &#x27;transmissionbtm&#x27;;
+
+/** Parsed external intent for torrent adding. */
+export interface TorrentIntent {
+  kind: &#x27;magnet&#x27; | &#x27;file&#x27; | &#x27;unknown&#x27;;
+  uri: string;
+}
+
+export default class EntryAbility extends UIAbility {
+  /** Pending intent parsed during cold-start, consumed by Index page. */
+  private pendingTorrentIntent: TorrentIntent | null = null;
+
+  onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
+    hilog.info(0x0001, TAG, &#x27;EntryAbility onCreate&#x27;);
+
+    // Initialize preferences store for all app settings
+    try {
+      PreferencesManager.getInstance().init(this.context);
+      hilog.info(0x0001, TAG, &#x27;Preferences initialized&#x27;);
+    } catch (err) {
+      hilog.error(0x0001, TAG,
+        &#x27;Preferences init failed: %{private}s&#x27;, String(err));
+    }
+
+    // Inject the HUKS proxy-password cipher + run a startup self-test.
+    // Fire-and-forget: the cipher is injected synchronously on the first tick,
+    // so it is in place before any page reads proxy_password. selfTest() proves
+    // the AES-256-GCM round-trip on THIS device via a hilog OK/FAIL line.
+    this.setupProxyCipher();
+
+    // Parse external intent if launched via magnet/file URI
+    this.pendingTorrentIntent = this.parseIntent(want);
+  }
+
+  /**
+   * Install the on-device HUKS cipher for the proxy password, then log whether
+   * a real AES-256-GCM encrypt→decrypt round-trip succeeds. This substitutes
+   * for the SIGABRT-blocked aa test runner: `aa start` + hilog &#x27;HUKS selfTest OK&#x27;</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 2 页</div>
+<pre>   * is the proof the GCM tag/IV/alias contract works on this device.
+   */
+  private async setupProxyCipher(): Promise&lt;void&gt; {
+    try {
+      const cipher = new HukProxyCipher();
+      PreferencesManager.getInstance().setPasswordCipher(cipher);
+      const ok = await cipher.selfTest();
+      hilog.info(0x0001, TAG, &#x27;HUKS selfTest %{public}s&#x27;, ok ? &#x27;OK&#x27; : &#x27;FAIL&#x27;);
+    } catch (err) {
+      hilog.error(0x0001, TAG,
+        &#x27;HUKS cipher setup failed: %{private}s&#x27;, String(err));
+    }
+  }
+
+  /**
+   * Called when the app is already running and receives a new intent.
+   * Required for processing magnet/file URIs while app is in foreground.
+   */
+  onNewWant(want: Want, _launchParam: AbilityConstant.LaunchParam): void {
+    hilog.info(0x0001, TAG, &#x27;EntryAbility onNewWant&#x27;);
+
+    const intent = this.parseIntent(want);
+    if (intent.kind !== &#x27;unknown&#x27;) {
+      this.pendingTorrentIntent = intent;
+    }
+  }
+
+  /** Consume and clear the pending torrent intent. Called by Index page. */
+  consumePendingIntent(): TorrentIntent | null {
+    const intent = this.pendingTorrentIntent;
+    this.pendingTorrentIntent = null;
+    return intent;
+  }
+
+  /**
+   * Parse a Want into a TorrentIntent.
+   * Handles magnet:// scheme and file:///https:// torrent URIs.
+   */
+  private parseIntent(want: Want): TorrentIntent {
+    try {
+      const uri = want?.uri ?? &#x27;&#x27;;
+
+      if (uri.length &gt; 0) {
+        // Magnet link
+        if (uri.startsWith(&#x27;magnet:&#x27;)) {
+          hilog.info(0x0001, TAG, &#x27;Parsed magnet intent&#x27;);
+          return { kind: &#x27;magnet&#x27;, uri: uri };
+        }
+
+        // .torrent file (file://, content://, https://)</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 3 页</div>
+<pre>        const lower = uri.toLowerCase();
+        if (lower.endsWith(&#x27;.torrent&#x27;) ||
+            (want?.type ?? &#x27;&#x27;).includes(&#x27;x-bittorrent&#x27;)) {
+          hilog.info(0x0001, TAG, &#x27;Parsed torrent file intent&#x27;);
+          return { kind: &#x27;file&#x27;, uri: uri };
+        }
+      }
+
+      // Check parameters for file paths
+      if (want?.parameters) {
+        const params = want.parameters as Record&lt;string, Object&gt;;
+        const filePath = params[&#x27;filePath&#x27;] as string | undefined;
+        if (filePath &amp;&amp; filePath.toLowerCase().endsWith(&#x27;.torrent&#x27;)) {
+          return { kind: &#x27;file&#x27;, uri: filePath };
+        }
+      }
+    } catch (err) {
+      hilog.error(0x0001, TAG,
+        &#x27;parseIntent failed: %{private}s&#x27;, String(err));
+    }
+
+    return { kind: &#x27;unknown&#x27;, uri: &#x27;&#x27; };
+  }
+
+  onDestroy(): void {
+    hilog.info(0x0001, TAG, &#x27;EntryAbility onDestroy&#x27;);
+  }
+
+  onWindowStageCreate(windowStage: window.WindowStage): void {
+    hilog.info(0x0001, TAG, &#x27;EntryAbility onWindowStageCreate&#x27;);
+
+    windowStage.loadContent(&#x27;pages/Index&#x27;, (err) =&gt; {
+      if (err.code) {
+        hilog.error(0x0001, TAG,
+          &#x27;Failed to load the content. Cause: %{private}s&#x27;, JSON.stringify(err));
+        return;
+      }
+      hilog.info(0x0001, TAG, &#x27;Succeeded in loading the content.&#x27;);
+    });
+  }
+
+  onWindowStageDestroy(): void {
+    hilog.info(0x0001, TAG, &#x27;EntryAbility onWindowStageDestroy&#x27;);
+  }
+
+  onForeground(): void {
+    hilog.info(0x0001, TAG, &#x27;EntryAbility onForeground&#x27;);
+  }
+
+  onBackground(): void {</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 4 页</div>
+<pre>    hilog.info(0x0001, TAG, &#x27;EntryAbility onBackground&#x27;);
+  }
+}
+// ===== FILE: entry/src/main/ets/pages/Index.ets ===
+// transmissionbtm — MainPage (M6)
+//
+// App shell with Navigation + bottom tab bar.
+// Four tabs: Downloads, Settings, Proxy, About.
+//
+// Architecture:
+//   Navigation (host)
+//   └── Tabs (barPosition: End = bottom tab bar)
+//       ├── TabContent → DownloadsPage
+//       ├── TabContent → SettingsPage
+//       ├── TabContent → ProxyPage
+//       └── TabContent → AboutPage
+
+import { Colors, FontSize, Spacing, Duration } from &#x27;../utils/constants&#x27;;
+import { DownloadsPage } from &#x27;./DownloadsPage&#x27;;
+import { SettingsPage } from &#x27;./SettingsPage&#x27;;
+import { ProxyPage } from &#x27;./ProxyPage&#x27;;
+import { AboutPage } from &#x27;./AboutPage&#x27;;
+
+@Entry
+@Component
+struct Index {
+  @Provide(&#x27;navPathStack&#x27;) navPathStack: NavPathStack = new NavPathStack();
+  @State currentTab: number = 0;
+
+  build() {
+    Navigation(this.navPathStack) {
+      Column() {
+        Tabs({ index: this.currentTab }) {
+          TabContent() {
+            DownloadsPage()
+          }
+          .tabBar(this.TabDownloads);
+
+          TabContent() {
+            SettingsPage()
+          }
+          .tabBar(this.TabSettings);
+
+          TabContent() {
+            ProxyPage()
+          }
+          .tabBar(this.TabProxy);
+
+          TabContent() {
+            AboutPage()</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 5 页</div>
+<pre>          }
+          .tabBar(this.TabAbout);
+        }
+        .barPosition(BarPosition.End)
+        .barHeight(56)
+        .barBackgroundColor(Colors.SURFACE)
+        .animationDuration(Duration.NORMAL)
+        .onChange((index: number) =&gt; {
+          this.currentTab = index;
+        })
+        .width(&#x27;100%&#x27;)
+        .height(&#x27;100%&#x27;)
+        .backgroundColor(Colors.BG);
+      }
+      .width(&#x27;100%&#x27;)
+      .height(&#x27;100%&#x27;);
+    }
+    .hideTitleBar(true)
+    .mode(NavigationMode.Stack)
+    .backgroundColor(Colors.BG);
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // Per-tab @Builder wrappers (required by ArkTS tabBar contract;
+  // each must be a distinct parameterless @Builder reference.)
+  // ═══════════════════════════════════════════════════════════════
+
+  @Builder
+  TabDownloads() {
+    this.BuildTabContent(&#x27;Downloads&#x27;, &#x27;⬇&#x27;, 0);
+  }
+
+  @Builder
+  TabSettings() {
+    this.BuildTabContent(&#x27;Settings&#x27;, &#x27;⚙&#x27;, 1);
+  }
+
+  @Builder
+  TabProxy() {
+    this.BuildTabContent(&#x27;Proxy&#x27;, &#x27;🔒&#x27;, 2);
+  }
+
+  @Builder
+  TabAbout() {
+    this.BuildTabContent(&#x27;About&#x27;, &#x27;ℹ&#x27;, 3);
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // Shared tab bar content builder
+  // ═══════════════════════════════════════════════════════════════</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 6 页</div>
+<pre>
+  @Builder
+  BuildTabContent(title: string, icon: string, tabIndex: number) {
+    Column() {
+      Text(icon)
+        .fontSize(this.currentTab === tabIndex ? 20 : 18)
+        .fontColor(
+          this.currentTab === tabIndex ? Colors.DOWNLOAD : Colors.TEXT_TERTIARY
+        )
+        .animation({
+          duration: Duration.FAST,
+          curve: Curve.EaseOut,
+        });
+
+      Text(title)
+        .fontSize(10)
+        .fontColor(
+          this.currentTab === tabIndex ? Colors.DOWNLOAD : Colors.TEXT_TERTIARY
+        )
+        .fontWeight(
+          this.currentTab === tabIndex ? FontWeight.Medium : FontWeight.Normal
+        )
+        .margin({ top: 2 })
+        .animation({
+          duration: Duration.FAST,
+          curve: Curve.EaseOut,
+        });
+    }
+    .justifyContent(FlexAlign.Center)
+    .alignItems(HorizontalAlign.Center)
+    .padding({
+      top: Spacing.SM,
+      bottom: Spacing.SM,
+    });
+  }
+}
+// ===== FILE: entry/src/main/ets/pages/DownloadsPage.ets ===
+// transmissionbtm — DownloadsPage (main torrent list with 1s polling)
+//
+// Renders the torrent list and owns the overlay navigation (add / file-tree /
+// context menu). Session side-effects (lifecycle, polling, wake lock,
+// connectivity, torrent actions) are delegated to SessionController; this page
+// keeps only the ArkUI @State and subscribes via the controller&#x27;s
+// onTorrents()/onLoading() callbacks. Sandbox path resolution and Save-to-Files
+// stay here because they use the UI context (getContext) and the file picker.
+
+import { hilog } from &#x27;@kit.PerformanceAnalysisKit&#x27;;
+import { TorrentInfo } from &#x27;../models/TorrentInfo&#x27;;
+import { SessionConfig } from &#x27;../models/SessionConfig&#x27;;
+import { PreferencesManager } from &#x27;../models/Preferences&#x27;;</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 7 页</div>
+<pre>import { fileIo as fs, picker, fileUri } from &#x27;@kit.CoreFileKit&#x27;;
+import { common } from &#x27;@kit.AbilityKit&#x27;;
+import { promptAction } from &#x27;@kit.ArkUI&#x27;;
+import { taskpool } from &#x27;@kit.ArkTS&#x27;;
+import { TorrentCard } from &#x27;../components/torrent/TorrentCard&#x27;;
+import { TorrentVM } from &#x27;../components/torrent/TorrentVM&#x27;;
+import { TorrentContextMenu, TorrentAction } from &#x27;../components/torrent/TorrentContextMenu&#x27;;
+import { AddTorrentPage } from &#x27;./AddTorrentPage&#x27;;
+import { FileTreePage } from &#x27;./FileTreePage&#x27;;
+import { EmptyState } from &#x27;../components/ui/EmptyState&#x27;;
+import { formatSpeed } from &#x27;../utils/format&#x27;;
+import { Colors, FontSize, Spacing, Radius } from &#x27;../utils/constants&#x27;;
+import { WakeLockManager } from &#x27;../services/WakeLockManager&#x27;;
+import { ConnectivityMonitor } from &#x27;../services/ConnectivityMonitor&#x27;;
+import { SessionController } from &#x27;../services/SessionController&#x27;;
+import { NativeBridge } from &#x27;../bridge/NativeBridge&#x27;;
+
+const TAG = &#x27;DownloadsPage&#x27;;
+
+// Save-to-Files export target (HarmonyOS NEXT public Download).
+//
+// A consumer app CANNOT write the public Download dir by permission on a phone:
+// READ_WRITE_DOWNLOAD_DIRECTORY is user_grant but only supported on 2-in-1 /
+// tablet — a phone rejects the runtime request (authResults=2, &quot;device-type
+// condition not met&quot;), so it never appears in system settings (verified: the app
+// shows only Notification + Internet). The device-independent, permission-free
+// way to put a file into the user&#x27;s Download is the system
+// DocumentViewPicker.save() in DEFAULT mode: it honors newFileNames +
+// defaultFilePathUri, creates the file, and returns a writable file://docs URI we
+// then fs.copy() into. DOWNLOAD mode grants a writable DIRECTORY under
+// Download/&lt;bundleName&gt; (it ignores newFileNames/defaultFilePathUri — you
+// populate it yourself) — see copyTorrentToPublic.
+/** A completed torrent file pending export: its sanitized publish name and the
+ *  sandbox path to copy from. ArkTS forbids inline object-literal types, so this
+ *  is a declared interface (arkts-no-obj-literals-as-types). */
+interface FileJob {
+  /** Leaf file name for the publish destination. */
+  name: string;
+  /** Torrent-relative directory part (&#x27;&#x27; when the file sits at the torrent root),
+   *  reused verbatim to rebuild the downloaded tree in the public dir. */
+  rel: string;
+  /** Sandbox path to copy from. */
+  src: string;
+}
+
+/**
+ * Offload the blocking native torrentSetLocation (libtransmission moves the
+ * torrent&#x27;s files on disk) to a taskpool worker so the UI thread isn&#x27;t frozen.
+ * A worker has an isolated JS heap, so it can&#x27;t resolve the session via the
+ * NativeBridge singleton — pass the BigInt tr_session* pointer in and call the</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 8 页</div>
+<pre> * stateless NativeBridge.torrentSetLocationByPtr.
+ */
+@Concurrent
+function concurrentTorrentSetLocation(ptr: BigInt, torrentId: number, newDir: string): void {
+  NativeBridge.torrentSetLocationByPtr(ptr, torrentId, newDir);
+}
+
+@Component
+export struct DownloadsPage {
+  @State torrents: TorrentInfo[] = [];
+  // ArkUI-observable mirror of `torrents`, one TorrentVM per torrent, mutated
+  // in place each poll so the reused ForEach cards re-render live (see TorrentVM).
+  @State torrentVms: TorrentVM[] = [];
+  @State isLoading: boolean = true;
+  @State showAddPage: boolean = false;
+  @State showFileTree: boolean = false;
+  @State fileTreeTorrentId: number = 0;
+  @State fileTreeTorrentName: string = &#x27;&#x27;;
+  @State showContextMenu: boolean = false;
+  @State contextMenuTorrent: TorrentInfo | null = null;
+  // Relocate dialog (Part B): show/hide + the target path typed by the user.
+  @State showRelocateDialog: boolean = false;
+  @State relocateTarget: string = &#x27;&#x27;;
+  // Owns the session lifecycle, 1s poll, D3 wake lock, D4 connectivity monitor,
+  // and torrent CRUD. Wake lock + connectivity factory are supplied here (they
+  // need device-only @kit modules); host tests omit them.
+  private controller: SessionController = new SessionController(
+    // session defaults to a real TransmissionSession
+    undefined,
+    new WakeLockManager(),
+    (onAvailable: () =&gt; void, onLost: () =&gt; void) =&gt;
+      new ConnectivityMonitor(onAvailable, onLost)
+  );
+  // Resolved sandbox download dir (set in applySandboxPaths). Native libtransmission
+  // writes torrent data here; the &quot;Save to Files&quot; action copies completed files from
+  // here into the public Download dir via the picker.
+  private sessionDownloadDir: string = &#x27;&#x27;;
+  /** &lt;filesDir&gt;/transmissionbtm — libtransmission torrent/resume state dir. */
+  private sessionSettingsDir: string = &#x27;&#x27;;
+  // B2 (codex P1): set in aboutToDisappear and checked after each await in
+  // initSession, so an async start that outlives page teardown can&#x27;t wire the
+  // native session + 5s poll with no page left to stop it.
+  private isDisposed: boolean = false;
+
+  aboutToAppear(): void {
+    hilog.info(0x0001, TAG, &#x27;DownloadsPage aboutToAppear&#x27;);
+    this.isDisposed = false;
+    this.controller.onTorrents = (list: TorrentInfo[]) =&gt; {
+      this.torrents = list;
+      this.syncTorrentVms(list);</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 9 页</div>
+<pre>    };
+    this.controller.onLoading = (loading: boolean) =&gt; { this.isLoading = loading; };
+    this.initSession();
+  }
+
+  aboutToDisappear(): void {
+    // B2 (codex P1): mark disposed so a still-running initSession short-circuits
+    // after its next await instead of wiring a session/poll with no page left.
+    this.isDisposed = true;
+    // D3/D4 (docs/11): controller.stop() releases the wake lock, unregisters the
+    // connectivity monitor, stops polling, and tears the session down.
+    this.controller.stop();
+    // Release the TSFN event channel before teardown so late events can&#x27;t fire
+    // into a torn-down session. Native re-init (nativeToArktsInit) resets the
+    // channel on the next page appear, so this is safe to call each disappear.
+    NativeBridge.getInstance().nativeToArktsRelease();
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Session lifecycle (the controller owns the live session; the page resolves
+  // the sandbox paths it needs before handing config to start())
+  // ═══════════════════════════════════════════════════════════════════
+
+  private async initSession(): Promise&lt;void&gt; {
+    try {
+      // Read the persisted settings (Speed, Proxy, peer port, encryption, DHT/PEX,
+      // blocklist, RPC, seeding limits) so the Settings/Proxy pages actually drive
+      // the live engine. applySandboxPaths then overrides the three directory
+      // fields to the app sandbox (those /storage/... defaults don&#x27;t exist on device).
+      const config = await PreferencesManager.getInstance().getSessionConfig();
+      if (this.isDisposed) { return; }
+      this.applySandboxPaths(config);
+      this.sessionDownloadDir = config.downloadDir;
+      // Re-wire native TSFN events → controller.reload(). MUST run before
+      // sessionStart (sessionStart wires the tr_session RPC callbacks that fire
+      // them). All four funnel to reload() (poll + invalidate), matching
+// refresh-on-event behavior, so a move/add is never dropped.
+      NativeBridge.getInstance().nativeToArktsInit(
+        () =&gt; this.controller.reload(),
+        () =&gt; this.controller.reload(),
+        () =&gt; this.controller.reload(),
+        () =&gt; this.controller.reload(),
+      );
+      if (this.isDisposed) { return; }
+      await this.controller.start(config);
+    } catch (e) {
+      hilog.error(0x0001, TAG, &#x27;Session start failed: %{private}s&#x27;, String(e));
+      this.isLoading = false;
+    }
+  }</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 10 页</div>
+<pre>
+  /**
+   * HarmonyOS NEXT sandboxes third-party apps: the /storage/... paths in the
+   * SessionConfig defaults do not exist on device (verified: /storage/downloads
+   * is absent) and are not creatable by a sandboxed app. Resolve every session
+   * directory to a writable app-sandbox path under filesDir and pre-create it.
+   */
+  private applySandboxPaths(config: SessionConfig): void {
+    const filesDir = getContext(this).filesDir;
+    config.downloadDir = `${filesDir}/downloads`;
+    config.incompleteDir = `${filesDir}/downloads/.incomplete`;
+    config.settingsDir = `${filesDir}/transmissionbtm`;
+    this.sessionSettingsDir = config.settingsDir;
+    this.ensureDir(config.downloadDir);
+    this.ensureDir(config.incompleteDir);
+    this.ensureDir(config.settingsDir);
+  }
+
+  private ensureDir(path: string): void {
+    // fs.mkdirSync throws EEXIST on an existing dir even with recursion=true;
+    // accessSync() returns existence, so guard before creating.
+    if (!fs.accessSync(path)) {
+      fs.mkdirSync(path, true);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Torrent actions (delegated to the controller; only UI state stays here)
+  // ═══════════════════════════════════════════════════════════════════
+
+  private onPause(t: TorrentInfo): void {
+    this.controller.pause(t.id);
+  }
+
+  private onResume(t: TorrentInfo): void {
+    this.controller.resume(t.id);
+  }
+
+  private onRemove(t: TorrentInfo): void {
+    this.controller.remove(t.id);
+    this.pruneTorrentMetainfo(t);
+  }
+
+  /**
+   * Delete a removed torrent&#x27;s leftover metainfo so a fresh session can&#x27;t
+   * resurrect it. native.torrentRemove (cpp, uneditable) frees the torrent from
+   * the running session but leaves its resident .torrent and .resume files in
+   * settingsDir — so the next session start re-loads it as a broken &quot;corpse&quot;
+   * card (verified: Big Buck Bunny&#x27;s dd8255ec… .torrent/.resume survived a
+   * Remove and re-appeared at 0%/Error). We unlink both hash-named files after</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 11 页</div>
+<pre>   * the native remove. unlinkSync only targets exact files (guarded by hash
+   * length), never the whole settings or downloads dir.
+   */
+  private pruneTorrentMetainfo(t: TorrentInfo): void {
+    if (!t || t.hashString.length !== 40) {
+      return;
+    }
+    const paths: string[] = [
+      `${this.sessionSettingsDir}/torrents/${t.hashString}.torrent`,
+      `${this.sessionSettingsDir}/resume/${t.hashString}.resume`,
+    ];
+    for (let i = 0; i &lt; paths.length; i++) {
+      try {
+        if (fs.accessSync(paths[i])) {
+          fs.unlinkSync(paths[i]);
+        }
+      } catch (e) {
+        // Torrent metainfo cleanup is best-effort — never break the remove.
+      }
+    }
+  }
+
+  private onVerify(t: TorrentInfo): void {
+    this.controller.verify(t.id);
+  }
+
+  private onReannounce(t: TorrentInfo): void {
+    this.controller.reannounce(t.id);
+  }
+
+  private onShowFiles(t: TorrentInfo): void {
+    this.fileTreeTorrentId = t.id;
+    this.fileTreeTorrentName = t.name;
+    this.showFileTree = true;
+  }
+
+  /**
+   * D5 (docs/11): export a torrent&#x27;s downloaded data into the user-visible
+   * public Download directory via the system document-save picker.
+   *
+   * On a phone the READ_WRITE_DOWNLOAD_DIRECTORY permission is tablet/2-in-1-only
+   * and rejected (auth=2), so the ONLY supported path is the DocumentViewPicker:
+   * the app calls save() in DEFAULT mode with the real file name + the Download
+   * default path, the system creates the file and returns a writable file://docs
+   * URI, and we fs.copy the sandbox file into it. Unsupported-name collisions are
+   * auto-suffixed by the system; the user confirms the save dialog once per call.
+   */
+  private async onSaveToFiles(t: TorrentInfo): Promise&lt;void&gt; {
+    try {
+      this.diagReset();</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 12 页</div>
+<pre>      this.diag(`onSaveToFiles name=${t.name}`);
+      const copied = await this.copyTorrentToPublic(t);
+      hilog.info(0x0001, TAG, &#x27;SaveToFiles: final copied=%{public}d&#x27;, copied);
+      promptAction.showToast({
+        message: copied &gt; 0
+          ? `已保存 ${copied} 个文件到 Download`
+          : &#x27;没有可复制的文件(尚未下载完成)&#x27;,
+        duration: 2000,
+      });
+    } catch (e) {
+      hilog.error(0x0001, TAG, &#x27;Save to Files failed: %{private}s&#x27;, String(e));
+      promptAction.showToast({
+        message: `保存失败: ${String(e)}`,
+        duration: 2000,
+      });
+    }
+  }
+
+  /**
+   * Append one line to a sandboxed diagnostic file (readable via hdc). The app&#x27;s
+   * hilog (domain 0x0001, tag DownloadsPage) does not reliably surface in
+   * `hilog -d` on-device, so a file is the deterministic way to trace the export
+   * path. Diagnostics are best-effort and must never break the export.
+   */
+  private diag(msg: string): void {
+    try {
+      const p = `${getContext(this).filesDir}/export-diag.txt`;
+      const file = fs.openSync(p, fs.OpenMode.APPEND | fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY);
+      fs.writeSync(file.fd, `${msg}\n`);
+      fs.closeSync(file);
+    } catch (e) {
+      // ignore — diagnostics must not break the export
+    }
+  }
+
+  /** Reset the sandboxed export diag file at the start of a save attempt. */
+  private diagReset(): void {
+    try {
+      const p = `${getContext(this).filesDir}/export-diag.txt`;
+      const file = fs.openSync(p, fs.OpenMode.CREATE | fs.OpenMode.TRUNC | fs.OpenMode.WRITE_ONLY);
+      fs.closeSync(file);
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  /**
+   * Build the list of on-disk (completed) files of `t`, ask the system picker to
+   * create a destination for each in public Download (one confirmation dialog),
+   * then fs.copy the sandbox source into each returned file://docs URI.</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 13 页</div>
+<pre>   *
+   * Torrent metadata is untrusted → sanitize each relative path first (see
+   * sanitizeRelPath) so a malicious name can&#x27;t escape the download dir (read via
+   * buildSandboxFilePath) or smuggle traversal into the picker file name. Returns
+   * the count of files actually copied.
+   */
+  private async copyTorrentToPublic(t: TorrentInfo): Promise&lt;number&gt; {
+    const files = this.controller.listFiles(t.id);
+    this.diag(`copy begin nFiles=${files.length}`);
+
+    // Rebuild the torrent&#x27;s directory tree: mirror each completed (on-disk)
+    // file&#x27;s torrent-relative path under the granted public directory. This
+    // preserves the folder hierarchy (incl. nested dirs like Preview/) AND
+    // respects DnD (only on-disk files) — the prior per-file copy flattened
+    // every file to the Download root, destroying the structure.
+    const jobs: FileJob[] = [];
+    for (let i = 0; i &lt; files.length; i++) {
+      const f = files[i];
+      if (f.isDirectory) {
+        continue;
+      }
+      const safeRel = this.sanitizeRelPath(f.name);
+      if (!safeRel) {
+        continue; // traversal / malformed / empty — skip this file
+      }
+      const srcAbs = this.buildSandboxFilePath(safeRel);
+      if (!fs.accessSync(srcAbs)) {
+        this.diag(`skip not-on-disk ${safeRel}`);
+        continue; // not yet on disk (still downloading / in incomplete dir)
+      }
+      // Split into the directory part (kept verbatim → rebuilt as real folders)
+      // and the file leaf. Separators are already normalized by sanitizeRelPath.
+      const slash = safeRel.lastIndexOf(&#x27;/&#x27;);
+      const rel = slash &gt;= 0 ? safeRel.slice(0, slash) : &#x27;&#x27;;
+      const name = slash &gt;= 0 ? safeRel.slice(slash + 1) : safeRel;
+      jobs.push({ name, rel, src: srcAbs });
+      this.diag(`job rel=${rel} name=${name} onDisk=true`);
+    }
+    if (jobs.length === 0) {
+      this.diag(&#x27;no on-disk files&#x27;);
+      return 0;
+    }
+
+    // One picker save() in DOWNLOAD mode → a writable DIRECTORY grant under the
+    // public Download/&lt;bundleName&gt;/. Unlike DEFAULT mode (which returns one flat
+    // per-file URI and flattens the tree), DOWNLOAD grants the DIRECTORY so we
+    // can mkdir subfolders and rebuild the hierarchy. It ignores newFileNames /
+    // defaultFilePathUri — we build the tree ourselves from the granted dir.
+    // (The prior verdict that DOWNLOAD was a dead end was wrong: it doesn&#x27;t make
+    // named files, it grants a dir you populate yourself.)</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 14 页</div>
+<pre>    let uris: Array&lt;string&gt; = [];
+    try {
+      const opts = new picker.DocumentSaveOptions();
+      opts.pickerMode = picker.DocumentPickerMode.DOWNLOAD;
+      const pv = new picker.DocumentViewPicker(getContext(this) as common.UIAbilityContext);
+      uris = await pv.save(opts);
+      this.diag(`DOWNLOAD save returned ${uris.length} uris`);
+    } catch (e) {
+      // A picker throw is a real failure (permission / DOWNLOAD unsupported),
+      // NOT &quot;no files&quot; — rethrow so the caller shows &quot;保存失败: &lt;err&gt;&quot;.
+      this.diag(`save picker error=${String(e)}`);
+      throw new Error(String(e));
+    }
+    if (uris.length === 0) {
+      this.diag(&#x27;save returned 0 uris (user cancelled)&#x27;);
+      return 0;
+    }
+
+    // Critical: convert the granted DIRECTORY URI → a physical path. fs.open /
+    // fs.copyFile reject a file://docs URI as a target (&quot;input parameter is
+    // invalid&quot;); the real path (e.g. /storage/Users/currentUser/Download/&lt;bundle&gt;)
+    // is writable because the picker granted it. Same URI→path rule as
+    // AddTorrentPage.copyPickerUriToCache.
+    let baseDir: string;
+    try {
+      baseDir = new fileUri.FileUri(uris[0]).path;
+      this.diag(`baseDir=${baseDir}`);
+    } catch (e) {
+      this.diag(`FileUri convert err=${String(e)}`);
+      throw new Error(String(e));
+    }
+
+    let copied = 0;
+    for (let i = 0; i &lt; jobs.length; i++) {
+      const j = jobs[i];
+      const destDir = j.rel.length &gt; 0 ? `${baseDir}/${j.rel}` : baseDir;
+      try {
+        this.mkdirRecursive(destDir);
+        const destPath = `${destDir}/${j.name}`;
+        this.diag(`copy ${j.rel}/${j.name} -&gt; ${destPath}`);
+        const s = fs.openSync(j.src, fs.OpenMode.READ_ONLY);
+        const d = fs.openSync(destPath, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
+        try {
+          await fs.copyFile(s.fd, d.fd);
+          copied++;
+          this.diag(`copied ok ${j.rel}/${j.name}`);
+        } finally {
+          try { fs.closeSync(s); } catch (e1) { /* ignore */ }
+          try { fs.closeSync(d); } catch (e2) { /* ignore */ }
+        }</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 15 页</div>
+<pre>      } catch (e) {
+        this.diag(`copyFail ${j.rel}/${j.name} err=${String(e)}`);
+      }
+    }
+    this.diag(`copy done copied=${copied}`);
+    return copied;
+  }
+
+  /** Create a nested directory chain at a physical path. fs.mkdirSync can throw
+   *  EEXIST on an existing dir, so create level-by-level and swallow the race.
+   *  Used to rebuild the torrent&#x27;s folder tree under the granted public dir. */
+  private mkdirRecursive(dir: string): void {
+    if (!dir || fs.accessSync(dir)) {
+      return;
+    }
+    const segments = dir.split(&#x27;/&#x27;).filter((s: string) =&gt; s.length &gt; 0);
+    let cur = &#x27;&#x27;;
+    for (let i = 0; i &lt; segments.length; i++) {
+      cur = `${cur}/${segments[i]}`;
+      try {
+        if (!fs.accessSync(cur)) {
+          fs.mkdirSync(cur);
+        }
+      } catch (e) {
+        // EEXIST from a concurrent creator, or a reserved/read-only base segment
+        // (e.g. an already-existing root path) — ignore; the next accessSync
+        // confirms it is usable.
+      }
+    }
+  }
+
+  /** Move a torrent&#x27;s data to a new sandbox dir (taskpool-offloaded). Sets up
+   *  the relocate dialog; doRelocate does the offloaded native move. */
+  private onSetLocation(t: TorrentInfo): void {
+    this.relocateTarget = `${this.sessionDownloadDir}/moved_${t.id}`;
+    this.contextMenuTorrent = t;
+    this.showRelocateDialog = true;
+  }
+
+  /**
+   * Run the offloaded torrentSetLocation. The native call moves file data on
+   * disk, so it wraps the synchronous native torrentSetLocation in a taskpool
+* worker to keep the UI thread responsive (mirrors the classic poll+wake pattern
+   * background ThreadPoolExecutor). The target must stay inside the app sandbox,
+   * the only path libtransmission can write on API 24.
+   */
+  private async doRelocate(): Promise&lt;void&gt; {
+    const target = this.relocateTarget.trim();
+    this.showRelocateDialog = false;
+    const t = this.contextMenuTorrent;</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 16 页</div>
+<pre>    if (!t || target.length === 0) {
+      return;
+    }
+    if (!target.startsWith(getContext(this).filesDir)) {
+      promptAction.showToast({ message: &#x27;Move target must be inside the app sandbox&#x27;, duration: 2000 });
+      return;
+    }
+    try {
+      if (!fs.accessSync(target)) {
+        fs.mkdirSync(target, true);
+      }
+      // Resolve the session ptr on the MAIN thread and pass it in — a taskpool
+      // worker has an isolated heap and can&#x27;t read the session map (see the
+      // &#x27;@Concurrent&#x27; table above).
+      const ptr = NativeBridge.getInstance().getSessionPtr(this.controller.sessionId);
+      await taskpool.execute(concurrentTorrentSetLocation, ptr, t.id, target);
+      promptAction.showToast({ message: &#x27;已移动下载位置&#x27;, duration: 2000 });
+      this.controller.reload();
+    } catch (e) {
+      hilog.error(0x0001, TAG, &#x27;Relocate failed: %{private}s&#x27;, String(e));
+      promptAction.showToast({ message: `移动失败: ${String(e)}`, duration: 2000 });
+    }
+  }
+
+  /** Absolute sandbox path for a downloadDir-relative file name. Returns &#x27;&#x27;
+   *  (caller must guard) if the name escapes the sandbox via path traversal. */
+  private buildSandboxFilePath(torrentRelPath: string): string {
+    const safe = this.sanitizeRelPath(torrentRelPath);
+    if (!safe) {
+      return &#x27;&#x27;;
+    }
+    return `${this.sessionDownloadDir}/${safe}`;
+  }
+
+  /**
+   * Sanitize a torrent-relative file path against path traversal.
+   * Torrent file names are untrusted (come from .torrent metadata). Strips
+   * leading separators, collapses &#x27;.&#x27;/empty segments, and rejects &#x27;..&#x27; — which
+   * would let a malicious torrent escape the download or publish dir.
+   * Returns a clean relative path, or null if unusable (empty/traversal).
+   */
+  private sanitizeRelPath(relPath: string): string | null {
+    const p = relPath.replace(/\\/g, &#x27;/&#x27;).replace(/^\/+/, &#x27;&#x27;);
+    const segments = p.split(&#x27;/&#x27;);
+    const out: string[] = [];
+    for (let i = 0; i &lt; segments.length; i++) {
+      const seg = segments[i];
+      if (seg === &#x27;&#x27; || seg === &#x27;.&#x27;) {
+        continue; // collapse empty / self segments
+      }</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 17 页</div>
+<pre>      if (seg === &#x27;..&#x27;) {
+        return null; // traversal — reject the whole path
+      }
+      out.push(seg);
+    }
+    return out.length &gt; 0 ? out.join(&#x27;/&#x27;) : null;
+  }
+
+  private onContextMenuAction(action: TorrentAction): void {
+    const t = this.contextMenuTorrent;
+    if (!t) {
+      return;
+    }
+    this.showContextMenu = false;
+
+    switch (action) {
+      case TorrentAction.PAUSE:
+        this.onPause(t);
+        break;
+      case TorrentAction.RESUME:
+        this.onResume(t);
+        break;
+      case TorrentAction.REMOVE:
+        this.onRemove(t);
+        break;
+      case TorrentAction.REMOVE_WITH_DATA:
+        this.controller.removeWithData(t.id);
+        this.pruneTorrentMetainfo(t);
+        break;
+      case TorrentAction.VERIFY:
+        this.onVerify(t);
+        break;
+      case TorrentAction.REANNOUNCE:
+        this.onReannounce(t);
+        break;
+      case TorrentAction.SHOW_FILES:
+        this.onShowFiles(t);
+        break;
+      case TorrentAction.SAVE_TO_FILES:
+        this.onSaveToFiles(t);
+        break;
+      case TorrentAction.SET_LOCATION:
+        this.onSetLocation(t);
+        break;
+      case TorrentAction.SHOW_DETAIL:
+        // Toggle expanded state — handled by TorrentCard internally
+        break;
+    }
+  }
+</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 18 页</div>
+<pre>  private onTorrentAdded(): void {
+    this.showAddPage = false;
+    this.controller.reload();
+  }
+
+  /**
+   * Reconcile @State torrentVms against the latest polled list, REUSING the
+   * existing TorrentVM instances by id. Re-using keeps the ForEach child
+   * components (and their @State, e.g. isExpanded) alive; setting `vm.torrent`
+   * to the fresh TorrentInfo is an @Observed mutation that re-renders the
+   * @ObjectLink-bound card in place instead of freezing on first render.
+   */
+  private syncTorrentVms(list: TorrentInfo[]): void {
+    const prev = new Map&lt;number, TorrentVM&gt;();
+    for (const vm of this.torrentVms) {
+      prev.set(vm.torrent.id, vm);
+    }
+    const next: TorrentVM[] = [];
+    for (const t of list) {
+      const existing = prev.get(t.id);
+      if (existing !== undefined) {
+        existing.torrent = t; // mutate in place → @ObjectLink re-renders
+        next.push(existing);
+      } else {
+        next.push(new TorrentVM(t));
+      }
+    }
+    this.torrentVms = next;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Build
+  // ═══════════════════════════════════════════════════════════════════
+
+  build() {
+    if (this.showAddPage) {
+      Stack() {
+        this.buildAddPageOverlay();
+      }
+      .width(&#x27;100%&#x27;)
+      .height(&#x27;100%&#x27;)
+      .backgroundColor(Colors.BG);
+    } else if (this.showFileTree) {
+      Stack() {
+        this.buildFileTreeOverlay();
+      }
+      .width(&#x27;100%&#x27;)
+      .height(&#x27;100%&#x27;)
+      .backgroundColor(Colors.BG);
+    } else {</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 19 页</div>
+<pre>      this.buildMainPage();
+    }
+  }
+
+  @Builder
+  buildMainPage() {
+    Stack() {
+      Column() {
+        this.buildHeader();
+        this.buildContent();
+        this.buildFAB();
+      }
+      .width(&#x27;100%&#x27;)
+      .height(&#x27;100%&#x27;)
+      .backgroundColor(Colors.BG);
+
+      // Context menu overlay
+      if (this.showContextMenu &amp;&amp; this.contextMenuTorrent !== null) {
+        TorrentContextMenu({
+          torrent: this.contextMenuTorrent,
+          sessionId: this.controller.sessionId,
+          isVisible: $showContextMenu,
+          onAction: (action: TorrentAction, _torrent: TorrentInfo) =&gt; {
+            this.onContextMenuAction(action);
+          },
+        });
+      }
+
+      // Relocate dialog overlay (text-entry — the FOLDER picker returns a
+      // file://docs URI and is 2-in-1-only, so it can&#x27;t supply a POSIX path).
+      if (this.showRelocateDialog) {
+        this.buildRelocateOverlay();
+      }
+    }
+    .width(&#x27;100%&#x27;)
+    .height(&#x27;100%&#x27;);
+  }
+
+  @Builder
+  buildHeader() {
+    Row() {
+      Text(&#x27;Downloads&#x27;)
+        .fontSize(FontSize.TITLE)
+        .fontWeight(FontWeight.Bold)
+        .fontColor(Colors.TEXT)
+        .layoutWeight(1);
+
+      if (this.torrents.length &gt; 0) {
+        Text(`${this.torrents.length}`)
+          .fontSize(FontSize.CAPTION)</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 20 页</div>
+<pre>          .fontColor(Colors.TEXT_TERTIARY)
+          .fontFamily(&#x27;JetBrains Mono&#x27;)
+          .padding({ left: Spacing.SM, right: Spacing.SM, top: 2, bottom: 4 })
+          .borderRadius(Radius.SM)
+          .backgroundColor(Colors.ELEVATED);
+      }
+    }
+    .width(&#x27;100%&#x27;)
+    .padding({ left: Spacing.LG, right: Spacing.LG, top: Spacing.LG, bottom: Spacing.SM });
+  }
+
+  @Builder
+  buildContent() {
+    if (this.isLoading) {
+      this.buildLoadingState();
+    } else if (this.torrents.length === 0) {
+      this.buildEmptyState();
+    } else {
+      this.buildTorrentList();
+    }
+  }
+
+  @Builder
+  buildLoadingState() {
+    Column() {
+      LoadingProgress()
+        .width(40)
+        .height(40)
+        .color(Colors.DOWNLOAD);
+      Text(&#x27;Loading torrents...&#x27;)
+        .fontSize(FontSize.CAPTION)
+        .fontColor(Colors.TEXT_SECONDARY)
+        .margin({ top: Spacing.MD });
+    }
+    .width(&#x27;100%&#x27;)
+    .layoutWeight(1)
+    .justifyContent(FlexAlign.Center);
+  }
+
+  @Builder
+  buildEmptyState() {
+    Column() {
+      EmptyState({
+        icon: &#x27;⬇&#x27;,
+        title: &#x27;No Torrents&#x27;,
+        description: &#x27;Tap the + button to add a torrent file or magnet link&#x27;,
+      });
+    }
+    .width(&#x27;100%&#x27;)
+    .layoutWeight(1);</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 21 页</div>
+<pre>  }
+
+  @Builder
+  buildTorrentList() {
+    // Summary bar
+    Row() {
+      Text(this.summaryText())
+        .fontSize(FontSize.SMALL)
+        .fontColor(Colors.TEXT_TERTIARY)
+        .layoutWeight(1);
+
+      Text(this.speedSummaryText())
+        .fontSize(FontSize.SMALL)
+        .fontColor(Colors.TEXT_SECONDARY)
+        .fontFamily(&#x27;JetBrains Mono&#x27;);
+    }
+    .width(&#x27;100%&#x27;)
+    .padding({ left: Spacing.LG, right: Spacing.LG, bottom: Spacing.SM });
+
+    // Torrent list
+    List() {
+      ForEach(this.torrentVms, (vm: TorrentVM) =&gt; {
+        ListItem() {
+          TorrentCard({
+            vm: vm,
+            sessionId: this.controller.sessionId,
+            onPause: () =&gt; { this.onPause(vm.torrent); },
+            onResume: () =&gt; { this.onResume(vm.torrent); },
+            onRemove: () =&gt; { this.onRemove(vm.torrent); },
+            onVerify: () =&gt; { this.onVerify(vm.torrent); },
+            onReannounce: () =&gt; { this.onReannounce(vm.torrent); },
+            onShowFiles: () =&gt; { this.onShowFiles(vm.torrent); },
+          });
+        }
+        .gesture(
+          LongPressGesture({ repeat: false, duration: 500 })
+            .onAction(() =&gt; {
+              this.contextMenuTorrent = vm.torrent;
+              this.showContextMenu = true;
+            })
+        )
+        .margin({ left: Spacing.LG, right: Spacing.LG, bottom: Spacing.MD });
+      }, (vm: TorrentVM) =&gt; `${vm.torrent.id}`)
+    }
+    .layoutWeight(1)
+    .width(&#x27;100%&#x27;);
+  }
+
+  @Builder
+  buildFAB() {</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 22 页</div>
+<pre>    Row() {
+      Button(&#x27;+&#x27;)
+        .fontSize(28)
+        .fontColor(&#x27;#ffffff&#x27;)
+        .width(56)
+        .height(56)
+        .borderRadius(28)
+        .backgroundColor(Colors.DOWNLOAD)
+        .shadow({
+          radius: 16,
+          color: &#x27;#3b82f640&#x27;,
+          offsetY: 6,
+        })
+        .onClick(() =&gt; { this.showAddPage = true; });
+    }
+    .width(&#x27;100%&#x27;)
+    .justifyContent(FlexAlign.End)
+    .padding(Spacing.LG)
+    .position({ right: 0, bottom: 0 });
+  }
+
+  @Builder
+  buildFileTreeOverlay() {
+    FileTreePage({
+      torrentId: this.fileTreeTorrentId,
+      sessionId: this.controller.sessionId,
+      torrentName: this.fileTreeTorrentName,
+      onBack: () =&gt; { this.showFileTree = false; },
+    });
+  }
+
+  @Builder
+  buildAddPageOverlay() {
+    AddTorrentPage({
+      sessionId: this.controller.sessionId,
+      downloadDir: this.getDefaultDownloadDir(),
+      onTorrentAdded: () =&gt; { this.onTorrentAdded(); },
+      onCancel: () =&gt; { this.showAddPage = false; },
+    });
+  }
+
+  @Builder
+  buildRelocateOverlay() {
+    Stack() {
+      // Backdrop (dismiss on tap)
+      Column()
+        .width(&#x27;100%&#x27;)
+        .height(&#x27;100%&#x27;)
+        .backgroundColor(&#x27;#00000080&#x27;)
+        .onClick(() =&gt; { this.showRelocateDialog = false; });</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 23 页</div>
+<pre>
+      Column() {
+        Text(&#x27;更改下载位置&#x27;)
+          .fontSize(FontSize.HEADLINE)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(Colors.TEXT)
+          .margin({ bottom: Spacing.MD });
+
+        Text(&#x27;输入应用沙箱内的新目录:&#x27;)
+          .fontSize(FontSize.SMALL)
+          .fontColor(Colors.TEXT_SECONDARY)
+          .width(&#x27;100%&#x27;)
+          .margin({ bottom: Spacing.SM });
+
+        TextInput({ placeholder: &#x27;.../downloads/moved_N&#x27;, text: this.relocateTarget })
+          .fontSize(FontSize.CAPTION)
+          .fontColor(Colors.TEXT)
+          .backgroundColor(Colors.ELEVATED)
+          .borderRadius(Radius.MD)
+          .height(44)
+          .width(&#x27;100%&#x27;)
+          .onChange((value: string) =&gt; { this.relocateTarget = value; });
+
+        Button(&#x27;移动&#x27;)
+          .fontSize(FontSize.BODY)
+          .fontColor(&#x27;#ffffff&#x27;)
+          .backgroundColor(Colors.DOWNLOAD)
+          .width(&#x27;90%&#x27;)
+          .height(48)
+          .borderRadius(Radius.MD)
+          .margin({ top: Spacing.LG })
+          .onClick(() =&gt; { this.doRelocate(); });
+
+        Button(&#x27;取消&#x27;)
+          .fontSize(FontSize.BODY)
+          .fontColor(Colors.TEXT_SECONDARY)
+          .width(&#x27;90%&#x27;)
+          .height(44)
+          .borderRadius(Radius.MD)
+          .backgroundColor(Colors.ELEVATED)
+          .margin({ top: Spacing.SM })
+          .onClick(() =&gt; { this.showRelocateDialog = false; });
+      }
+      .width(&#x27;90%&#x27;)
+      .borderRadius(Radius.LG)
+      .backgroundColor(Colors.SURFACE)
+      .padding({ top: Spacing.LG, bottom: Spacing.LG, left: Spacing.LG, right: Spacing.LG });
+    }
+    .width(&#x27;100%&#x27;)
+    .height(&#x27;100%&#x27;)</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 24 页</div>
+<pre>    .position({ x: 0, y: 0 });
+  }
+
+  private getDefaultDownloadDir(): string {
+    return `${getContext(this).filesDir}/downloads`;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Summary helpers
+  // ═══════════════════════════════════════════════════════════════════
+
+  private summaryText(): string {
+    const count = this.torrents.length;
+    let downloading = 0;
+    let seeding = 0;
+    let paused = 0;
+
+    for (const t of this.torrents) {
+      if (t.isDownloading()) {
+        downloading++;
+      } else if (t.isSeeding()) {
+        seeding++;
+      } else if (t.isStopped()) {
+        paused++;
+      }
+    }
+
+    const parts: string[] = [];
+    if (downloading &gt; 0) {
+      parts.push(`${downloading} downloading`);
+    }
+    if (seeding &gt; 0) {
+      parts.push(`${seeding} seeding`);
+    }
+    if (paused &gt; 0) {
+      parts.push(`${paused} paused`);
+    }
+    return parts.length &gt; 0 ? parts.join(&#x27; · &#x27;) : `${count} torrents`;
+  }
+
+  private speedSummaryText(): string {
+    let totalDown = 0;
+    let totalUp = 0;
+    for (const t of this.torrents) {
+      totalDown += t.rateDownload;
+      totalUp += t.rateUpload;
+    }
+
+    const parts: string[] = [];
+    if (totalDown &gt; 0) {</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 25 页</div>
+<pre>      parts.push(formatSpeed(totalDown) + &#x27; ↓&#x27;);
+    }
+    if (totalUp &gt; 0) {
+      parts.push(formatSpeed(totalUp) + &#x27; ↑&#x27;);
+    }
+    return parts.length &gt; 0 ? parts.join(&#x27;  &#x27;) : &#x27;&#x27;;
+  }
+
+}
+// ===== FILE: entry/src/main/ets/pages/SettingsPage.ets ===
+// transmissionbtm — SettingsPage (M6)
+//
+// Scrollable settings list with grouped sections. All settings apply
+// immediately via the M2 components (ToggleSetting, EditSetting,
+// SelectSetting), each of which persists to PreferencesManager.
+//
+// Sections:
+//   Downloads  — directories, file behavior
+//   Speed      — rate limits, alt speed (turtle mode)
+//   Network    — ports, peer limits, encryption, protocol toggles
+//   Blocklist  — IP blocklist toggle + URL
+//   RPC        — RPC server port, auth, credentials
+//   Seeding    — ratio stop, idle stop
+
+import { Colors, FontSize, Spacing, Radius } from &#x27;../utils/constants&#x27;;
+import { SettingsGroup } from &#x27;../components/settings/SettingsGroup&#x27;;
+import { ToggleSetting } from &#x27;../components/settings/ToggleSetting&#x27;;
+import { EditSetting } from &#x27;../components/settings/EditSetting&#x27;;
+import { SelectSetting } from &#x27;../components/settings/SelectSetting&#x27;;
+import { SettingsLoadingState } from &#x27;../components/settings/SettingsLoadingState&#x27;;
+import { SettingsErrorBanner } from &#x27;../components/settings/SettingsErrorBanner&#x27;;
+import { SettingsResetDialog } from &#x27;../components/settings/SettingsResetDialog&#x27;;
+import { SandboxSettingRow } from &#x27;../components/settings/SandboxSettingRow&#x27;;
+import { PublishFolderRow } from &#x27;../components/settings/PublishFolderRow&#x27;;
+import { PreferencesManager, PrefKeys } from &#x27;../models/Preferences&#x27;;
+import { defaultSessionConfig } from &#x27;../models/SessionConfig&#x27;;
+import { hilog } from &#x27;@kit.PerformanceAnalysisKit&#x27;;
+
+const TAG = &#x27;SettingsPage&#x27;;
+
+@Component
+export struct SettingsPage {
+  // ── Loading / Error ──────────────────────────────────────────────
+  @State isLoading: boolean = true;
+  @State loadError: string = &#x27;&#x27;;
+  @State showResetDialog: boolean = false;
+
+  // ── Downloads ──────────────────────────────────────────────────
+  @State startAddedTorrents: boolean = defaultSessionConfig().startAddedTorrents;
+  @State renamePartialFiles: boolean = defaultSessionConfig().renamePartialFiles;</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 26 页</div>
+<pre>  @State trashOriginalTorrentFile: boolean = defaultSessionConfig().trashOriginalTorrentFile;
+  @State publishDir: string = &#x27;&#x27;;
+
+  // ── Speed ──────────────────────────────────────────────────────
+  @State speedLimitDownEnabled: boolean = defaultSessionConfig().speedLimitDownEnabled;
+  @State speedLimitDown: string = String(defaultSessionConfig().speedLimitDown);
+  @State speedLimitUpEnabled: boolean = defaultSessionConfig().speedLimitUpEnabled;
+  @State speedLimitUp: string = String(defaultSessionConfig().speedLimitUp);
+  @State altSpeedEnabled: boolean = defaultSessionConfig().altSpeedEnabled;
+  @State altSpeedDown: string = String(defaultSessionConfig().altSpeedDown);
+  @State altSpeedUp: string = String(defaultSessionConfig().altSpeedUp);
+  @State altSpeedTimeBegin: string = String(defaultSessionConfig().altSpeedTimeBegin);
+  @State altSpeedTimeEnd: string = String(defaultSessionConfig().altSpeedTimeEnd);
+  @State altSpeedDay: string = String(defaultSessionConfig().altSpeedDay);
+
+  // ── Network ────────────────────────────────────────────────────
+  @State peerPort: string = String(defaultSessionConfig().peerPort);
+  @State peerLimitGlobal: string = String(defaultSessionConfig().peerLimitGlobal);
+  @State peerLimitPerTorrent: string = String(defaultSessionConfig().peerLimitPerTorrent);
+  @State encryptionIndex: number = 1; // 0=Allow, 1=Prefer, 2=Require
+  @State utpEnabled: boolean = defaultSessionConfig().utpEnabled;
+  @State pexEnabled: boolean = defaultSessionConfig().pexEnabled;
+  @State dhtEnabled: boolean = defaultSessionConfig().dhtEnabled;
+  @State lpdEnabled: boolean = defaultSessionConfig().lpdEnabled;
+
+  // ── WiFi-only gating (Network) ─────────────────────────────────
+  // Read by ConnectivityMonitor directly via PrefKeys.WIFI_ONLY /
+  // WIFI_SSID — they gate transfers at runtime, not engine config.
+  @State wifiOnly: boolean = false;
+  @State wifiSsid: string = &#x27;&#x27;;
+
+  // ── Blocklist ──────────────────────────────────────────────────
+  @State blocklistEnabled: boolean = defaultSessionConfig().blocklistEnabled;
+  @State blocklistUrl: string = defaultSessionConfig().blocklistUrl;
+
+  // ── RPC ────────────────────────────────────────────────────────
+  @State rpcEnabled: boolean = defaultSessionConfig().enableRpc;
+  @State rpcPort: string = String(defaultSessionConfig().rpcPort);
+  @State rpcAuthentication: boolean = defaultSessionConfig().rpcAuthentication;
+  @State rpcUsername: string = defaultSessionConfig().rpcUsername;
+  @State rpcPassword: string = defaultSessionConfig().rpcPassword;
+
+  // ── Seeding ────────────────────────────────────────────────────
+  @State seedRatioLimited: boolean = defaultSessionConfig().seedRatioLimited;
+  @State seedRatioLimit: string = String(defaultSessionConfig().seedRatioLimit);
+  @State idleSeedingLimitEnabled: boolean = defaultSessionConfig().idleSeedingLimitEnabled;
+  @State idleSeedingLimit: string = String(defaultSessionConfig().idleSeedingLimit);
+
+  private encryptionOptions: string[] = PreferencesManager.ENCRYPTION_MODE_LABELS;
+  private encryptionOptionValues: string[] = [&#x27;allow&#x27;, &#x27;prefer&#x27;, &#x27;require&#x27;];</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 27 页</div>
+<pre>
+  aboutToAppear(): void {
+    this.loadPreferences();
+  }
+
+  private async loadPreferences(): Promise&lt;void&gt; {
+    this.isLoading = true;
+    this.loadError = &#x27;&#x27;;
+    try {
+      const pm = PreferencesManager.getInstance();
+
+      // Downloads
+      this.startAddedTorrents = await pm.getBoolean(PrefKeys.START_ADDED_TORRENTS, this.startAddedTorrents);
+      this.renamePartialFiles = await pm.getBoolean(PrefKeys.RENAME_PARTIAL_FILES, this.renamePartialFiles);
+      this.trashOriginalTorrentFile = await pm.getBoolean(PrefKeys.TRASH_ORIGINAL_TORRENT_FILE, this.trashOriginalTorrentFile);
+      this.publishDir = await pm.getString(PrefKeys.PUBLISH_DIR, &#x27;&#x27;);
+
+      // Speed
+      this.speedLimitDownEnabled = await pm.getBoolean(PrefKeys.SPEED_LIMIT_DOWN_ENABLED, this.speedLimitDownEnabled);
+      this.speedLimitDown = String(await pm.getInt(PrefKeys.SPEED_LIMIT_DOWN, Number(this.speedLimitDown)));
+      this.speedLimitUpEnabled = await pm.getBoolean(PrefKeys.SPEED_LIMIT_UP_ENABLED, this.speedLimitUpEnabled);
+      this.speedLimitUp = String(await pm.getInt(PrefKeys.SPEED_LIMIT_UP, Number(this.speedLimitUp)));
+      this.altSpeedEnabled = await pm.getBoolean(PrefKeys.ALT_SPEED_ENABLED, this.altSpeedEnabled);
+      this.altSpeedDown = String(await pm.getInt(PrefKeys.ALT_SPEED_DOWN, Number(this.altSpeedDown)));
+      this.altSpeedUp = String(await pm.getInt(PrefKeys.ALT_SPEED_UP, Number(this.altSpeedUp)));
+      this.altSpeedTimeBegin = String(await pm.getInt(PrefKeys.ALT_SPEED_TIME_BEGIN, Number(this.altSpeedTimeBegin)));
+      this.altSpeedTimeEnd = String(await pm.getInt(PrefKeys.ALT_SPEED_TIME_END, Number(this.altSpeedTimeEnd)));
+      this.altSpeedDay = String(await pm.getInt(PrefKeys.ALT_SPEED_DAY, Number(this.altSpeedDay)));
+
+      // Network
+      this.peerPort = String(await pm.getInt(PrefKeys.PEER_PORT, Number(this.peerPort)));
+      this.peerLimitGlobal = String(await pm.getInt(PrefKeys.PEER_LIMIT_GLOBAL, Number(this.peerLimitGlobal)));
+      this.peerLimitPerTorrent = String(await pm.getInt(PrefKeys.PEER_LIMIT_PER_TORRENT, Number(this.peerLimitPerTorrent)));
+      const encMode = await pm.getString(PrefKeys.ENCRYPTION_MODE, &#x27;prefer&#x27;);
+      this.encryptionIndex = encMode === &#x27;allow&#x27; ? 0 : encMode === &#x27;require&#x27; ? 2 : 1;
+      this.utpEnabled = await pm.getBoolean(PrefKeys.UTP_ENABLED, this.utpEnabled);
+      this.pexEnabled = await pm.getBoolean(PrefKeys.PEX_ENABLED, this.pexEnabled);
+      this.dhtEnabled = await pm.getBoolean(PrefKeys.DHT_ENABLED, this.dhtEnabled);
+      this.lpdEnabled = await pm.getBoolean(PrefKeys.LPD_ENABLED, this.lpdEnabled);
+      this.wifiOnly = await pm.getBoolean(PrefKeys.WIFI_ONLY, false);
+      this.wifiSsid = await pm.getString(PrefKeys.WIFI_SSID, &#x27;&#x27;);
+
+      // Blocklist
+      this.blocklistEnabled = await pm.getBoolean(PrefKeys.BLOCKLIST_ENABLED, this.blocklistEnabled);
+      this.blocklistUrl = await pm.getString(PrefKeys.BLOCKLIST_URL, this.blocklistUrl);
+
+      // RPC
+      this.rpcEnabled = await pm.getBoolean(PrefKeys.ENABLE_RPC, this.rpcEnabled);
+      this.rpcPort = String(await pm.getInt(PrefKeys.RPC_PORT, Number(this.rpcPort)));
+      this.rpcAuthentication = await pm.getBoolean(PrefKeys.RPC_AUTHENTICATION, this.rpcAuthentication);</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 28 页</div>
+<pre>      this.rpcUsername = await pm.getString(PrefKeys.RPC_USERNAME, this.rpcUsername);
+      this.rpcPassword = await pm.getString(PrefKeys.RPC_PASSWORD, this.rpcPassword);
+
+      // Seeding
+      this.seedRatioLimited = await pm.getBoolean(PrefKeys.SEED_RATIO_LIMITED, this.seedRatioLimited);
+      this.seedRatioLimit = String(await pm.getInt(PrefKeys.SEED_RATIO_LIMIT, Number(this.seedRatioLimit)));
+      this.idleSeedingLimitEnabled = await pm.getBoolean(PrefKeys.IDLE_SEEDING_LIMIT_ENABLED, this.idleSeedingLimitEnabled);
+      this.idleSeedingLimit = String(await pm.getInt(PrefKeys.IDLE_SEEDING_LIMIT, Number(this.idleSeedingLimit)));
+    } catch (err) {
+      this.loadError = &#x27;Failed to load settings. Using defaults.&#x27;;
+      hilog.error(0x0001, TAG,
+        &#x27;loadPreferences failed: %{private}s&#x27;, String(err));
+    } finally {
+      this.isLoading = false;
+    }
+  }
+
+  /** Actual sandbox download dir; the engine always writes here (see
+   * DownloadsPage.applySandboxPaths), regardless of any user-chosen path. */
+  private getSandboxDir(): string {
+    return `${getContext(this).filesDir}/downloads`;
+  }
+
+  private async onResetDefaults(): Promise&lt;void&gt; {
+    this.showResetDialog = false;
+    try {
+      await PreferencesManager.getInstance().resetToDefaults();
+      this.loadPreferences();
+      hilog.info(0x0001, TAG, &#x27;Settings reset to defaults&#x27;);
+    } catch (err) {
+      hilog.error(0x0001, TAG,
+        &#x27;resetToDefaults failed: %{private}s&#x27;, String(err));
+    }
+  }
+
+  build() {
+    Stack() {
+      Column() {
+        // Page header
+        Text(&#x27;Settings&#x27;)
+          .fontSize(FontSize.XL)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(Colors.TEXT)
+          .width(&#x27;100%&#x27;)
+          .padding({
+            left: Spacing.LG,
+            top: Spacing.LG,
+            bottom: Spacing.LG,
+          });
+</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 29 页</div>
+<pre>        if (this.isLoading) {
+          SettingsLoadingState();
+        } else {
+          this.BuildContent();
+        }
+      }
+      .width(&#x27;100%&#x27;)
+      .height(&#x27;100%&#x27;)
+      .backgroundColor(Colors.BG);
+
+      // Reset confirmation dialog
+      if (this.showResetDialog) {
+        SettingsResetDialog({
+          onConfirm: () =&gt; { this.onResetDefaults(); },
+          onCancel: () =&gt; { this.showResetDialog = false; },
+        });
+      }
+    }
+    .width(&#x27;100%&#x27;)
+    .height(&#x27;100%&#x27;);
+  }
+
+  @Builder
+  BuildContent() {
+    Column() {
+      // Error banner
+      if (this.loadError.length &gt; 0) {
+        SettingsErrorBanner({ error: this.loadError });
+      }
+
+      // Scrollable settings body
+      Scroll() {
+        Column() {
+          this.BuildDownloadsSection();
+          this.BuildSpeedSection();
+          this.BuildNetworkSection();
+          this.BuildBlocklistSection();
+          this.BuildRpcSection();
+          this.BuildSeedingSection();
+          this.BuildResetButton();
+        }
+        .padding({ bottom: 80 });
+      }
+      .layoutWeight(1)
+      .scrollBar(BarState.Off);
+    }
+    .layoutWeight(1)
+    .width(&#x27;100%&#x27;);
+  }
+</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 30 页</div>
+<pre>  // ═══════════════════════════════════════════════════════════════
+  // Downloads Section
+  // ═══════════════════════════════════════════════════════════════
+
+  @Builder
+  BuildDownloadsSection() {
+    SettingsGroup({ title: &#x27;Downloads&#x27; }) {
+      // Download &amp; incomplete dirs are read-only (see getSandboxDir). HarmonyOS
+      // NEXT sandboxes third-party apps; the engine needs a real POSIX path, so
+      // DownloadsPage.applySandboxPaths() overrides the session dirs to the app
+      // filesDir. A folder picked here would be silently ignored — show the real
+      // sandbox path, and publish finished data via the torrent &quot;Save to Files&quot;.
+      // Download dir is read-only: HarmonyOS NEXT sandboxes third-party apps and
+      // the engine needs a real POSIX path, so DownloadsPage.applySandboxPaths()
+      // overrides the session dir to the app filesDir. Publish folder is the one
+      // actionable control — it copies finished files to a system-visible place.
+      SandboxSettingRow({ label: &#x27;Download dir&#x27;, value: this.getSandboxDir() });
+      PublishFolderRow({ publishDir: $publishDir });
+      Row() {
+        Text(&#x27;Downloads live in the app sandbox. Use &quot;Publish folder&quot; (or a torrent\&#x27;s &#x27;
+          + &#x27;Save to Files) to copy finished files into a system-visible Download folder.&#x27;)
+          .fontSize(FontSize.CAPTION)
+          .fontColor(Colors.TEXT_SECONDARY)
+          .layoutWeight(1);
+      }
+      .width(&#x27;100%&#x27;)
+      .padding({ left: Spacing.LG, right: Spacing.LG, top: 2, bottom: Spacing.MD });
+
+      ToggleSetting({
+        label: &#x27;Start when added&#x27;,
+        description: &#x27;Begin downloading torrents immediately&#x27;,
+        prefKey: PrefKeys.START_ADDED_TORRENTS,
+        checked: $startAddedTorrents,
+      });
+      ToggleSetting({
+        label: &#x27;Rename partial files&#x27;,
+        description: &#x27;Append .part to incomplete files&#x27;,
+        prefKey: PrefKeys.RENAME_PARTIAL_FILES,
+        checked: $renamePartialFiles,
+      });
+      ToggleSetting({
+        label: &#x27;Trash original torrent file&#x27;,
+        description: &#x27;Move .torrent file to trash after adding&#x27;,
+        prefKey: PrefKeys.TRASH_ORIGINAL_TORRENT_FILE,
+        checked: $trashOriginalTorrentFile,
+      });
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 188 页</div>
+<pre>    // length is a whole number of int32 elements before dereferencing.
+    napi_get_arraybuffer_info(env, args[5], &amp;idxData, &amp;idxByteLen);
+    if (idxData != nullptr &amp;&amp; idxByteLen &gt;= sizeof(int32_t) &amp;&amp;
+        idxByteLen % sizeof(int32_t) == 0) {
+      idxLen = (tr_file_index_t)(idxByteLen / sizeof(int32_t));
+      int32_t *srcIdx = (int32_t *) idxData;
+      wantedFiles = (tr_file_index_t *) malloc(idxLen * sizeof(tr_file_index_t));
+      if (wantedFiles != nullptr) {
+        for (tr_file_index_t i = 0; i &lt; idxLen; i++)
+          wantedFiles[i] = (tr_file_index_t) srcIdx[i];
+      }
+    }
+  }
+
+  bool deleteSource = false;
+  tr_ctorSetDeleteSource(ctor, setDelete);
+  tr_ctorGetDeleteSource(ctor, &amp;deleteSource);
+
+  uint8_t *outHash = nullptr;
+  size_t outHashLen = 0;
+  if (!isNapiNull(env, args[6])) {
+    void *hashData = nullptr;
+    // P1 fix (codex review): verify the output buffer is big enough before
+    // copying the 20-byte info hash into it (checked inside torrentAddFunc).
+    napi_get_arraybuffer_info(env, args[6], &amp;hashData, &amp;outHashLen);
+    outHash = (uint8_t *) hashData;
+  }
+
+  TorrentAddData d;
+  d.ctor = ctor;
+  d.deleteSource = deleteSource;
+  d.paused = paused;
+  d.idxLen = idxLen;
+  d.wantedFiles = wantedFiles;
+  d.outHash = outHash;
+  d.outHashLen = outHashLen;
+  d.err = 1;
+
+  runInTransmissionThread(__FILE__, __LINE__, env, args[0], torrentAddFunc, &amp;d);
+  free(wantedFiles);
+  tr_ctorFree(ctor);
+
+  napi_value result;
+  napi_create_int32(env, d.err, &amp;result);
+  return result;
+}
+
+// ── torrentRemove ───────────────────────────────────────────────────
+typedef struct { int32_t id; bool removeData; } TorrentRemoveData;
+static void *torrentRemoveFunc(tr_session *s, void *d, Err *err) {</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 189 页</div>
+<pre>  auto *rd = (TorrentRemoveData *) d;
+  tr_torrent *tor = findTorrentById(s, rd-&gt;id, err);
+  if (tor) {
+    // 4.1: tr_torrentRemove() re-dispatches to the session thread (fire-and-forget).
+    // We are ALREADY on the session thread via runInTransmissionThread, so calling it
+    // would queue a second task and return before the removal completes. Use the
+    // InSessionThread variant, which runs inline and returns when the removal is done.
+    tr_torrentRemoveInSessionThread(tor, rd-&gt;removeData, nullptr, nullptr, nullptr, nullptr);
+  }
+  return nullptr;
+}
+static napi_value TorrentRemove(napi_env env, napi_callback_info info) {
+  size_t argc = 3; napi_value args[3];
+  napi_get_cb_info(env, info, &amp;argc, args, nullptr, nullptr);
+  TorrentRemoveData d = {getInt32Napi(env, args[1]), getBoolNapi(env, args[2])};
+  runInTransmissionThread(__FILE__, __LINE__, env, args[0], torrentRemoveFunc, &amp;d);
+  napi_value r; napi_get_undefined(env, &amp;r); return r;
+}
+
+// ── torrentStart / torrentStop / torrentVerify ──────────────────────
+// B1 (docs/11): the op now runs on the session event thread via
+// runInTransmissionThread — previously tr_torrentStart/Stop/Verify ran
+// directly on the calling (UI) thread.
+#define DEF_TORRENT_OP(name, op) \
+  static void *name##Func(tr_session *s, void *d, Err *err) { \
+    tr_torrent *tor = findTorrentById(s, (int)(intptr_t)d, err); \
+    if (tor) op(tor); \
+    return nullptr; \
+  } \
+  static napi_value name(napi_env env, napi_callback_info info) { \
+    size_t argc = 2; napi_value args[2]; \
+    napi_get_cb_info(env, info, &amp;argc, args, nullptr, nullptr); \
+    int32_t id = getInt32Napi(env, args[1]); \
+    runInTransmissionThread(__FILE__, __LINE__, env, args[0], \
+        name##Func, (void *)(intptr_t)id); \
+    napi_value r; napi_get_undefined(env, &amp;r); return r; \
+  }
+// Custom TorrentStart that logs engine state before/after tr_torrentStart,
+// so we can see exactly what an explicit start does to a fresh torrent.
+static void *TorrentStartFunc(tr_session *s, void *d, Err *err) {
+  tr_torrent *tor = findTorrentById(s, (int)(intptr_t)d, err);
+  if (!tor) return nullptr;
+  auto logState = [&amp;](const char *tag) {
+    auto dir = tor-&gt;queue_direction();
+    auto errs = std::string(tor-&gt;error().errmsg());
+    OH_LOG_Print(LOG_APP, LOG_INFO, LOG_DOMAIN, LOG_TAG,
+                 &quot;[DBG] start %{public}s id=%{public}d act=%{public}d run=%{public}d queued=%{public}d dir=%{public}d total=%{public}lld localerr=%{public}d err=&#x27;%{private}s&#x27;&quot;,
+                 tag, tr_torrentId(tor), (int)tor-&gt;activity(), tor-&gt;is_running()?1:0,
+                 tor-&gt;is_queued(dir)?1:0, (int)dir, (long long)tor-&gt;size_when_done(),
+                 tor-&gt;error().error_type() == TR_STAT_LOCAL_ERROR?1:0, errs.c_str());</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 190 页</div>
+<pre>  };
+  logState(&quot;BEFORE&quot;);
+  tr_torrentStart(tor);
+  logState(&quot;AFTER&quot;);
+  return nullptr;
+}
+static napi_value TorrentStart(napi_env env, napi_callback_info info) {
+  size_t argc = 2; napi_value args[2];
+  napi_get_cb_info(env, info, &amp;argc, args, nullptr, nullptr);
+  int32_t id = getInt32Napi(env, args[1]);
+  runInTransmissionThread(__FILE__, __LINE__, env, args[0],
+      TorrentStartFunc, (void *)(intptr_t)id);
+  napi_value r; napi_get_undefined(env, &amp;r); return r;
+}
+DEF_TORRENT_OP(TorrentStop,   tr_torrentStop)
+DEF_TORRENT_OP(TorrentVerify, tr_torrentVerify)
+
+// ── torrentListFilesFromFile ────────────────────────────────────────
+static napi_value TorrentListFilesFromFile(napi_env env, napi_callback_info info) {
+  size_t argc = 1; napi_value args[1];
+  napi_get_cb_info(env, info, &amp;argc, args, nullptr, nullptr);
+
+  char *path = getStringUtf8(env, args[0]);
+  if (path == nullptr) return nullptr;
+
+  tr_ctor *ctor = tr_ctorNew(nullptr);
+  if (!tr_ctorSetMetainfoFromFile(ctor, path, nullptr)) {
+    free(path);
+    tr_ctorFree(ctor);
+    napi_throw_error(env, nullptr, &quot;Failed to parse torrent file&quot;);
+    return nullptr;
+  }
+  free(path);
+
+  auto const *metainfo = tr_ctorGetMetainfo(ctor);
+  if (metainfo == nullptr) {
+    tr_ctorFree(ctor);
+    napi_throw_error(env, nullptr, &quot;No metainfo in torrent file&quot;);
+    return nullptr;
+  }
+
+  // 4.1: use file_count() accessor instead of fileCount()
+  tr_file_index_t fileCount = metainfo-&gt;file_count();
+  napi_value result;
+  napi_create_array_with_length(env, fileCount, &amp;result);
+  for (tr_file_index_t i = 0; i &lt; fileCount; i++)
+    napi_set_element(env, result, i, newStringUtf8(env, metainfo-&gt;file_subpath(i).c_str()));
+
+  tr_ctorFree(ctor);
+  return result;</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 191 页</div>
+<pre>}
+
+// ── torrentListFiles ────────────────────────────────────────────────
+typedef struct { int32_t id, count; char **names; } ListFilesData;
+static void *torrentListFilesFunc(tr_session *s, void *d, Err *err) {
+  auto *ld = (ListFilesData *) d;
+  tr_torrent *tor = findTorrentById(s, ld-&gt;id, err);
+  if (!tor) return nullptr;
+  ld-&gt;count = (int)tor-&gt;file_count();
+  if (!ld-&gt;count) return nullptr;
+  ld-&gt;names = (char **) malloc(ld-&gt;count * sizeof(char *));
+  if (!ld-&gt;names) { ld-&gt;count = 0; return nullptr; }
+  for (int i = 0; i &lt; ld-&gt;count; i++) {
+    auto f = tr_torrentFile(tor, (tr_file_index_t)i);
+    ld-&gt;names[i] = strdup(f.name);
+  }
+  return nullptr;
+}
+static napi_value TorrentListFiles(napi_env env, napi_callback_info info) {
+  size_t argc = 2; napi_value args[2];
+  napi_get_cb_info(env, info, &amp;argc, args, nullptr, nullptr);
+  ListFilesData d = {getInt32Napi(env, args[1]), 0, nullptr};
+  runInTransmissionThread(__FILE__, __LINE__, env, args[0], torrentListFilesFunc, &amp;d);
+  if (!d.count) { napi_value r; napi_get_null(env, &amp;r); return r; }
+  napi_value r; napi_create_array_with_length(env, d.count, &amp;r);
+  for (int i = 0; i &lt; d.count; i++) {
+    napi_set_element(env, r, i, newStringUtf8(env, d.names[i]));
+    free(d.names[i]);
+  }
+  free(d.names); return r;
+}
+
+// ── torrentFindByHash ───────────────────────────────────────────────
+typedef struct { uint8_t hash[SHA_DIGEST_LENGTH]; int32_t id; } FindByHashData;
+static void *torrentFindByHashFunc(tr_session *s, void *d, Err *err) {
+  auto *fh = (FindByHashData *) d;
+  fh-&gt;id = findTorrentByHash(s, fh-&gt;hash, err);
+  return nullptr;
+}
+static napi_value TorrentFindByHash(napi_env env, napi_callback_info info) {
+  size_t argc = 2; napi_value args[2];
+  napi_get_cb_info(env, info, &amp;argc, args, nullptr, nullptr);
+  FindByHashData d;
+  void *data = nullptr; size_t len = 0;
+  napi_status status = napi_get_arraybuffer_info(env, args[1], &amp;data, &amp;len);
+  if (status != napi_ok || data == nullptr || len &lt; SHA_DIGEST_LENGTH) {
+    napi_throw_error(env, nullptr, &quot;Hash buffer too small, need 20 bytes&quot;);
+    return nullptr;
+  }
+  memcpy(d.hash, data, SHA_DIGEST_LENGTH);</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 192 页</div>
+<pre>  runInTransmissionThread(__FILE__, __LINE__, env, args[0], torrentFindByHashFunc, &amp;d);
+  napi_value r; napi_create_int32(env, d.id, &amp;r); return r;
+}
+
+// ── torrentGetName ──────────────────────────────────────────────────
+static void *torrentGetNameFunc(tr_session *s, void *d, Err *err) {
+  tr_torrent *tor = findTorrentById(s, (int)(intptr_t)d, err);
+  return tor ? strdup(tor-&gt;name().c_str()) : nullptr;
+}
+static napi_value TorrentGetName(napi_env env, napi_callback_info info) {
+  size_t argc = 2; napi_value args[2];
+  napi_get_cb_info(env, info, &amp;argc, args, nullptr, nullptr);
+  int32_t tid = getInt32Napi(env, args[1]);
+  char *name = (char *) runInTransmissionThread(__FILE__, __LINE__, env, args[0],
+      torrentGetNameFunc, (void *)(intptr_t)tid);
+  if (!name) { napi_value r; napi_get_null(env, &amp;r); return r; }
+  napi_value r = newStringUtf8(env, name); free(name); return r;
+}
+
+// ── torrentGetHash ──────────────────────────────────────────────────
+typedef struct { int32_t id; uint8_t *hash; } GetHashData;
+static void *torrentGetHashFunc(tr_session *s, void *d, Err *err) {
+  auto *gh = (GetHashData *) d;
+  tr_torrent *tor = findTorrentById(s, gh-&gt;id, err);
+  if (tor) {
+    // 4.1: tor-&gt;info_hash() is public
+    auto const &amp;hash = tor-&gt;info_hash();
+    memcpy(gh-&gt;hash, std::data(hash), SHA_DIGEST_LENGTH);
+  }
+  return nullptr;
+}
+static napi_value TorrentGetHash(napi_env env, napi_callback_info info) {
+  size_t argc = 3; napi_value args[3];
+  napi_get_cb_info(env, info, &amp;argc, args, nullptr, nullptr);
+  void *hashBuf = nullptr; size_t hashBufLen = 0;
+  napi_status status = napi_get_arraybuffer_info(env, args[2], &amp;hashBuf, &amp;hashBufLen);
+  if (status != napi_ok || hashBuf == nullptr || hashBufLen &lt; SHA_DIGEST_LENGTH) {
+    napi_throw_error(env, nullptr, &quot;Hash buffer too small, need 20 bytes&quot;);
+    return nullptr;
+  }
+  GetHashData d = {getInt32Napi(env, args[1]), (uint8_t *) hashBuf};
+  runInTransmissionThread(__FILE__, __LINE__, env, args[0], torrentGetHashFunc, &amp;d);
+  napi_value r; napi_get_undefined(env, &amp;r); return r;
+}
+
+// ── torrentGetPieceHash ─────────────────────────────────────────────
+typedef struct { int32_t id; int64_t idx; uint8_t *hash; } GetPieceHashData;
+static void *torrentGetPieceHashFunc(tr_session *s, void *d, Err *err) {
+  auto *ph = (GetPieceHashData *) d;
+  tr_torrent *tor = findTorrentById(s, ph-&gt;id, err);</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 193 页</div>
+<pre>  if (tor &amp;&amp; ph-&gt;idx &gt;= 0 &amp;&amp; ph-&gt;idx &lt; (int64_t)tor-&gt;piece_count()) {
+    // 4.1: tor-&gt;piece_hash(idx) is public
+    auto const &amp;pieceHash = tor-&gt;piece_hash((tr_piece_index_t)ph-&gt;idx);
+    memcpy(ph-&gt;hash, std::data(pieceHash), SHA_DIGEST_LENGTH);
+  }
+  return nullptr;
+}
+// RESERVED (E1, docs/11): no ArkTS caller today. Corresponds to the original
+// torrentGetPieceHash feature; kept for the D5 HTTP-streaming / file-preview
+// reserve (per-piece hash integrity check).
+static napi_value TorrentGetPieceHash(napi_env env, napi_callback_info info) {
+  size_t argc = 4; napi_value args[4];
+  napi_get_cb_info(env, info, &amp;argc, args, nullptr, nullptr);
+  void *hashBuf = nullptr; size_t hashBufLen = 0;
+  // P1 fix (codex review): verify the output buffer holds 20 bytes before
+  // torrentGetPieceHashFunc memcpy&#x27;s the SHA-1 into it.
+  napi_get_arraybuffer_info(env, args[3], &amp;hashBuf, &amp;hashBufLen);
+  if (hashBuf == nullptr || hashBufLen &lt; SHA_DIGEST_LENGTH) {
+    napi_throw_error(env, nullptr, &quot;Hash buffer too small, need 20 bytes&quot;);
+    return nullptr;
+  }
+  GetPieceHashData d = {getInt32Napi(env, args[1]), getInt64FromBigInt(env, args[2]),
+                        (uint8_t *) hashBuf};
+  runInTransmissionThread(__FILE__, __LINE__, env, args[0], torrentGetPieceHashFunc, &amp;d);
+  napi_value r; napi_get_undefined(env, &amp;r); return r;
+}
+
+// ── torrentSetPiecesHiPri ───────────────────────────────────────────
+typedef struct { int32_t id; int64_t first, last; } SetPiecesHiPriData;
+static void *torrentSetPiecesHiPriFunc(tr_session *s, void *d, Err *err) {
+  auto *sp = (SetPiecesHiPriData *) d;
+  tr_torrent *tor = findTorrentById(s, sp-&gt;id, err);
+  if (!tor) return nullptr;
+  tr_piece_index_t pc = tor-&gt;piece_count();
+  tr_piece_index_t first = (tr_piece_index_t)sp-&gt;first;
+  tr_piece_index_t last = (tr_piece_index_t)sp-&gt;last;
+  if (last &gt;= pc) last = pc - 1;
+  if (first &gt; last) return nullptr;
+
+  // 4.1 has no per-piece priority setter — a piece&#x27;s priority is derived from its
+  // containing FILE (piece_priority() is read-only). Hi-pri a piece range by setting
+  // TR_PRI_HIGH on every file whose piece span overlaps [first,last] (endPiece is
+  // exclusive, so a file covers [beginPiece, endPiece) and overlaps the range iff
+  // beginPiece &lt;= last &amp;&amp; endPiece &gt; first).
+  std::vector&lt;tr_file_index_t&gt; files;
+  for (tr_file_index_t f = 0; f &lt; tor-&gt;file_count(); ++f) {
+    auto const view = tr_torrentFile(tor, f);
+    if (view.beginPiece &lt;= last &amp;&amp; view.endPiece &gt; first) files.push_back(f);
+  }
+  if (!files.empty()) {</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 194 页</div>
+<pre>    tr_torrentSetFilePriorities(tor, files.data(), (tr_file_index_t)files.size(), TR_PRI_HIGH);
+  }
+  return nullptr;
+}
+// RESERVED (E1, docs/11): no ArkTS caller today. Maps to the original
+// set-pieces-high-priority feature; kept for the D5 sequential-download /
+// play-while-downloading reserve. Implemented as FILE-level priority — 4.1 has no
+// per-piece priority setter, so hi-pri a piece range by raising the containing files.
+static napi_value TorrentSetPiecesHiPri(napi_env env, napi_callback_info info) {
+  size_t argc = 4; napi_value args[4];
+  napi_get_cb_info(env, info, &amp;argc, args, nullptr, nullptr);
+  SetPiecesHiPriData d = {getInt32Napi(env, args[1]), getInt64FromBigInt(env, args[2]),
+                          getInt64FromBigInt(env, args[3])};
+  runInTransmissionThread(__FILE__, __LINE__, env, args[0], torrentSetPiecesHiPriFunc, &amp;d);
+  napi_value r; napi_get_undefined(env, &amp;r); return r;
+}
+
+// ── torrentFindFile ─────────────────────────────────────────────────
+typedef struct { int32_t id, fileIdx; } FileData;
+static void *torrentFindFileFunc(tr_session *s, void *d, Err *err) {
+  auto *fd = (FileData *) d;
+  tr_torrent *tor = findTorrentById(s, fd-&gt;id, err);
+  if (!tor) return nullptr;
+  getWantedFileInfo(tor, (uint32_t)fd-&gt;fileIdx, err);
+  if (err-&gt;isSet) return nullptr;
+  // 4.1: tr_torrentFindFile still exists
+  auto path = tr_torrentFindFile(tor, (tr_file_index_t)fd-&gt;fileIdx);
+  return strdup(path.c_str());
+}
+// RESERVED (E1, docs/11): no ArkTS caller today. Maps to the original
+// torrentFindFile feature (locate a torrent&#x27;s data on disk).
+static napi_value TorrentFindFile(napi_env env, napi_callback_info info) {
+  size_t argc = 3; napi_value args[3];
+  napi_get_cb_info(env, info, &amp;argc, args, nullptr, nullptr);
+  FileData d = {getInt32Napi(env, args[1]), getInt32Napi(env, args[2])};
+  char *path = (char *) runInTransmissionThread(__FILE__, __LINE__, env, args[0],
+      torrentFindFileFunc, &amp;d);
+  if (!path) { napi_value r; napi_get_null(env, &amp;r); return r; }
+  napi_value r = newStringUtf8(env, path); free(path); return r;
+}
+
+// ── torrentGetFileName ──────────────────────────────────────────────
+static void *torrentGetFileNameFunc(tr_session *s, void *d, Err *err) {
+  auto *fd = (FileData *) d;
+  tr_torrent *tor = findTorrentById(s, fd-&gt;id, err);
+  if (!tor) return nullptr;
+  tr_file_view f = getFileInfo(tor, (uint32_t)fd-&gt;fileIdx, err);
+  if (err-&gt;isSet) return nullptr;
+  return strdup(f.name);
+}</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 195 页</div>
+<pre>static napi_value TorrentGetFileName(napi_env env, napi_callback_info info) {
+  size_t argc = 3; napi_value args[3];
+  napi_get_cb_info(env, info, &amp;argc, args, nullptr, nullptr);
+  FileData d = {getInt32Napi(env, args[1]), getInt32Napi(env, args[2])};
+  char *name = (char *) runInTransmissionThread(__FILE__, __LINE__, env, args[0],
+      torrentGetFileNameFunc, &amp;d);
+  if (!name) { napi_value r; napi_get_null(env, &amp;r); return r; }
+  napi_value r = newStringUtf8(env, name); free(name); return r;
+}
+
+// ── torrentGetFileStat (returns ArrayBuffer: 6 + N int64 values) ────
+typedef struct { int32_t id, fileIdx, bfLen; int64_t *bf; bool alloc; } FileStatData;
+static void *torrentGetFileStatFunc(tr_session *s, void *d, Err *err) {
+  auto *fs = (FileStatData *) d;
+  tr_torrent *tor = findTorrentById(s, fs-&gt;id, err);
+  if (!tor) return nullptr;
+  tr_file_view f = getFileInfo(tor, (uint32_t)fs-&gt;fileIdx, err);
+  if (err-&gt;isSet) return nullptr;
+
+  // 4.1: compute byte range from cumulative file sizes (file_size() is public)
+  uint64_t byteStart = 0;
+  for (tr_file_index_t i = 0; i &lt; (tr_file_index_t)fs-&gt;fileIdx; i++) {
+    byteStart += tor-&gt;file_size(i);
+  }
+  uint64_t byteEnd = byteStart + f.length;
+  if (byteEnd &gt; byteStart) byteEnd--;
+
+  // 4.1: byte_loc() maps byte offset → Location with .piece field
+  tr_piece_index_t firstPiece = tor-&gt;byte_loc(byteStart).piece;
+  tr_piece_index_t lastPiece = tor-&gt;byte_loc(byteEnd).piece;
+
+  tr_piece_index_t pc = tor-&gt;piece_count();
+  if (pc == 0) return nullptr;
+  int8_t *tabs = (int8_t *) malloc(pc);
+  if (!tabs) return nullptr;
+  tr_torrentAvailability(tor, tabs, (int)pc);
+
+  size_t pieceRange = lastPiece - firstPiece + 1;
+  size_t fc = (pieceRange + 63) / 64;
+  int32_t sl = (int32_t)(fc + 6);
+  // (size_t)sl must be compared, not (int32_t)(SIZE_MAX/8): the int32 cast of
+  // ~2^61 truncates to a negative value, so a plain int32 compare ALWAYS
+  // trips and this func returned a 0-length buffer for every file (breaking
+  // file stat, DnD wanted-flip, and the FileTree view).
+  if (sl &lt; 0 || (size_t)sl &gt; SIZE_MAX / sizeof(int64_t)) { free(tabs); return nullptr; }
+  int64_t *bf = fs-&gt;bf;
+  if (!bf) { bf = fs-&gt;bf = (int64_t *) malloc(sizeof(int64_t) * (size_t)sl); fs-&gt;alloc = true; }
+  if (!bf) { free(tabs); return nullptr; }
+  fs-&gt;bfLen = sl;
+</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 196 页</div>
+<pre>  bool complete = true;
+  for (int32_t i = 6; i &lt; sl; i++) {
+    int64_t bfv = 0;
+    tr_piece_index_t tIdx = firstPiece + (tr_piece_index_t)((i - 6) * 64);
+    for (int n = 0; n &lt; 64 &amp;&amp; tIdx &lt;= lastPiece; n++, tIdx++)
+      if (tabs[tIdx] == -1) bfv |= (1LL &lt;&lt; n); else complete = false;
+    bf[i] = bfv;
+  }
+
+  bf[0] = tor-&gt;piece_size();
+  bf[1] = f.length;
+  bf[2] = (int64_t)byteStart;
+  bf[3] = firstPiece;
+  bf[4] = lastPiece;
+  bf[5] = (!f.wanted) ? 2 : complete ? 1 : 0;
+  free(tabs);
+  return nullptr;
+}
+static napi_value TorrentGetFileStat(napi_env env, napi_callback_info info) {
+  size_t argc = 4; napi_value args[4];
+  napi_get_cb_info(env, info, &amp;argc, args, nullptr, nullptr);
+  FileStatData d = {getInt32Napi(env, args[1]), getInt32Napi(env, args[2]), 0, nullptr, false};
+  runInTransmissionThread(__FILE__, __LINE__, env, args[0], torrentGetFileStatFunc, &amp;d);
+  // C5 (codex): runInTransmissionThread may have thrown (e.g. invalid file
+  // index); with an exception pending, napi_create_arraybuffer would fail and
+  // leave `out`/`r` uninitialized. Bail first and never touch a bad buffer.
+  if (hasPendingException(env)) {
+    if (d.alloc) free(d.bf);
+    return nullptr;
+  }
+  napi_value r; void *out;
+  size_t bfBytes = (size_t)d.bfLen * sizeof(int64_t);
+  napi_create_arraybuffer(env, bfBytes, &amp;out, &amp;r);
+  // C11 (codex): guard the copy — a 0-length stat (null/invalid-index torrent)
+  // leaves d.bf null or unallocated; memcpy(dst, null, 0) is UB even at len 0.
+  if (d.bf != nullptr &amp;&amp; bfBytes &gt; 0) {
+    memcpy(out, d.bf, bfBytes);
+  }
+  if (d.alloc) free(d.bf);
+  return r;
+}
+
+// ── torrentGetPiece ─────────────────────────────────────────────────
+// Reads piece data directly from downloaded files via POSIX I/O.
+// Transmission 4.1 made cache-&gt;readBlock() private, so we read from
+// the on-disk files tr_torrentFindFile() resolves.
+typedef struct { int32_t id, offset, len; int64_t pieceIdx; uint8_t *dst; } GetPieceData;
+static void *torrentGetPieceFunc(tr_session *s, void *d, Err *err) {
+  auto *gp = (GetPieceData *) d;
+  tr_torrent *tor = findTorrentById(s, gp-&gt;id, err);</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 197 页</div>
+<pre>  if (!tor || !gp-&gt;dst || gp-&gt;len &lt;= 0) return nullptr;
+
+  tr_piece_index_t pieceIdx = static_cast&lt;tr_piece_index_t&gt;(gp-&gt;pieceIdx);
+  if (pieceIdx &gt;= tor-&gt;piece_count()) {
+    memset(gp-&gt;dst, 0, (uint32_t)gp-&gt;len);
+    return nullptr;
+  }
+
+  uint32_t pieceSize = tor-&gt;piece_size();
+
+  // P1 fix (codex review): validate offset/len against the piece size before
+  // computing byte ranges. A negative offset would underflow the uint64 math
+  // and read from arbitrary file offsets; len beyond the piece would read
+  // into the next piece&#x27;s bytes.
+  if (gp-&gt;offset &lt; 0 || (uint64_t)gp-&gt;offset &gt;= pieceSize ||
+      gp-&gt;len &lt;= 0 || (uint64_t)gp-&gt;len &gt; (uint64_t)pieceSize - (uint64_t)gp-&gt;offset) {
+    memset(gp-&gt;dst, 0, (uint32_t)gp-&gt;len);
+    return nullptr;
+  }
+
+  uint64_t byteStart = pieceIdx * (uint64_t)pieceSize + (uint64_t)gp-&gt;offset;
+  uint64_t byteEnd = byteStart + (uint64_t)gp-&gt;len;
+
+  // Iterate through files to find which ones contain the requested byte range
+  uint64_t fileByteOff = 0;
+  tr_file_index_t fileCount = tor-&gt;file_count();
+  size_t bytesRead = 0;
+
+  for (tr_file_index_t i = 0; i &lt; fileCount &amp;&amp; bytesRead &lt; (size_t)gp-&gt;len; i++) {
+    uint64_t fileSize = tor-&gt;file_size(i);
+    uint64_t fileEnd = fileByteOff + fileSize;
+
+    // Check overlap: [fileByteOff, fileEnd) vs [byteStart, byteEnd)
+    if (fileEnd &lt;= byteStart || fileByteOff &gt;= byteEnd) {
+      fileByteOff = fileEnd;
+      continue;
+    }
+
+    // Compute read boundaries within this file
+    uint64_t readOff = (byteStart &gt; fileByteOff) ? (byteStart - fileByteOff) : 0;
+    uint64_t readEnd = (byteEnd &lt; fileEnd) ? (byteEnd - fileByteOff) : fileSize;
+    size_t readLen = (size_t)(readEnd - readOff);
+
+    // Open the file and read
+    std::string path = tr_torrentFindFile(tor, i);
+    if (!path.empty()) {
+      int fd = open(path.c_str(), O_RDONLY);
+      if (fd &gt;= 0) {
+        ssize_t n = pread(fd, gp-&gt;dst + bytesRead, readLen, (off_t)readOff);
+        if (n &gt; 0) bytesRead += (size_t)n;</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 198 页</div>
+<pre>        close(fd);
+      }
+    }
+
+    fileByteOff = fileEnd;
+  }
+
+  // Zero-fill any unread portion
+  if (bytesRead &lt; (size_t)gp-&gt;len) {
+    memset(gp-&gt;dst + bytesRead, 0, (size_t)gp-&gt;len - bytesRead);
+  }
+  return nullptr;
+}
+// RESERVED (E1, docs/11): no ArkTS caller today. Maps to the original
+// torrentGetPiece feature; kept for the D5 HTTP-streaming / preview reserve
+// (read a specific piece&#x27;s raw bytes).
+static napi_value TorrentGetPiece(napi_env env, napi_callback_info info) {
+  size_t argc = 6; napi_value args[6];
+  napi_get_cb_info(env, info, &amp;argc, args, nullptr, nullptr);
+  void *dst = nullptr; size_t dstLen = 0;
+  napi_status status = napi_get_arraybuffer_info(env, args[3], &amp;dst, &amp;dstLen);
+  int32_t len = getInt32Napi(env, args[5]);
+  // P1 fix (codex review): reject a destination buffer smaller than the
+  // requested length before the native func writes into it.
+  if (status != napi_ok || dst == nullptr || len &lt; 0 || dstLen &lt; (size_t)len) {
+    napi_throw_error(env, nullptr, &quot;Destination buffer too small for piece data&quot;);
+    return nullptr;
+  }
+  GetPieceData d = {getInt32Napi(env, args[1]), getInt32Napi(env, args[4]),
+                    len, getInt64FromBigInt(env, args[2]),
+                    (uint8_t *) dst};
+  runInTransmissionThread(__FILE__, __LINE__, env, args[0], torrentGetPieceFunc, &amp;d);
+  // C5 (codex): don&#x27;t touch napi while a dispatch exception is pending.
+  if (hasPendingException(env)) {
+    return nullptr;
+  }
+  napi_value r; napi_get_undefined(env, &amp;r); return r;
+}
+
+// ── torrentStatBrief (10 int64 per torrent) ─────────────────────────
+typedef struct { int64_t *stat; int32_t statLen; bool alloc; } StatBriefData;
+// [PROBE] One-shot HTTP reachability check using the app&#x27;s own libcurl,
+// run on the first poll. Distinguishes &quot;app can&#x27;t reach anything (INTERNET
+// permission / sandbox / CA bundle)&quot; from &quot;tracker-specific failure&quot;.
+// No passkey is used — the tracker probe hits only the bare https://host/.
+static size_t HttpProbeDiscard(void *, size_t sz, size_t nm, void *) { return sz * nm; }
+
+static void HttpProbeFetch(const char *label, const char *url) {
+  // C7 (codex): ensure libcurl is globally initialized before the first
+  // curl_easy_init on this detached probe thread.</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 199 页</div>
+<pre>  ensureCurlGlobalInit();
+  CURL *c = curl_easy_init();
+  if (!c) {
+    OH_LOG_Print(LOG_APP, LOG_WARN, LOG_DOMAIN, LOG_TAG,
+                 &quot;[PROBE] %{public}s curl_easy_init FAILED&quot;, label);
+    return;
+  }
+  char errbuf[CURL_ERROR_SIZE] = {0};
+  char effip[64] = {0};
+  double ct = 0;
+  curl_easy_setopt(c, CURLOPT_URL, url);
+  curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, HttpProbeDiscard);
+  curl_easy_setopt(c, CURLOPT_ERRORBUFFER, errbuf);
+  curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT, 5L);
+  curl_easy_setopt(c, CURLOPT_TIMEOUT, 8L);
+  curl_easy_setopt(c, CURLOPT_SSL_VERIFYPEER, 1L);
+  curl_easy_setopt(c, CURLOPT_USERAGENT, &quot;transmissionbtm-probe&quot;);
+  CURLcode rc = curl_easy_perform(c);
+  curl_easy_getinfo(c, CURLINFO_PRIMARY_IP, effip);
+  curl_easy_getinfo(c, CURLINFO_CONNECT_TIME, &amp;ct);
+  OH_LOG_Print(LOG_APP, rc == CURLE_OK ? LOG_INFO : LOG_WARN, LOG_DOMAIN, LOG_TAG,
+               &quot;[PROBE] %{public}s url=%{public}s rc=%{public}d ip=%{public}s connect=%.3fs err=&#x27;%{public}s&#x27;&quot;,
+               label, url, (int)rc, effip, ct, errbuf);
+  curl_easy_cleanup(c);
+}
+
+static void HttpProbeOnce() {
+  HttpProbeFetch(&quot;control&quot;, &quot;https://example.com/&quot;);
+  HttpProbeFetch(&quot;tracker&quot;, &quot;https://tracker.m-team.cc/&quot;);
+}
+
+static void *torrentStatBriefFunc(tr_session *s, void *d, Err *err) {
+  (void)err;
+  static bool s_probe_done = false;
+  if (!s_probe_done) {
+    s_probe_done = true;
+    // C1 (codex P1): the two synchronous curl probes block the session event
+    // thread for up to ~16s on the first stats poll, stalling torrent ops and
+    // the first UI refresh. Fire them on a detached thread; the first poll now
+    // returns immediately. Probes are diagnostic-only (logged, never fatal).
+    std::thread(HttpProbeOnce).detach();
+  }
+  auto *sb = (StatBriefData *) d;
+  int n = (int)s-&gt;torrents().size();
+  int sl = n * 10;
+  if (!sb-&gt;stat || sl != sb-&gt;statLen) {
+    int64_t *newStat = (int64_t *) malloc(sizeof(int64_t) * sl);
+    if (!newStat) { sb-&gt;statLen = 0; return nullptr; }
+    if (sb-&gt;alloc) free(sb-&gt;stat);
+    sb-&gt;stat = newStat;</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 200 页</div>
+<pre>    sb-&gt;statLen = sl;
+    sb-&gt;alloc = true;
+  }
+  int i = -10;
+  for (auto tor : s-&gt;torrents()) {
+    i += 10;
+    auto st = tor-&gt;activity();
+    sb-&gt;stat[i] = tr_torrentId(tor);
+    sb-&gt;stat[i + 3] = tor-&gt;size_when_done();
+    sb-&gt;stat[i + 4] = tor-&gt;left_until_done();
+    // 4.1: bytes_uploaded_ is private. Use tr_torrentStat()-&gt;uploadedEver
+    sb-&gt;stat[i + 5] = (int64_t)getUploadedEver(tor);
+    if (tor-&gt;error().error_type() != TR_STAT_LOCAL_ERROR) {
+      switch (st) {
+        case TR_STATUS_STOPPED:
+          sb-&gt;stat[i+1]=0;
+          sb-&gt;stat[i+2]=(int64_t)(getPercentDone(tor)*100);
+          // P1 fix (codex review): the old `continue` skipped writing the
+          // stat[i+6..i+9] slots below, leaving uninitialized heap memory
+          // exposed in the ArrayBuffer. Break so they get written as 0.
+          break;
+        case TR_STATUS_CHECK_WAIT:
+        case TR_STATUS_CHECK:
+          sb-&gt;stat[i+1]=1;
+          sb-&gt;stat[i+2]=(int64_t)(getVerifyProgress(tor)*100);
+          break;
+        case TR_STATUS_DOWNLOAD_WAIT:
+        case TR_STATUS_DOWNLOAD:
+          sb-&gt;stat[i+1]=2;
+          sb-&gt;stat[i+2]=(int64_t)(getPercentDone(tor)*100);
+          break;
+        case TR_STATUS_SEED_WAIT:
+        case TR_STATUS_SEED:
+          sb-&gt;stat[i+1]=3;
+          sb-&gt;stat[i+2]=(int64_t)(getPercentDone(tor)*100);
+          break;
+      }
+    } else {
+      sb-&gt;stat[i+1]=4;
+      sb-&gt;stat[i+2]=0;
+    }
+    // 4.1: swarm is private. Use tr_torrentStat() for peer info.
+    auto stat = tr_torrentStat(tor);
+    sb-&gt;stat[i+6] = stat-&gt;peersGettingFromUs;
+    sb-&gt;stat[i+7] = stat-&gt;peersSendingToUs + stat-&gt;webseedsSendingToUs;
+    sb-&gt;stat[i+8] = (int64_t)stat-&gt;pieceUploadSpeed_KBps;
+    sb-&gt;stat[i+9] = (int64_t)stat-&gt;pieceDownloadSpeed_KBps;
+
+    { // [DBG] live engine state per poll — expanded for the &quot;downloads but
+      // 0 bytes&quot; investigation. dl_peers = peers SENDING us data (what we can</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 201 页</div>
+<pre>      // download from); ul_peers = peers GETTING data from us. Encr: 0=TOLERATED,
+      // 1=PREFERRED, 2=REQUIRED (see tr_encryption_mode).
+      auto dirq = tor-&gt;queue_direction();
+      auto errs = std::string(tor-&gt;error().errmsg());
+      auto const&amp; scfg = s-&gt;settings();
+      long long haveValid = (long long)tor-&gt;size_when_done() - (long long)tor-&gt;left_until_done();
+      // Tracker announce state via tr_tracker_view. Only &#x27;host&#x27; (${host}:${port})
+      // and result/peer-int counters are printed — the full &#x27;announce&#x27; URL may
+      // embed a PT passkey and is deliberately NOT logged.
+      std::string trk_cstr;
+      size_t trk_n = tr_torrentTrackerCount(tor);
+      for (size_t k = 0; k &lt; trk_n; ++k) {
+        auto tv = tr_torrentTracker(tor, k);
+        if (k) trk_cstr += &quot; | &quot;;
+        char tbuf[320];
+        snprintf(tbuf, sizeof(tbuf),
+                 &quot;%s st=%d peers=%zu seed=%lld leech=%lld ok=%d to=%d res=&#x27;%s&#x27;&quot;,
+                 tv.host_and_port, (int)tv.announceState, tv.lastAnnouncePeerCount,
+                 (long long)tv.seederCount, (long long)tv.leecherCount,
+                 tv.lastAnnounceSucceeded?1:0, tv.lastAnnounceTimedOut?1:0,
+                 tv.lastAnnounceResult);
+        trk_cstr += tbuf;
+      }
+      OH_LOG_Print(LOG_APP, LOG_INFO, LOG_DOMAIN, LOG_TAG,
+                   &quot;[DBG] stat id=%{public}d act=%{public}d run=%{public}d queued=%{public}d &quot;
+                   &quot;total=%{public}lld have=%{public}lld left=%{public}lld &quot;
+                   &quot;dl_peers=%{public}d ul_peers=%{public}d webseed=%{public}d &quot;
+                   &quot;dlspeed=%{public}lld upspeed=%{public}lld &quot;
+                   &quot;dht=%{public}d pex=%{public}d utp=%{public}d tcp=%{public}d pfw=%{public}d &quot;
+                   &quot;encr=%{public}d dllim=%{public}d dllimKB=%{public}lld ullim=%{public}d ullimKB=%{public}lld &quot;
+                   &quot;priv=%{public}d tdht=%{public}d tpex=%{public}d trk=%{public}lld &quot;
+                   &quot;trkdbg=&#x27;%{public}s&#x27; localerr=%{public}d err=&#x27;%{public}s&#x27;&quot;,
+                   tr_torrentId(tor), (int)st, tor-&gt;is_running()?1:0, tor-&gt;is_queued(dirq)?1:0,
+                   (long long)tor-&gt;size_when_done(), haveValid,
+                   (long long)tor-&gt;left_until_done(),
+                   (int)stat-&gt;peersSendingToUs, (int)stat-&gt;peersGettingFromUs,
+                   (int)stat-&gt;webseedsSendingToUs,
+                   (long long)stat-&gt;pieceDownloadSpeed_KBps,
+                   (long long)stat-&gt;pieceUploadSpeed_KBps,
+                   scfg.dht_enabled?1:0, scfg.pex_enabled?1:0, scfg.utp_enabled?1:0,
+                   scfg.tcp_enabled?1:0, scfg.port_forwarding_enabled?1:0,
+                   (int)scfg.encryption_mode,
+                   s-&gt;is_speed_limited(TR_DOWN)?1:0, (long long)scfg.speed_limit_down,
+                   s-&gt;is_speed_limited(TR_UP)?1:0, (long long)scfg.speed_limit_up,
+                   tor-&gt;is_private()?1:0, tor-&gt;allows_dht()?1:0, tor-&gt;allows_pex()?1:0,
+                   (long long)tor-&gt;announce_list().size(),
+                   trk_cstr.c_str(),
+                   tor-&gt;error().error_type() == TR_STAT_LOCAL_ERROR?1:0, errs.c_str());
+    }
+  }</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 202 页</div>
+<pre>  return nullptr;
+}
+static napi_value TorrentStatBrief(napi_env env, napi_callback_info info) {
+  size_t argc = 2; napi_value args[2];
+  napi_get_cb_info(env, info, &amp;argc, args, nullptr, nullptr);
+  StatBriefData d = {nullptr, 0, false};
+  runInTransmissionThread(__FILE__, __LINE__, env, args[0], torrentStatBriefFunc, &amp;d);
+  // Empty session (0 torrents) and allocation-failure both end with statLen==0 /
+  // stat==null. Return a 0-length buffer (not null) so the value is always a
+  // valid ArrayBuffer — this matches the ArkTS-side contract (native.ts mock
+  // torrentStatBrief → new ArrayBuffer(0)). The app&#x27;s applyStatBrief guards
+  // `byteLength &lt; 80`, so a 0-length buffer is safe and skips the merge.
+  if (d.stat == nullptr || d.statLen &lt;= 0) {
+    napi_value r; void *out;
+    napi_create_arraybuffer(env, 0, &amp;out, &amp;r);
+    if (d.alloc) free(d.stat); // malloc(0) returned a non-null ptr — release it
+    return r;
+  }
+  size_t bytes = (size_t)d.statLen * sizeof(int64_t);
+  napi_value r; void *out;
+  napi_create_arraybuffer(env, bytes, &amp;out, &amp;r);
+  memcpy(out, d.stat, bytes);
+  if (d.alloc) free(d.stat);
+  return r;
+}
+
+// ── torrentGetError ─────────────────────────────────────────────────
+static void *torrentGetErrorFunc(tr_session *s, void *d, Err *err) {
+  tr_torrent *tor = findTorrentById(s, (int)(intptr_t)d, err);
+  // 4.1: tor-&gt;error().errmsg() returns a tr_interned_string (string_view-compatible)
+  return tor ? strdup(std::string(tor-&gt;error().errmsg()).c_str()) : nullptr;
+}
+static napi_value TorrentGetError(napi_env env, napi_callback_info info) {
+  size_t argc = 2; napi_value args[2];
+  napi_get_cb_info(env, info, &amp;argc, args, nullptr, nullptr);
+  int32_t tid = getInt32Napi(env, args[1]);
+  char *errStr = (char *) runInTransmissionThread(__FILE__, __LINE__, env, args[0],
+      torrentGetErrorFunc, (void *)(intptr_t)tid);
+  if (!errStr) { napi_value r; napi_get_null(env, &amp;r); return r; }
+  napi_value r = newStringUtf8(env, errStr); free(errStr); return r;
+}
+
+// ── torrentState (diagnostic: live engine state) ────────────────────
+static void *torrentStateFunc(tr_session *s, void *d, Err *err) {
+  tr_torrent *tor = findTorrentById(s, (int)(intptr_t)d, err);
+  if (!tor) return strdup(&quot;notfound&quot;);
+  auto dir = tor-&gt;queue_direction();
+  auto errs = std::string(tor-&gt;error().errmsg());
+  char buf[256];
+  snprintf(buf, sizeof(buf),</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 203 页</div>
+<pre>           &quot;act=%d run=%d queued=%d dir=%d total=%lld left=%lld localerr=%d err=&#x27;%s&#x27;&quot;,
+           (int)tor-&gt;activity(), tor-&gt;is_running()?1:0, tor-&gt;is_queued(dir)?1:0, (int)dir,
+           (long long)tor-&gt;size_when_done(), (long long)tor-&gt;left_until_done(),
+           tor-&gt;error().error_type() == TR_STAT_LOCAL_ERROR?1:0, errs.c_str());
+  return strdup(buf);
+}
+static napi_value TorrentState(napi_env env, napi_callback_info info) {
+  size_t argc = 2; napi_value args[2];
+  napi_get_cb_info(env, info, &amp;argc, args, nullptr, nullptr);
+  int32_t tid = getInt32Napi(env, args[1]);
+  char *state = (char *) runInTransmissionThread(__FILE__, __LINE__, env, args[0],
+      torrentStateFunc, (void *)(intptr_t)tid);
+  if (!state) { napi_value r; napi_get_null(env, &amp;r); return r; }
+  napi_value r = newStringUtf8(env, state); free(state); return r;
+}
+
+// ── torrentSetDnd ───────────────────────────────────────────────────
+typedef struct { bool dnd; int32_t id; tr_file_index_t *files; tr_file_index_t count; } SetDndData;
+static void *torrentSetDndFunc(tr_session *s, void *d, Err *err) {
+  auto *sd = (SetDndData *) d;
+  tr_torrent *tor = findTorrentById(s, sd-&gt;id, err);
+  if (tor) {
+    tr_torrentSetFileDLs(tor, sd-&gt;files, sd-&gt;count, !sd-&gt;dnd);
+  }
+  return nullptr;
+}
+static napi_value TorrentSetDnd(napi_env env, napi_callback_info info) {
+  size_t argc = 4; napi_value args[4];
+  napi_get_cb_info(env, info, &amp;argc, args, nullptr, nullptr);
+  SetDndData d;
+  d.id = getInt32Napi(env, args[1]);
+  d.dnd = getBoolNapi(env, args[3]);
+  void *idxData = nullptr; size_t idxByteLen = 0;
+  // P1 fix (codex review): require a well-formed int32 array buffer.
+  napi_get_arraybuffer_info(env, args[2], &amp;idxData, &amp;idxByteLen);
+  if (idxData == nullptr || idxByteLen % sizeof(int32_t) != 0) {
+    napi_throw_error(env, nullptr, &quot;Invalid file index array buffer&quot;);
+    return nullptr;
+  }
+  d.count = (tr_file_index_t)(idxByteLen / sizeof(int32_t));
+  d.files = (tr_file_index_t *) malloc(d.count * sizeof(tr_file_index_t));
+  if (!d.files) {
+    d.count = 0;
+  } else if (d.count &gt; 0) {
+    int32_t *src = (int32_t *) idxData;
+    for (tr_file_index_t i = 0; i &lt; d.count; i++)
+      d.files[i] = (tr_file_index_t) src[i];
+  }
+  runInTransmissionThread(__FILE__, __LINE__, env, args[0], torrentSetDndFunc, &amp;d);
+  free(d.files);</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 204 页</div>
+<pre>  napi_value r; napi_get_undefined(env, &amp;r); return r;
+}
+
+// ── torrentSetLocation ──────────────────────────────────────────────
+typedef struct { int32_t id; const char *path; } SetLocationData;
+static void *torrentSetLocationFunc(tr_session *s, void *d, Err *err) {
+  auto *sl = (SetLocationData *) d;
+  tr_torrent *tor = findTorrentById(s, sl-&gt;id, err);
+  if (tor) tr_torrentSetLocation(tor, sl-&gt;path, true, nullptr);
+  return nullptr;
+}
+static napi_value TorrentSetLocation(napi_env env, napi_callback_info info) {
+  size_t argc = 3; napi_value args[3];
+  napi_get_cb_info(env, info, &amp;argc, args, nullptr, nullptr);
+  char *path = getStringUtf8(env, args[2]);
+  if (path == nullptr) {
+    napi_throw_error(env, nullptr, &quot;Destination path must be a non-empty string&quot;);
+    return nullptr;
+  }
+  // C9 (codex): validate the relocate path like curl.cc — prevent a
+  // user-supplied path from being non-absolute or escaping via &quot;..&quot;.
+  if (path[0] != &#x27;/&#x27; || strstr(path, &quot;..&quot;) != nullptr) {
+    free(path);
+    napi_throw_error(env, ERR_IO, &quot;Destination path must be absolute, no traversal&quot;);
+    return nullptr;
+  }
+  SetLocationData d = {getInt32Napi(env, args[1]), path};
+  runInTransmissionThread(__FILE__, __LINE__, env, args[0], torrentSetLocationFunc, &amp;d);
+  free((void *) d.path);
+  napi_value r; napi_get_undefined(env, &amp;r); return r;
+}
+
+// ── torrentReannounce (tr_torrentManualUpdate) ───────────────────────
+typedef struct { int32_t id; } ReannounceData;
+static void *torrentReannounceFunc(tr_session *s, void *d, Err *err) {
+  auto *rd = (ReannounceData *) d;
+  tr_torrent *tor = findTorrentById(s, rd-&gt;id, err);
+  if (tor) tr_torrentManualUpdate(tor);
+  return nullptr;
+}
+static napi_value TorrentReannounce(napi_env env, napi_callback_info info) {
+  size_t argc = 2; napi_value args[2];
+  napi_get_cb_info(env, info, &amp;argc, args, nullptr, nullptr);
+  ReannounceData d = {getInt32Napi(env, args[1])};
+  runInTransmissionThread(__FILE__, __LINE__, env, args[0], torrentReannounceFunc, &amp;d);
+  napi_value r; napi_get_undefined(env, &amp;r); return r;
+}
+
+// ── Module registration ─────────────────────────────────────────────
+void RegisterTorrent(napi_env env, napi_value exports) {</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 205 页</div>
+<pre>  napi_property_descriptor desc[] = {
+    {&quot;torrentAdd&quot;,               nullptr, TorrentAdd,               nullptr, nullptr, nullptr, napi_default, nullptr},
+    {&quot;torrentRemove&quot;,            nullptr, TorrentRemove,            nullptr, nullptr, nullptr, napi_default, nullptr},
+    {&quot;torrentStart&quot;,             nullptr, TorrentStart,             nullptr, nullptr, nullptr, napi_default, nullptr},
+    {&quot;torrentStop&quot;,              nullptr, TorrentStop,              nullptr, nullptr, nullptr, napi_default, nullptr},
+    {&quot;torrentVerify&quot;,            nullptr, TorrentVerify,            nullptr, nullptr, nullptr, napi_default, nullptr},
+    {&quot;torrentListFilesFromFile&quot;, nullptr, TorrentListFilesFromFile, nullptr, nullptr, nullptr, napi_default, nullptr},
+    {&quot;torrentListFiles&quot;,         nullptr, TorrentListFiles,         nullptr, nullptr, nullptr, napi_default, nullptr},
+    {&quot;torrentFindByHash&quot;,        nullptr, TorrentFindByHash,        nullptr, nullptr, nullptr, napi_default, nullptr},
+    {&quot;torrentGetName&quot;,           nullptr, TorrentGetName,           nullptr, nullptr, nullptr, napi_default, nullptr},
+    {&quot;torrentGetHash&quot;,           nullptr, TorrentGetHash,           nullptr, nullptr, nullptr, napi_default, nullptr},
+    {&quot;torrentGetPieceHash&quot;,      nullptr, TorrentGetPieceHash,      nullptr, nullptr, nullptr, napi_default, nullptr},
+    {&quot;torrentSetPiecesHiPri&quot;,    nullptr, TorrentSetPiecesHiPri,    nullptr, nullptr, nullptr, napi_default, nullptr},
+    {&quot;torrentFindFile&quot;,          nullptr, TorrentFindFile,          nullptr, nullptr, nullptr, napi_default, nullptr},
+    {&quot;torrentGetFileName&quot;,       nullptr, TorrentGetFileName,       nullptr, nullptr, nullptr, napi_default, nullptr},
+    {&quot;torrentGetFileStat&quot;,       nullptr, TorrentGetFileStat,       nullptr, nullptr, nullptr, napi_default, nullptr},
+    {&quot;torrentGetPiece&quot;,          nullptr, TorrentGetPiece,          nullptr, nullptr, nullptr, napi_default, nullptr},
+    {&quot;torrentStatBrief&quot;,         nullptr, TorrentStatBrief,         nullptr, nullptr, nullptr, napi_default, nullptr},
+    {&quot;torrentGetError&quot;,          nullptr, TorrentGetError,          nullptr, nullptr, nullptr, napi_default, nullptr},
+    {&quot;torrentState&quot;,             nullptr, TorrentState,             nullptr, nullptr, nullptr, napi_default, nullptr},
+    {&quot;torrentSetDnd&quot;,            nullptr, TorrentSetDnd,            nullptr, nullptr, nullptr, napi_default, nullptr},
+    {&quot;torrentSetLocation&quot;,       nullptr, TorrentSetLocation,       nullptr, nullptr, nullptr, napi_default, nullptr},
+    {&quot;torrentReannounce&quot;,        nullptr, TorrentReannounce,        nullptr, nullptr, nullptr, napi_default, nullptr}
+  };
+  napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);
+}
+
+} // extern &quot;C&quot;
+// ===== FILE: entry/src/main/cpp/cpp/transmission.cc ===
+// transmissionbtm — Session lifecycle (N-API)
+// transmissionbtm — session lifecycle via N-API
+// Updated for Transmission 4.1 C++ API (2026-07-12)
+//
+// Key 4.0.6→4.1 changes:
+//   tr_variant* → tr_variant (value type, const&amp; params)
+//   tr_sessionInit(configDir, bool, &amp;settings) → tr_sessionInit(string_view, bool, const&amp;)
+//   tr_sessionLoadSettings() → tr_sessionGetDefaultSettings() + tr_sessionLoadSettings()
+//   tr_sessionGetSettings(session, &amp;out) → returns tr_variant by value
+//   tr_sessionClose(session) → tr_sessionClose(session, double timeout_secs)
+//   tr_variantDictAddBool/Str/Int → settings.try_emplace(TR_KEY_*, tr_variant{val})
+//   tr_variantClear(&amp;settings) → settings.clear()
+//   Callbacks: std::function&lt;&gt; types, no void* user_data, 2 params only
+//   tr_formatter_*_init() removed entirely
+//   tr_sessionSetPaused still exists
+
+#include &quot;commons.h&quot;
+#include &lt;libtransmission/transmission.h&gt;
+#include &lt;libtransmission/version.h&gt;
+#include &lt;libtransmission/variant.h&gt;
+#include &lt;libtransmission/quark.h&gt;</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 206 页</div>
+<pre>#include &lt;libtransmission/session.h&gt;
+#include &lt;cstring&gt;
+#include &lt;cstdlib&gt;
+#include &lt;cstdarg&gt;
+
+#undef LOG_DOMAIN
+#undef LOG_TAG
+#define LOG_DOMAIN 0x0001
+#define LOG_TAG &quot;transmissionbtm&quot;
+
+// P1 fix (codex review) + B3 (docs/11): live session handles tracked in the
+// commons registry (registerSessionHandle/unregisterSessionHandle). SessionStop
+// is idempotent — tr_sessionClose frees the session, so a second stop with the
+// same handle would otherwise use-after-free. The registry also backs
+// getSession() validation: only SessionStart-created handles are accepted.
+#define TR_DEFAULT_RPC_PORT 9091
+
+// R7 (#19/#25) + codex review P1: the composed proxy-url (with embedded
+// user:pass@) is applied to the live session at init, but must NEVER be written
+// to settings.json — that is a second plaintext-credential exposure alongside
+// the app&#x27;s own preferences store (the HUKS cipher covers the latter; settings.json
+// lives in the app&#x27;s settingsDir). Transmission persists proxy-url as a session
+// setting (session-settings.h Field{TR_KEY_proxy_url}), so strip it from any
+// settings variant before tr_sessionSaveSettings. The app re-applies proxy from
+// its (HUKS-encrypted) preferences on every session start, so losing it from the
+// snapshot is harmless. The RPC username/password are the same class of secret:
+// they are valid session-settings keys and would otherwise be written in
+// plaintext by tr_sessionSaveSettings, mirroring the proxy exposure — strip
+// those too.
+static void StripCredentialsFromSettings(tr_variant &amp;settings) {
+  if (auto *map = settings.get_if&lt;tr_variant::Map&gt;()) {
+    map-&gt;erase(TR_KEY_proxy_url);
+    map-&gt;erase(TR_KEY_rpc_username);
+    map-&gt;erase(TR_KEY_rpc_password);
+  }
+}
+
+// Forward declarations from native_to_arkts.cc (C linkage)
+extern &quot;C&quot; {
+void callTorrentChangedCallback(tr_torrent_id_t torrent_id);
+void callTorrentStoppedCallback(tr_torrent_id_t torrent_id);
+void callSessionChangedCallback();
+void callAltSpeedChangedCallback();
+}
+
+// ── C++ callbacks (NOT extern &quot;C&quot; — use std::function types) ──────────
+
+// 4.1: tr_rpc_func = raw C pointer tr_rpc_callback_status(*)(tr_session*, tr_rpc_callback_type, tr_torrent*, void*)
+static tr_rpc_callback_status rpcFunc(tr_session* /*session*/, tr_rpc_callback_type type,
+                                      tr_torrent* tor, void* /*user_data*/) {</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 207 页</div>
+<pre>  tr_torrent_id_t tid = tor != nullptr ? tr_torrentId(tor) : -1;
+  switch (type) {
+    case TR_RPC_TORRENT_ADDED:
+    case TR_RPC_TORRENT_STARTED:
+    case TR_RPC_TORRENT_MOVED:
+    case TR_RPC_TORRENT_CHANGED:
+      callTorrentChangedCallback(tid);
+      break;
+    case TR_RPC_TORRENT_STOPPED:
+    case TR_RPC_TORRENT_REMOVING:
+    case TR_RPC_TORRENT_TRASHING:
+      callTorrentStoppedCallback(tid);
+      [[fallthrough]];
+    case TR_RPC_SESSION_CHANGED:
+      callSessionChangedCallback();
+      break;
+    default:
+      break;
+  }
+
+  return TR_RPC_OK;
+}
+
+// 4.1: tr_session_metadata_func = raw C pointer void(*)(tr_session*, tr_torrent*, void*)
+static void metadataCallback(tr_session* /*session*/, tr_torrent* tor, void* /*user_data*/) {
+  tr_torrent_id_t tor_id = tor != nullptr ? tr_torrentId(tor) : -1;
+  callTorrentChangedCallback(tor_id);
+}
+
+// 4.1: tr_altSpeedFunc = raw C pointer void(*)(tr_session*, bool, bool, void*)
+static void altSpeedFunc(tr_session* /*session*/, bool /*active*/, bool user_driven, void* /*user_data*/) {
+  if (!user_driven) callAltSpeedChangedCallback();
+}
+
+extern &quot;C&quot; {
+
+// ── transmissionVersion ─────────────────────────────────────────────
+static napi_value TransmissionVersion(napi_env env, napi_callback_info info) {
+  (void)info;
+  return newStringUtf8(env, SHORT_VERSION_STRING);
+}
+
+// ── sessionStart ────────────────────────────────────────────────────
+static napi_value SessionStart(napi_env env, napi_callback_info info) {
+  size_t argc = 11;
+  napi_value args[11];
+  napi_get_cb_info(env, info, &amp;argc, args, nullptr, nullptr);
+
+  if (argc &lt; 10) {
+    napi_throw_error(env, nullptr, &quot;Expected at least 10 arguments&quot;);</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 208 页</div>
+<pre>    return nullptr;
+  }
+
+  char *configDir = getStringUtf8(env, args[0]);
+  char *downloadsDir = getStringUtf8(env, args[1]);
+  if (configDir == nullptr || downloadsDir == nullptr) {
+    free(configDir); free(downloadsDir);
+    napi_throw_type_error(env, nullptr, &quot;Arguments 0 and 1 must be strings&quot;);
+    return nullptr;
+  }
+  int32_t encrMode = 0;
+  if (napi_get_value_int32(env, args[2], &amp;encrMode) != napi_ok) {
+    free(configDir); free(downloadsDir);
+    napi_throw_type_error(env, nullptr, &quot;Argument 2 must be an int32&quot;);
+    return nullptr;
+  }
+  bool enableRpc, enableAuth, enableRpcWhitelist;
+  if (napi_get_value_bool(env, args[3], &amp;enableRpc) != napi_ok) {
+    free(configDir); free(downloadsDir);
+    napi_throw_type_error(env, nullptr, &quot;Argument 3 must be a boolean&quot;);
+    return nullptr;
+  }
+  int32_t rpcPort = TR_DEFAULT_RPC_PORT;
+  if (napi_get_value_int32(env, args[4], &amp;rpcPort) != napi_ok) {
+    free(configDir); free(downloadsDir);
+    napi_throw_type_error(env, nullptr, &quot;Argument 4 must be an int32&quot;);
+    return nullptr;
+  }
+  if (napi_get_value_bool(env, args[5], &amp;enableAuth) != napi_ok) {
+    free(configDir); free(downloadsDir);
+    napi_throw_type_error(env, nullptr, &quot;Argument 5 must be a boolean&quot;);
+    return nullptr;
+  }
+  char *username = getStringUtf8(env, args[6]);
+  char *password = getStringUtf8(env, args[7]);
+  if (napi_get_value_bool(env, args[8], &amp;enableRpcWhitelist) != napi_ok) {
+    free(configDir); free(downloadsDir); free(username); free(password);
+    napi_throw_type_error(env, nullptr, &quot;Argument 8 must be a boolean&quot;);
+    return nullptr;
+  }
+  char *rpcWhitelist = getStringUtf8(env, args[9]);
+
+  bool suspend = false;
+
+  // 4.1: Get default settings as value type, then override specific keys.
+  // try_emplace is on tr_variant::Map, not on tr_variant directly.
+  auto settings = tr_sessionGetDefaultSettings();
+  auto &amp;map = *settings.get_if&lt;tr_variant::Map&gt;();
+
+  // P1 fix (codex review): settingsJson was only logged then freed — the</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 209 页</div>
+<pre>  // persisted SessionConfig (speed limits, alt-speed, proxy, blocklist,
+  // seeding limits, peer ports, ...) was never applied. Merge it over the
+  // defaults first; explicit args below then override the keys they cover.
+  if (argc &gt;= 11) {
+    char *settingsJson = getStringUtf8(env, args[10]);
+    if (settingsJson != nullptr &amp;&amp; settingsJson[0] != &#x27;\0&#x27;) {
+      // parse_json is private on tr_variant_serde — parse() is the public
+      // entry point (serde::json() selects the JSON format). Pass an explicit
+      // std::string_view: the CharSpan template overload can&#x27;t deduce from a
+      // raw char* (std::data/std::size fail on pointers).
+      auto parsed = tr_variant_serde::json().parse(std::string_view{settingsJson});
+      if (parsed.has_value()) {
+        auto *parsedMap = parsed-&gt;get_if&lt;tr_variant::Map&gt;();
+        if (parsedMap != nullptr) {
+          // tr_variant is move-only — take ownership of each value.
+          for (auto &amp;kv : *parsedMap) {
+            map[kv.first] = std::move(kv.second);
+          }
+        }
+      }
+    }
+    // M4 (review): settingsJson was only freed on the non-empty branch — an
+    // empty-string arg leaked. free() is null-safe; run it on every path.
+    free(settingsJson);
+  }
+
+  // Note: the bundled libcurl has no OS CA store (native
+  // libcurl on Android/HarmonyOS can&#x27;t reach the system trust store), so HTTPS
+  // tracker announces fail TLS with &quot;Could not connect to tracker&quot; (rc=60
+  // peer failed verification). Android upstream disables engine cert
+  // verification via these two libcurl env vars (Native.java initNativeContext)
+  // — keep parity with the proven reference implementation. This applies to
+  // every libtransmission HTTPS request (tracker announce, etc.).
+  setenv(&quot;TR_CURL_SSL_NO_VERIFY&quot;, &quot;true&quot;, 1);
+  setenv(&quot;TR_CURL_PROXY_SSL_NO_VERIFY&quot;, &quot;true&quot;, 1);
+
+  // Apply core download settings (explicit args override the JSON above)
+  map[TR_KEY_download_dir] = tr_variant{downloadsDir};
+  map[TR_KEY_encryption] = static_cast&lt;int64_t&gt;(encrMode);
+
+  // Session tuning NOT exposed via SessionConfig (v1.0). Every key the user
+  // can configure — rename-partial-files, utp/pex/dht/lpd, trash-original,
+  // peer/seeding limits, start-added-torrents, ... — now comes from
+  // settingsJson (or libtransmission defaults). No hardcoded overrides that
+  // would shadow user config (codex P1). peer-port now comes exclusively from
+  // settingsJson: buildSettingsJson emits peer-port-random-on-start:false so a
+  // configured port is honored rather than randomized on every start (codex P1:
+  // the old hardcoded `= true` made the Settings peer-port control a no-op).
+  map[TR_KEY_port_forwarding_enabled] = false;
+</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 210 页</div>
+<pre>  // RPC settings
+  if (enableRpc) {
+    map[TR_KEY_rpc_enabled] = true;
+    map[TR_KEY_rpc_port] = static_cast&lt;int64_t&gt;(rpcPort);
+
+    if (enableAuth) {
+      map[TR_KEY_rpc_username] = tr_variant{username ? username : &quot;&quot;};
+      map[TR_KEY_rpc_password] = tr_variant{password ? password : &quot;&quot;};
+      map[TR_KEY_rpc_authentication_required] = true;
+    } else {
+      map[TR_KEY_rpc_authentication_required] = false;
+    }
+
+    if (enableRpcWhitelist) {
+      map[TR_KEY_rpc_whitelist] = tr_variant{rpcWhitelist ? rpcWhitelist : &quot;127.0.0.1&quot;};
+      map[TR_KEY_rpc_whitelist_enabled] = true;
+    } else {
+      map[TR_KEY_rpc_whitelist_enabled] = false;
+    }
+  } else {
+    map[TR_KEY_rpc_enabled] = false;
+  }
+
+  // 4.1: tr_sessionInit takes std::string_view and tr_variant const&amp;
+  tr_session *session = tr_sessionInit(configDir, true, settings);
+  if (session == nullptr) {
+    free(configDir); free(downloadsDir); free(username); free(password); free(rpcWhitelist);
+    napi_throw_error(env, nullptr, &quot;Failed to initialize transmission session&quot;);
+    return nullptr;
+  }
+  // R7 + codex review: strip proxy/RPC credentials from the settings snapshot
+  // before persisting. The live session keeps the proxy (applied at init, above);
+  // only the on-disk settings.json drops the inline user:pass@ and rpc creds.
+  StripCredentialsFromSettings(settings);
+  tr_sessionSaveSettings(session, configDir, settings);
+  registerSessionHandle(session);
+
+  free(configDir);
+  free(downloadsDir);
+  free(username);
+  free(password);
+  free(rpcWhitelist);
+
+  napi_value jsession;
+  napi_create_bigint_uint64(env, (uint64_t)(uintptr_t)session, &amp;jsession);
+
+  // 4.1: Set callbacks (3 params incl. user_data)
+  tr_sessionSetRPCCallback(session, rpcFunc, nullptr);
+  tr_sessionSetAltSpeedFunc(session, altSpeedFunc, nullptr);
+  tr_sessionSetMetadataCallback(session, metadataCallback, nullptr);</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 211 页</div>
+<pre>
+  // Note: tr_sessionSetPaused is applied once, after load, below (the old
+  // duplicate `tr_sessionSetPaused(session, false)` was redundant).
+  tr_ctor *ctor = tr_ctorNew(session);
+  tr_sessionLoadTorrents(session, ctor);
+  tr_sessionSetPaused(session, suspend);
+  tr_ctorFree(ctor);
+
+  return jsession;
+}
+
+// ── sessionStop ─────────────────────────────────────────────────────
+static napi_value SessionStop(napi_env env, napi_callback_info info) {
+  size_t argc = 2;
+  napi_value args[2];
+  napi_get_cb_info(env, info, &amp;argc, args, nullptr, nullptr);
+
+  if (argc &lt; 2) {
+    napi_throw_error(env, nullptr, &quot;Expected 2 arguments: session, configDir&quot;);
+    return nullptr;
+  }
+
+  tr_session *session = getSession(env, args[0]);
+  char *configDir = getStringUtf8(env, args[1]);
+
+  if (session == nullptr) {
+    free(configDir);
+    napi_throw_error(env, nullptr, &quot;Invalid session handle&quot;);
+    return nullptr;
+  }
+
+  // P1 fix (codex review): double-stop guard. tr_sessionClose frees the
+  // session; a second stop with the same handle is a use-after-free. The
+  // registry (populated by SessionStart) makes stop idempotent across
+  // repeated calls and service teardown — unregisterSessionHandle is an
+  // atomic check-and-erase.
+  if (!unregisterSessionHandle(session)) {
+    free(configDir);
+    napi_value result;
+    napi_get_undefined(env, &amp;result);
+    return result;
+  }
+
+  // 4.1: tr_sessionGetSettings returns tr_variant by value
+  auto settings = tr_sessionGetSettings(session);
+  // R7 + codex review: strip proxy/RPC credentials from the snapshot before
+  // persisting (the session may still hold proxy-url internalized from init).
+  StripCredentialsFromSettings(settings);
+  tr_sessionSaveSettings(session, configDir, settings);
+  // B1 (codex P1 UAF fix): after unregister, new dispatches fail at</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 212 页</div>
+<pre>  // retainSessionForDispatch; wait for any *already-in-flight* dispatches
+  // (e.g. a taskpool relocate/add) to drain before freeing the session. Without
+  // this, tr_sessionClose can free a tr_session* a worker is still using.
+  waitSessionIdle(session);
+  tr_sessionClose(session, 15.0);
+  free(configDir);
+
+  napi_value result;
+  napi_get_undefined(env, &amp;result);
+  return result;
+}
+
+// ── sessionSuspend ──────────────────────────────────────────────────
+typedef struct { bool suspend; } SuspendData;
+static void *transmissionSuspendFunc(tr_session *session, void *data, Err *err) {
+  (void)err;
+  auto *sd = (SuspendData *) data;
+  tr_sessionSetPaused(session, sd-&gt;suspend);
+  return nullptr;
+}
+
+static napi_value SessionSuspend(napi_env env, napi_callback_info info) {
+  size_t argc = 2;
+  napi_value args[2];
+  napi_get_cb_info(env, info, &amp;argc, args, nullptr, nullptr);
+
+  if (argc &lt; 2) {
+    napi_throw_error(env, nullptr, &quot;Expected 2 arguments: session, suspend&quot;);
+    return nullptr;
+  }
+
+  bool suspend = false;
+  if (napi_get_value_bool(env, args[1], &amp;suspend) != napi_ok) {
+    napi_throw_type_error(env, nullptr, &quot;Argument 1 must be a boolean&quot;);
+    return nullptr;
+  }
+
+  SuspendData d = {suspend};
+  runInTransmissionThread(__FILE__, __LINE__, env, args[0], transmissionSuspendFunc, &amp;d);
+
+  napi_value result;
+  napi_get_undefined(env, &amp;result);
+  return result;
+}
+
+// ── sessionSettingsUpdate ───────────────────────────────────────────
+// Live re-apply of settings changed while the session is running — no
+// restart. The ArkTS side rebuilds the same kebab-case settings JSON that
+// SessionStart merges at init; here we funnel it through tr_sessionSet (the
+// single 4.1 runtime setter) on the session&#x27;s event thread so a change takes</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 213 页</div>
+<pre>// effect immediately. We deliberately do NOT re-persist settings.json here:
+// tr_sessionSet mutates the running session, and SessionStop already saves the
+// canonical (credentials-stripped) settings at teardown. Persisting on every
+// update would need a second credential-strip and is redundant with stop.
+struct SettingsUpdateData {
+  tr_variant settings;
+};
+
+static void *transmissionSettingsUpdateFunc(tr_session *session, void *data, Err *err) {
+  (void)err;
+  auto *sd = (SettingsUpdateData *) data;
+  tr_sessionSet(session, sd-&gt;settings);
+  return nullptr;
+}
+
+static napi_value SessionSettingsUpdate(napi_env env, napi_callback_info info) {
+  size_t argc = 2;
+  napi_value args[2];
+  napi_get_cb_info(env, info, &amp;argc, args, nullptr, nullptr);
+
+  if (argc &lt; 2) {
+    napi_throw_error(env, nullptr, &quot;Expected 2 arguments: session, settingsJson&quot;);
+    return nullptr;
+  }
+
+  tr_session *session = getSession(env, args[0]);
+  if (session == nullptr) {
+    napi_throw_error(env, nullptr, &quot;Invalid session handle&quot;);
+    return nullptr;
+  }
+
+  char *settingsJson = getStringUtf8(env, args[1]);
+  if (settingsJson == nullptr || settingsJson[0] == &#x27;\0&#x27;) {
+    free(settingsJson);
+    napi_throw_type_error(env, nullptr, &quot;Argument 1 must be a non-empty JSON string&quot;);
+    return nullptr;
+  }
+
+  // Same parse as SessionStart: parse() is the public entry point on
+  // tr_variant_serde, with an explicit std::string_view (the CharSpan
+  // template overload can&#x27;t deduce from a raw char*).
+  auto parsed = tr_variant_serde::json().parse(std::string_view{settingsJson});
+  free(settingsJson);
+  if (!parsed.has_value()) {
+    napi_throw_error(env, nullptr, &quot;Failed to parse settings JSON&quot;);
+    return nullptr;
+  }
+
+  // tr_variant is move-only; runInTransmissionThread needs a stable pointer
+  // for the duration of the synchronous worker, so heap-hold the parsed</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 214 页</div>
+<pre>  // variant and free it once the dispatch returns.
+  auto *sd = new SettingsUpdateData();
+  sd-&gt;settings = std::move(*parsed);
+  runInTransmissionThread(__FILE__, __LINE__, env, args[0], transmissionSettingsUpdateFunc, sd);
+  delete sd;
+
+  napi_value result;
+  napi_get_undefined(env, &amp;result);
+  return result;
+}
+
+// ── hasDownloadingTorrents ──────────────────────────────────────────
+static void *transmissionHasDownloadingTorrents(tr_session *session, void *data, Err *err) {
+  (void)data;
+  (void)err;
+  for (auto tor : session-&gt;torrents()) {
+    switch (tor-&gt;activity()) {
+      case TR_STATUS_DOWNLOAD:
+      case TR_STATUS_DOWNLOAD_WAIT:
+      case TR_STATUS_CHECK:
+      case TR_STATUS_CHECK_WAIT:
+        return (void *)true;
+      default:
+        continue;
+    }
+  }
+  return (void *)false;
+}
+
+static napi_value HasDownloadingTorrents(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value args[1];
+  napi_get_cb_info(env, info, &amp;argc, args, nullptr, nullptr);
+
+  if (argc &lt; 1) {
+    napi_throw_error(env, nullptr, &quot;Expected 1 argument: session&quot;);
+    return nullptr;
+  }
+  tr_session *session = getSession(env, args[0]);
+  if (session == nullptr) {
+    napi_value r; napi_get_boolean(env, false, &amp;r); return r;
+  }
+  bool has = runInTransmissionThread(__FILE__, __LINE__, env, args[0],
+      transmissionHasDownloadingTorrents, nullptr) != nullptr;
+
+  napi_value result;
+  napi_get_boolean(env, has, &amp;result);
+  return result;
+}
+</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 215 页</div>
+<pre>// ── listTorrentNames ────────────────────────────────────────────────
+typedef struct ListTorrentsData {
+  int count;
+  char **torrents;
+} ListTorrentsData;
+
+static void *transmissionListTorrentNamesFunc(tr_session *session, void *data, Err *err) {
+  (void)err;
+  ListTorrentsData *d = (ListTorrentsData *)data;
+  d-&gt;count = (int)session-&gt;torrents().size();
+  if (d-&gt;count == 0) return nullptr;
+  d-&gt;torrents = (char **)malloc(d-&gt;count * sizeof(char *));
+  if (d-&gt;torrents == nullptr) { d-&gt;count = 0; return nullptr; }
+  int i = 0;
+
+  for (auto tor : session-&gt;torrents()) {
+    auto hashStr = tr_torrentView(tor).hash_string;
+    auto &amp;name = tor-&gt;name();
+    // P1 fix (codex review): the old `hashLen + nameLen + 12` under-allocated
+    // by one byte for a 10-digit torrent id (&quot;%d&quot; can produce 10 chars plus
+    // two spaces plus NUL). Two-pass snprintf sizes the buffer exactly.
+    int need = snprintf(nullptr, 0, &quot;%d %s %s&quot;, tr_torrentId(tor), hashStr, name.c_str());
+    if (need &lt; 0) goto fail;
+    size_t lineLen = (size_t)need + 1;
+    char *line = (char *)malloc(lineLen);
+    if (line == nullptr) goto fail;
+    snprintf(line, lineLen, &quot;%d %s %s&quot;, tr_torrentId(tor), hashStr, name.c_str());
+    d-&gt;torrents[i++] = line;
+  }
+
+  return nullptr;
+
+fail:
+  // M3 (review): a partial failure left d-&gt;torrents filled to `i` but
+  // d-&gt;count at the full count, so the wrapper derefed/leaked garbage slots.
+  // Tear down what we built and signal empty.
+  for (int j = 0; j &lt; i; j++) free(d-&gt;torrents[j]);
+  free(d-&gt;torrents);
+  d-&gt;torrents = nullptr;
+  d-&gt;count = 0;
+  return nullptr;
+}
+
+static napi_value ListTorrentNames(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value args[1];
+  napi_get_cb_info(env, info, &amp;argc, args, nullptr, nullptr);
+
+  tr_session *session = getSession(env, args[0]);
+  if (session == nullptr) {</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 216 页</div>
+<pre>    napi_value r; napi_get_null(env, &amp;r); return r;
+  }
+  ListTorrentsData d = {0, nullptr};
+  runInTransmissionThread(__FILE__, __LINE__, env, args[0], transmissionListTorrentNamesFunc, &amp;d);
+
+  if (d.count == 0) {
+    napi_value result;
+    napi_get_null(env, &amp;result);
+    return result;
+  }
+
+  napi_value result;
+  napi_create_array_with_length(env, d.count, &amp;result);
+
+  for (int i = 0; i &lt; d.count; i++) {
+    napi_value item = newStringUtf8(env, d.torrents[i]);
+    napi_set_element(env, result, i, item);
+    free(d.torrents[i]);
+  }
+  free(d.torrents);
+  return result;
+}
+
+// ── getEncryptionMode ───────────────────────────────────────────────
+typedef struct { int32_t mode; } EncryptionData;
+static void *transmissionGetEncryptionFunc(tr_session *session, void *data, Err *err) {
+  (void)err;
+  auto *ed = (EncryptionData *) data;
+  ed-&gt;mode = (int32_t) tr_sessionGetEncryption(session);
+  return nullptr;
+}
+
+static napi_value GetEncryptionMode(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value args[1];
+  napi_get_cb_info(env, info, &amp;argc, args, nullptr, nullptr);
+
+  if (argc &lt; 1) {
+    napi_throw_error(env, nullptr, &quot;Expected 1 argument: session&quot;);
+    return nullptr;
+  }
+  EncryptionData d = {0};
+  runInTransmissionThread(__FILE__, __LINE__, env, args[0], transmissionGetEncryptionFunc, &amp;d);
+  napi_value result;
+  napi_create_int32(env, d.mode, &amp;result);
+  return result;
+}
+
+// ── Module registration ─────────────────────────────────────────────
+void RegisterTransmission(napi_env env, napi_value exports) {</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+<div class='page'>
+<div class='hdr'>transmissionbtm（HarmonyOS BitTorrent 客户端软件）  V1.0.0    第 217 页</div>
+<pre>  napi_property_descriptor desc[] = {
+    {&quot;transmissionVersion&quot;,         nullptr, TransmissionVersion,         nullptr, nullptr, nullptr, napi_default, nullptr},
+    {&quot;sessionStart&quot;,                nullptr, SessionStart,                nullptr, nullptr, nullptr, napi_default, nullptr},
+    {&quot;sessionStop&quot;,                 nullptr, SessionStop,                 nullptr, nullptr, nullptr, napi_default, nullptr},
+    {&quot;sessionSuspend&quot;,              nullptr, SessionSuspend,              nullptr, nullptr, nullptr, napi_default, nullptr},
+    {&quot;sessionSettingsUpdate&quot;,       nullptr, SessionSettingsUpdate,       nullptr, nullptr, nullptr, napi_default, nullptr},
+    {&quot;hasDownloadingTorrents&quot;,      nullptr, HasDownloadingTorrents,      nullptr, nullptr, nullptr, napi_default, nullptr},
+    {&quot;listTorrentNames&quot;,            nullptr, ListTorrentNames,            nullptr, nullptr, nullptr, napi_default, nullptr},
+    {&quot;getEncryptionMode&quot;,           nullptr, GetEncryptionMode,           nullptr, nullptr, nullptr, napi_default, nullptr}
+  };
+  napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);
+}
+
+} // extern &quot;C&quot;</pre>
+<div class='ftr'>著作权人：陈锡金</div>
+</div>
+</body></html>

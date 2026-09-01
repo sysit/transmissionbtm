@@ -8,8 +8,8 @@ import { PreferencesManager } from '../../models/Preferences';
 
 @Component
 export struct EditSetting {
-  @Prop label: string = '';
-  @Prop hint: string = '';
+  @Prop label: ResourceStr = '';
+  @Prop hint: ResourceStr = '';
   @Prop prefKey: string = '';
   @Prop inputType: InputType = InputType.Normal;
   /** Persist type: 'string' (default), 'number' calls setInt, 'float' uses parseFloat. */
@@ -83,8 +83,8 @@ export struct EditSetting {
 @CustomDialog
 struct EditSettingDialog {
   controller: CustomDialogController;
-  @Prop title: string = '';
-  @Prop hint: string = '';
+  @Prop title: ResourceStr = '';
+  @Prop hint: ResourceStr = '';
   @Prop inputType: InputType = InputType.Normal;
   /** Current value copied in to prefill the field. */
   @Prop initialValue: string = '';
@@ -118,7 +118,7 @@ struct EditSettingDialog {
         });
 
       Row() {
-        Button('Cancel')
+        Button($r('app.string.common_cancel'))
           .fontSize(FontSize.CAPTION)
           .fontColor(Colors.TEXT_SECONDARY)
           .backgroundColor(Colors.ELEVATED)
@@ -126,7 +126,7 @@ struct EditSettingDialog {
             this.controller?.close();
           });
 
-        Button('Save')
+        Button($r('app.string.common_save'))
           .fontSize(FontSize.CAPTION)
           .fontColor('#ffffff')
           .backgroundColor(Colors.DOWNLOAD)

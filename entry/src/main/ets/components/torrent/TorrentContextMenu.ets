@@ -5,6 +5,7 @@
 
 import { TorrentInfo } from '../../models/TorrentInfo';
 import { Colors, Radius, Spacing, FontSize } from '../../utils/constants';
+import { statusResource } from '../../utils/i18n';
 
 /** Action identifiers for torrent context menu. */
 export enum TorrentAction {
@@ -81,7 +82,7 @@ export struct TorrentContextMenu {
         .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis });
 
-      Text(this.torrent.getStatusString())
+      Text(statusResource(this.torrent.getStatusString()))
         .fontSize(FontSize.SMALL)
         .fontColor(this.torrent.getStatusColor())
         .padding({ left: Spacing.SM, right: Spacing.SM, top: 2, bottom: 4 })
@@ -98,45 +99,45 @@ export struct TorrentContextMenu {
     Column() {
       // Pause / Resume
       if (this.torrent.isStopped()) {
-        this.MenuItem('▶', 'Resume', TorrentAction.RESUME, Colors.SEED);
+        this.MenuItem('▶', $r('app.string.torrent_action_resume'), TorrentAction.RESUME, Colors.SEED);
       } else {
-        this.MenuItem('⏸', 'Pause', TorrentAction.PAUSE, Colors.PAUSED);
+        this.MenuItem('⏸', $r('app.string.torrent_action_pause'), TorrentAction.PAUSE, Colors.PAUSED);
       }
 
       // Verify
-      this.MenuItem('✓', 'Verify Local Data', TorrentAction.VERIFY, Colors.QUEUED);
+      this.MenuItem('✓', $r('app.string.torrent_action_verify_data'), TorrentAction.VERIFY, Colors.QUEUED);
 
       // Reannounce
-      this.MenuItem('⟳', 'Reannounce', TorrentAction.REANNOUNCE, Colors.TEXT);
+      this.MenuItem('⟳', $r('app.string.torrent_action_reannounce'), TorrentAction.REANNOUNCE, Colors.TEXT);
 
       // Show Files
-      this.MenuItem('📁', 'Show Files', TorrentAction.SHOW_FILES, Colors.TEXT);
+      this.MenuItem('📁', $r('app.string.torrent_action_show_files'), TorrentAction.SHOW_FILES, Colors.TEXT);
 
       // Save to Files (export completed data into public Download via picker)
-      this.MenuItem('⬇', 'Save to Files', TorrentAction.SAVE_TO_FILES, Colors.DOWNLOAD);
+      this.MenuItem('⬇', $r('app.string.torrent_action_save_files'), TorrentAction.SAVE_TO_FILES, Colors.DOWNLOAD);
 
       // Change Download Location (relocate torrent data to a new sandbox dir)
-      this.MenuItem('📂', 'Change Download Location', TorrentAction.SET_LOCATION, Colors.TEXT);
+      this.MenuItem('📂', $r('app.string.torrent_action_set_location'), TorrentAction.SET_LOCATION, Colors.TEXT);
 
       // Remove
-      this.MenuItem('✕', 'Remove', TorrentAction.REMOVE, Colors.ERROR);
+      this.MenuItem('✕', $r('app.string.torrent_action_remove'), TorrentAction.REMOVE, Colors.ERROR);
 
       // Remove with data
-      this.MenuItem('✕✕', 'Remove and Delete Data', TorrentAction.REMOVE_WITH_DATA, Colors.ERROR);
+      this.MenuItem('✕✕', $r('app.string.torrent_action_remove_data'), TorrentAction.REMOVE_WITH_DATA, Colors.ERROR);
 
       Divider()
         .color(Colors.DIVIDER)
         .margin({ top: Spacing.SM, bottom: Spacing.SM });
 
       // Show Detail
-      this.MenuItem('ℹ', 'Torrent Details', TorrentAction.SHOW_DETAIL, Colors.TEXT);
+      this.MenuItem('ℹ', $r('app.string.torrent_action_details'), TorrentAction.SHOW_DETAIL, Colors.TEXT);
     }
     .width('100%');
   }
 
   @Builder
   buildMenuCancel() {
-    Button('Cancel')
+    Button($r('app.string.common_cancel'))
       .fontSize(FontSize.BODY)
       .fontColor(Colors.TEXT_SECONDARY)
       .width('90%')
@@ -148,7 +149,7 @@ export struct TorrentContextMenu {
   }
 
   @Builder
-  MenuItem(icon: string, label: string, action: TorrentAction, color: string) {
+  MenuItem(icon: string, label: ResourceStr, action: TorrentAction, color: string) {
     Row() {
       Text(icon)
         .fontSize(18)

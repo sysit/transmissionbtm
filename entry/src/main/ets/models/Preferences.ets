@@ -67,6 +67,15 @@ export class PrefKeys {
   static readonly WIFI_ONLY: string = 'wifi_only';
   static readonly WIFI_SSID: string = 'wifi_ssid';
 
+  // Privacy gate (first-launch consent). Not a SessionConfig field — read by
+  // Index.aboutToAppear to decide whether to show the privacy dialog.
+  static readonly PRIVACY_ACCEPTED: string = 'privacy_accepted';
+
+  // UI language override. 'system' follows the device locale; 'zh-CN' / 'en-US'
+  // pin the app to a specific locale. UI-only (drives $r resolution), never
+  // reaches SessionConfig.
+  static readonly APP_LANGUAGE: string = 'app_language';
+
   // Proxy
   static readonly PROXY_ENABLED: string = 'proxy_enabled';
   static readonly PROXY_URL: string = 'proxy_url';
@@ -117,6 +126,7 @@ export class PreferencesManager {
   private static instance: PreferencesManager | null = null;
   private store: preferences.Preferences | null = null;
   private context: Context | null = null;
+  private initPromise: Promise<void> | null = null;
   private passwordCipher: ProxyCipher = new LegacyProxyCipher();
   /** Live re-apply listeners. Each takes the freshly re-read SessionConfig.
    *  Only SessionController registers one, and only while a session is running,
@@ -145,6 +155,21 @@ export class PreferencesManager {
    */
   async init(context: Context): Promise<void> {
     if (this.store) { return; }
+    if (this.initPromise) { return this.initPromise; }
+    this.initPromise = this.doInit(context);
+    return this.initPromise;
+  }
+
+  /**
+   * Resolve once the preferences store has finished initializing. Lets callers
+   * (e.g. Index.aboutToAppear, which reads the privacy-accepted flag) avoid
+   * racing the fire-and-forget init() started in EntryAbility.onCreate.
+   */
+  async waitReady(): Promise<void> {
+    if (this.initPromise) { await this.initPromise; }
+  }
+
+  private async doInit(context: Context): Promise<void> {
     this.context = context;
     try {
       this.store = await preferences.getPreferences(context, STORE_NAME);
@@ -195,6 +220,7 @@ export class PreferencesManager {
       [PrefKeys.INCREASE_SO_BUF, defaults.increaseSoBuf],
       [PrefKeys.ENABLE_SEQ_DOWNLOAD, defaults.enableSeqDownload],
       [PrefKeys.WIFI_ONLY, false],
+      [PrefKeys.PRIVACY_ACCEPTED, false],
     ];
 
     const intDefaults: [string, number][] = [
@@ -226,6 +252,7 @@ export class PreferencesManager {
       [PrefKeys.BLOCKLIST_URL, defaults.blocklistUrl],
       [PrefKeys.SETTINGS_DIR, defaults.settingsDir],
       [PrefKeys.WIFI_SSID, ''],
+      [PrefKeys.APP_LANGUAGE, 'system'],
     ];
 
     // ArkTS: no destructuring in for-of. Use indexed access.

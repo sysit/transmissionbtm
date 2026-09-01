@@ -9,6 +9,18 @@
 
 ---
 
+## 2026-09-01 — multi-language i18n (native `$r` resources) + app language selector
+
+- **i18n via native `$r('app.string.*')`** — built `resources/base` (English) + `resources/zh_CN` (Chinese) mirror, ~200 flat `[domain]_[desc]` keys (`settings_*`, `tab_*`, `torrent_action_*`, `torrent_status_*`, `privacy_*`, `addtorrent_*`, `common_*`). System locale = zh_CN auto-resolves to Chinese (a zh device gets Chinese UI with no user action — satisfies AppGallery "UI supports Chinese").
+- **Settings "Language" selector (General row)** — new `PrefKeys.APP_LANGUAGE='app_language'`, default `'system'`, values `system|zh-CN|en-US`; UI-only (NOT in `SessionConfig`, same precedent as `PRIVACY_ACCEPTED`). Reuses existing `SelectSetting` (`valueType:'string'`).
+- **App-level language override** — `EntryAbility.onWindowStageCreate` awaits `applyAppLanguage()` (via `PreferencesManager.waitReady()`) before `loadContent`; maps `zh-CN→zh-Hans-CN` (BCP-47 script-annotated), `en-US→en-US`; `ApplicationContext.setLanguage(tag)` (main-thread-only). Takes effect on restart → Settings shows a "restart to apply" toast via `@Watch('onLanguageChanged')` + `languageLoaded` guard armed in `loadPreferences`' `finally`.
+- **Kept the model layer pure** — `getStatusString()` stays English (both `TorrentInfo.test.ets` + `tests/torrent-info.test.ts` assert the literals); localized at display via `utils/i18n.ets` `statusResource()`. Plan constraint: no `$r` in the pure model layer.
+- **Type relaxation** — `@Prop label/options: ResourceStr` (`string | Resource`) so `$r` flows into EditSetting/SelectSetting/StatChip/etc. `ResourceStr` is the ArkUI compatibility trick.
+- **Migration** — 7 pages + 6 components + settings controls to `$r`; **202 `$r` usages**; **0 residual hardcoded Chinese/English user-facing literals** in UI markup (non-localizable only: ` · ` separator, copyright line, `💡` emoji).
+- **Verified on API24 emulator (`127.0.0.1:5555`)** — en default → Settings shows "Language" row; pick 简体中文 → persisted → force-stop + relaunch → **whole UI renders Chinese (设置/通用/语言/下载/速度/网络 + bottom tabs 下载/设置/代理/关于)**, no mojibake or truncation; reset 系统默认 → relaunch → back to English. Build green (only pre-existing deprecation WARNs).
+
+---
+
 ## 2026-08-26 — v0.1.1 release
 
 - **Version bump** — `AppScope/app.json5` versionName `0.1.0`→`0.1.1`, versionCode `1`→`2`; native `getVersion()` (`napi_init.cpp`) `"0.1.0-m6"`→`"0.1.1"` (drop the `-m6` milestone suffix); `NativeProbe.test.ets` assertion updated to match; `AppConstants.APP_VERSION` (`utils/constants.ets`) `"0.1.0-m6"`→`"0.1.1"` (About page display). `oh-package.json5` (N-API types package version) left as-is — project hook forbids direct edits; use DevEco's project-structure panel if it needs a bump.

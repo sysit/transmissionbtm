@@ -21,7 +21,7 @@ export struct PublishFolderRow {
   build() {
     Row() {
       Column() {
-        Text('Publish folder')
+        Text($r('app.string.settings_publish_folder'))
           .fontSize(FontSize.BODY)
           .fontColor(Colors.TEXT);
         Text(this.publishDisplay())
@@ -33,7 +33,7 @@ export struct PublishFolderRow {
       .alignItems(HorizontalAlign.Start)
       .layoutWeight(1);
 
-      Text(this.publishDir ? '更改 ›' : '选择 ›')
+      Text(this.publishDir ? $r('app.string.settings_publish_change') : $r('app.string.settings_publish_select'))
         .fontSize(FontSize.CAPTION)
         .fontColor(Colors.DOWNLOAD)
         .margin({ right: Spacing.SM });
@@ -44,9 +44,9 @@ export struct PublishFolderRow {
   }
 
   /** Display name for the publish dir: last path segment (folder basename). */
-  private publishDisplay(): string {
+  private publishDisplay(): ResourceStr {
     if (!this.publishDir) {
-      return '未设置 — 点按选择';
+      return $r('app.string.settings_publish_unset');
     }
     const trimmed = this.publishDir.endsWith('/')
       ? this.publishDir.slice(0, -1) : this.publishDir;
@@ -113,10 +113,10 @@ export struct PublishFolderRow {
       } catch (ulErr) {
         hilog.info(0x0001, TAG, 'placeholder already gone / not unlinkable: %{private}s', String(ulErr));
       }
-      promptAction.showToast({ message: '发布目录已保存', duration: 2000 });
+      promptAction.showToast({ message: $r('app.string.settings_publish_saved_toast'), duration: 2000 });
     } catch (e) {
       hilog.error(0x0001, TAG, 'Pick publish dir failed: %{private}s', String(e));
-      promptAction.showToast({ message: `设置失败: ${String(e)}`, duration: 2000 });
+      promptAction.showToast({ message: $r('app.string.settings_publish_save_failed', String(e)), duration: 2000 });
     }
   }
 

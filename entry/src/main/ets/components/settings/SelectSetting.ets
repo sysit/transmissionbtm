@@ -9,8 +9,8 @@ import { PreferencesManager } from '../../models/Preferences';
 
 @Component
 export struct SelectSetting {
-  @Prop label: string = '';
-  @Prop options: string[] = [];
+  @Prop label: ResourceStr = '';
+  @Prop options: ResourceStr[] = [];
   @Prop prefKey: string = '';
   @Link selectedIndex: number;
   /** Persist type: 'int' stores the index, 'string' stores optionValues[idx]. */
@@ -75,8 +75,8 @@ export struct SelectSetting {
 @CustomDialog
 struct SelectOptionDialog {
   controller: CustomDialogController;
-  @Prop title: string = '';
-  @Prop options: string[] = [];
+  @Prop title: ResourceStr = '';
+  @Prop options: ResourceStr[] = [];
   /** Currently-selected index copied in to highlight the right option. */
   @Prop initialIndex: number = 0;
   /** Called with the chosen index on select; the parent owns persistence. */
@@ -95,7 +95,7 @@ struct SelectOptionDialog {
         .fontWeight(FontWeight.Medium)
         .margin({ bottom: Spacing.LG });
 
-      ForEach(this.options, (option: string, index: number) => {
+      ForEach(this.options, (option: ResourceStr, index: number) => {
         Button(option)
           .type(ButtonType.Normal)
           .fontSize(FontSize.BODY)
@@ -109,7 +109,7 @@ struct SelectOptionDialog {
           });
       });
 
-      Button('Cancel')
+      Button($r('app.string.common_cancel'))
         .type(ButtonType.Normal)
         .fontSize(FontSize.CAPTION)
         .fontColor(Colors.TEXT_SECONDARY)

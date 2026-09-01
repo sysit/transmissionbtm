@@ -4,7 +4,7 @@ import { Colors } from '../../utils/constants';
 
 @Component
 export struct StatChip {
-  @Prop label: string = '';
+  @Prop label: ResourceStr = '';
   @Prop value: string = '';
   @Prop color: string = Colors.TEXT;
 

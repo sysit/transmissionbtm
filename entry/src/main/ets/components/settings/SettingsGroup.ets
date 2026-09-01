@@ -7,7 +7,7 @@ import { Colors, FontSize, Spacing, Radius } from '../../utils/constants';
 
 @Component
 export struct SettingsGroup {
-  @Prop title: string = '';
+  @Prop title: ResourceStr = '';
 
   @Builder
   defaultContent() {}

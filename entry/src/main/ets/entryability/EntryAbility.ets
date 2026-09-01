@@ -6,7 +6,7 @@
 import { UIAbility, Want, AbilityConstant } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
-import { PreferencesManager } from '../models/Preferences';
+import { PreferencesManager, PrefKeys } from '../models/Preferences';
 import { HukProxyCipher } from '../security/HukProxyCipher';
 
 const TAG = 'transmissionbtm';
@@ -121,12 +121,40 @@ export default class EntryAbility extends UIAbility {
     return { kind: 'unknown', uri: '' };
   }
 
+  /**
+   * Apply the user-selected app language so `$r('app.string.*')` resolves to the
+   * pinned locale. Reads app_language ('system' follows the device locale, so no
+   * override) and calls ApplicationContext.setLanguage() with a BCP-47 tag.
+   * 'zh-CN' is stored by the Settings selector; setLanguage expects 'zh-Hans-CN'
+   * (script-annotated), so map it here. Main-thread-only, run before loadContent.
+   */
+  private async applyAppLanguage(): Promise<void> {
+    try {
+      await PreferencesManager.getInstance().waitReady();
+      const lang = await PreferencesManager.getInstance()
+        .getString(PrefKeys.APP_LANGUAGE, 'system');
+      const tag = lang === 'zh-CN' ? 'zh-Hans-CN'
+        : lang === 'en-US' ? 'en-US' : null;
+      if (!tag) { return; }
+      this.context.getApplicationContext().setLanguage(tag);
+      hilog.info(0x0001, TAG, 'App language override: %{public}s', tag);
+    } catch (err) {
+      hilog.error(0x0001, TAG,
+        'applyAppLanguage failed: %{private}s', String(err));
+    }
+  }
+
   onDestroy(): void {
     hilog.info(0x0001, TAG, 'EntryAbility onDestroy');
   }
 
-  onWindowStageCreate(windowStage: window.WindowStage): void {
+  async onWindowStageCreate(windowStage: window.WindowStage): Promise<void> {
     hilog.info(0x0001, TAG, 'EntryAbility onWindowStageCreate');
+
+    // Pin the app language (Phase E) BEFORE the first frame so `$r` resolves to
+    // the user-chosen locale. A change made in Settings takes effect on next
+    // launch because this runs on every fresh onCreate/onWindowStageCreate.
+    await this.applyAppLanguage();
 
     windowStage.loadContent('pages/Index', (err) => {
       if (err.code) {

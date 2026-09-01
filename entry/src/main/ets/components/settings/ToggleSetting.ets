@@ -8,8 +8,8 @@ import { PreferencesManager } from '../../models/Preferences';
 
 @Component
 export struct ToggleSetting {
-  @Prop label: string = '';
-  @Prop description: string = '';
+  @Prop label: ResourceStr = '';
+  @Prop description: ResourceStr = '';
   @Prop prefKey: string = '';
   @Link checked: boolean;
 

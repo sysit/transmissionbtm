@@ -5,8 +5,8 @@ import { Colors, Spacing } from '../../utils/constants';
 @Component
 export struct EmptyState {
   @Prop icon: string = '⊡';
-  @Prop title: string = 'Nothing here';
-  @Prop description: string = '';
+  @Prop title: ResourceStr = 'Nothing here';
+  @Prop description: ResourceStr = '';
 
   build() {
     Column() {

@@ -13,26 +13,26 @@ export struct SettingsResetDialog {
   build() {
     Column() {
       Column() {
-        Text('Reset to Defaults')
+        Text($r('app.string.settings_reset_defaults'))
           .fontSize(FontSize.HEADLINE)
           .fontWeight(FontWeight.Medium)
           .fontColor(Colors.TEXT)
           .margin({ bottom: Spacing.MD });
 
-        Text('This will reset all settings to their factory defaults. This action cannot be undone.')
+        Text($r('app.string.settings_reset_confirm_desc'))
           .fontSize(FontSize.CAPTION)
           .fontColor(Colors.TEXT_SECONDARY)
           .margin({ bottom: Spacing.LG });
 
         Row() {
-          Button('Cancel')
+          Button($r('app.string.common_cancel'))
             .fontSize(FontSize.CAPTION)
             .fontColor(Colors.TEXT_SECONDARY)
             .backgroundColor(Colors.ELEVATED)
             .layoutWeight(1)
             .onClick(() => { this.onCancel(); });
 
-          Button('Reset')
+          Button($r('app.string.settings_reset_confirm'))
             .fontSize(FontSize.CAPTION)
             .fontColor('#ffffff')
             .backgroundColor(Colors.ERROR)

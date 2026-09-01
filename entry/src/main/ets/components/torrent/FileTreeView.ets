@@ -28,7 +28,7 @@ export struct FileTreeView {
       if (this.root.files.length > 0 || this.root.children.length > 0) {
         this.buildNode(this.root, 0);
       } else {
-        Text('No files')
+        Text($r('app.string.filetree_empty'))
           .fontSize(FontSize.CAPTION)
           .fontColor(Colors.TEXT_TERTIARY)
           .padding(Spacing.LG);

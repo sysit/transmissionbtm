@@ -11,7 +11,7 @@ export struct SettingsLoadingState {
         .width(40)
         .height(40)
         .color(Colors.DOWNLOAD);
-      Text('Loading settings...')
+      Text($r('app.string.settings_loading'))
         .fontSize(FontSize.CAPTION)
         .fontColor(Colors.TEXT_SECONDARY)
         .margin({ top: Spacing.MD });

@@ -16,15 +16,38 @@ import { DownloadsPage } from './DownloadsPage';
 import { SettingsPage } from './SettingsPage';
 import { ProxyPage } from './ProxyPage';
 import { AboutPage } from './AboutPage';
+import { PreferencesManager, PrefKeys } from '../models/Preferences';
+import { PrivacyDialog } from '../components/privacy/PrivacyDialog';
 
 @Entry
 @Component
 struct Index {
   @Provide('navPathStack') navPathStack: NavPathStack = new NavPathStack();
   @State currentTab: number = 0;
+  @State showPrivacyDialog: boolean = false;
+
+  async aboutToAppear(): Promise<void> {
+    // Wait for the preferences store (init is fire-and-forget in EntryAbility).
+    try {
+      await PreferencesManager.getInstance().waitReady();
+    } catch (err) {
+      // Non-fatal: fall through and default to showing the gate.
+    }
+    let accepted = false;
+    try {
+      accepted = await PreferencesManager.getInstance()
+        .getBoolean(PrefKeys.PRIVACY_ACCEPTED, false);
+    } catch (err) {
+      // Non-fatal: default to showing the gate.
+      accepted = false;
+    }
+    // Show the privacy gate only on first launch (until the user accepts).
+    this.showPrivacyDialog = !accepted;
+  }
 
   build() {
-    Navigation(this.navPathStack) {
+    Stack() {
+      Navigation(this.navPathStack) {
       Column() {
         Tabs({ index: this.currentTab }) {
           TabContent() {
@@ -64,6 +87,13 @@ struct Index {
     .hideTitleBar(true)
     .mode(NavigationMode.Stack)
     .backgroundColor(Colors.BG);
+
+      if (this.showPrivacyDialog) {
+        PrivacyDialog({ show: $showPrivacyDialog })
+      }
+    }
+    .width('100%')
+    .height('100%')
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -73,22 +103,22 @@ struct Index {
 
   @Builder
   TabDownloads() {
-    this.BuildTabContent('Downloads', '⬇', 0);
+    this.BuildTabContent($r('app.string.tab_downloads'), '⬇', 0);
   }
 
   @Builder
   TabSettings() {
-    this.BuildTabContent('Settings', '⚙', 1);
+    this.BuildTabContent($r('app.string.tab_settings'), '⚙', 1);
   }
 
   @Builder
   TabProxy() {
-    this.BuildTabContent('Proxy', '🔒', 2);
+    this.BuildTabContent($r('app.string.tab_proxy'), '🔒', 2);
   }
 
   @Builder
   TabAbout() {
-    this.BuildTabContent('About', 'ℹ', 3);
+    this.BuildTabContent($r('app.string.tab_about'), 'ℹ', 3);
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -96,7 +126,7 @@ struct Index {
   // ═══════════════════════════════════════════════════════════════
 
   @Builder
-  BuildTabContent(title: string, icon: string, tabIndex: number) {
+  BuildTabContent(title: ResourceStr, icon: string, tabIndex: number) {
     Column() {
       Text(icon)
         .fontSize(this.currentTab === tabIndex ? 20 : 18)

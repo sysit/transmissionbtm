@@ -8,6 +8,7 @@ import { TorrentVM } from './TorrentVM';
 import { ProgressBar } from '../ui/ProgressBar';
 import { StatChip } from '../ui/StatChip';
 import { formatSpeed, formatSize, formatETA } from '../../utils/format';
+import { statusResource } from '../../utils/i18n';
 import { Colors, Radius, Spacing, FontSize } from '../../utils/constants';
 
 @Component
@@ -51,7 +52,7 @@ export struct TorrentCard {
         .textOverflow({ overflow: TextOverflow.Ellipsis });
 
       // Status badge
-      Text(this.vm.torrent.getStatusString())
+      Text(statusResource(this.vm.torrent.getStatusString()))
         .fontSize(FontSize.SMALL)
         .fontWeight(FontWeight.Medium)
         .fontColor(this.vm.torrent.getStatusColor())
@@ -81,7 +82,7 @@ export struct TorrentCard {
 
     // Error message
     if (this.vm.torrent.hasError()) {
-      Text(this.vm.torrent.errorString || 'Unknown error')
+      Text(this.vm.torrent.errorString || $r('app.string.torrent_error_unknown'))
         .fontSize(FontSize.SMALL)
         .fontColor(Colors.ERROR)
         .maxLines(2)
@@ -95,30 +96,30 @@ export struct TorrentCard {
     Row() {
       if (this.vm.torrent.isDownloading()) {
         StatChip({
-          label: '⬇ Download',
+          label: $r('app.string.torrent_stat_download'),
           value: formatSpeed(this.vm.torrent.rateDownload),
           color: Colors.DOWNLOAD,
         });
         StatChip({
-          label: 'ETA',
+          label: $r('app.string.torrent_stat_eta'),
           value: formatETA(this.vm.torrent.eta),
           color: Colors.TEXT,
         });
       }
       if (this.vm.torrent.isSeeding()) {
         StatChip({
-          label: '⬆ Upload',
+          label: $r('app.string.torrent_stat_upload'),
           value: formatSpeed(this.vm.torrent.rateUpload),
           color: Colors.SEED,
         });
       }
       StatChip({
-        label: 'Size',
+        label: $r('app.string.torrent_stat_size'),
         value: formatSize(this.vm.torrent.totalSize),
         color: Colors.TEXT,
       });
       StatChip({
-        label: 'Peers',
+        label: $r('app.string.torrent_stat_peers'),
         value: `${this.vm.torrent.peersConnected}`,
         color: Colors.TEXT,
       });
@@ -144,7 +145,7 @@ export struct TorrentCard {
       // Additional stats when expanded
       Row() {
         Column() {
-          Text('Downloaded')
+          Text($r('app.string.torrent_downloaded'))
             .fontSize(FontSize.SMALL)
             .fontColor(Colors.TEXT_TERTIARY);
           Text(formatSize(this.vm.torrent.downloadedEver))
@@ -155,7 +156,7 @@ export struct TorrentCard {
         }
 
         Column() {
-          Text('Uploaded')
+          Text($r('app.string.torrent_uploaded'))
             .fontSize(FontSize.SMALL)
             .fontColor(Colors.TEXT_TERTIARY);
           Text(formatSize(this.vm.torrent.uploadedEver))
@@ -166,7 +167,7 @@ export struct TorrentCard {
         }
 
         Column() {
-          Text('Progress')
+          Text($r('app.string.torrent_progress'))
             .fontSize(FontSize.SMALL)
             .fontColor(Colors.TEXT_TERTIARY);
           Text(`${Math.round(this.vm.torrent.percentComplete * 100)}%`)
@@ -183,14 +184,14 @@ export struct TorrentCard {
       // Action buttons
       Row() {
         if (this.vm.torrent.isStopped()) {
-          this.ActionButton('▶', 'Resume', this.onResume);
+          this.ActionButton('▶', $r('app.string.torrent_action_resume'), this.onResume);
         } else {
-          this.ActionButton('⏸', 'Pause', this.onPause);
+          this.ActionButton('⏸', $r('app.string.torrent_action_pause'), this.onPause);
         }
-        this.ActionButton('⟳', 'Reannounce', this.onReannounce);
-        this.ActionButton('✓', 'Verify', this.onVerify);
-        this.ActionButton('📁', 'Files', this.onShowFiles);
-        this.ActionButton('✕', 'Remove', this.onRemove);
+        this.ActionButton('⟳', $r('app.string.torrent_action_reannounce'), this.onReannounce);
+        this.ActionButton('✓', $r('app.string.torrent_action_verify'), this.onVerify);
+        this.ActionButton('📁', $r('app.string.torrent_action_files'), this.onShowFiles);
+        this.ActionButton('✕', $r('app.string.torrent_action_remove'), this.onRemove);
       }
       .width('100%')
       .justifyContent(FlexAlign.SpaceEvenly);
@@ -199,7 +200,7 @@ export struct TorrentCard {
   }
 
   @Builder
-  ActionButton(icon: string, label: string, action?: () => void) {
+  ActionButton(icon: string, label: ResourceStr, action?: () => void) {
     Column() {
       Text(icon)
         .fontSize(16)

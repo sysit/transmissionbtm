@@ -59,7 +59,7 @@ export struct ProxyPage {
   build() {
     Column() {
       // Page header
-      Text('Proxy')
+      Text($r('app.string.proxy_title'))
         .fontSize(FontSize.XL)
         .fontWeight(FontWeight.Bold)
         .fontColor(Colors.TEXT)
@@ -88,7 +88,7 @@ export struct ProxyPage {
         .width(40)
         .height(40)
         .color(Colors.DOWNLOAD);
-      Text('Loading proxy settings...')
+      Text($r('app.string.proxy_loading'))
         .fontSize(FontSize.CAPTION)
         .fontColor(Colors.TEXT_SECONDARY)
         .margin({ top: Spacing.MD });
@@ -102,10 +102,10 @@ export struct ProxyPage {
   BuildContent() {
     Column() {
       Column() {
-        SettingsGroup({ title: 'HTTP Proxy' }) {
+        SettingsGroup({ title: $r('app.string.proxy_section') }) {
           ToggleSetting({
-            label: 'Enable proxy',
-            description: 'Route BitTorrent traffic through proxy',
+            label: $r('app.string.proxy_enable'),
+            description: $r('app.string.proxy_enable_desc'),
             prefKey: PrefKeys.PROXY_ENABLED,
             checked: $proxyEnabled,
           });
@@ -116,7 +116,7 @@ export struct ProxyPage {
             // Host with validation hint
             Column() {
               EditSetting({
-                label: 'Host',
+                label: $r('app.string.proxy_host'),
                 hint: 'proxy.example.com',
                 prefKey: PrefKeys.PROXY_URL,
                 value: $proxyUrl,
@@ -127,7 +127,7 @@ export struct ProxyPage {
             // Port with validation hint
             Column() {
               EditSetting({
-                label: 'Port',
+                label: $r('app.string.proxy_port'),
                 hint: '8080',
                 prefKey: PrefKeys.PROXY_PORT,
                 value: $proxyPort,
@@ -140,22 +140,22 @@ export struct ProxyPage {
             this.BuildDivider();
 
             ToggleSetting({
-              label: 'Authentication',
-              description: 'Proxy requires username and password',
+              label: $r('app.string.settings_authentication'),
+              description: $r('app.string.proxy_auth_desc'),
               prefKey: PrefKeys.PROXY_AUTH_REQUIRED,
               checked: $proxyAuthRequired,
             });
 
             if (this.proxyAuthRequired) {
               EditSetting({
-                label: 'Username',
+                label: $r('app.string.settings_username'),
                 hint: 'user',
                 prefKey: PrefKeys.PROXY_USERNAME,
                 value: $proxyUsername,
               });
 
               EditSetting({
-                label: 'Password',
+                label: $r('app.string.settings_password'),
                 hint: 'password',
                 prefKey: PrefKeys.PROXY_PASSWORD,
                 value: $proxyPassword,
@@ -173,11 +173,11 @@ export struct ProxyPage {
       // Inactive state hint
       if (!this.proxyEnabled) {
         Column() {
-          Text('🔒  Proxy is disabled')
+          Text($r('app.string.proxy_disabled'))
             .fontSize(FontSize.CAPTION)
             .fontColor(Colors.TEXT_TERTIARY)
             .margin({ top: Spacing.XXL });
-          Text('Enable proxy above to configure')
+          Text($r('app.string.proxy_disabled_hint'))
             .fontSize(FontSize.SMALL)
             .fontColor(Colors.TEXT_TERTIARY)
             .margin({ top: Spacing.SM });

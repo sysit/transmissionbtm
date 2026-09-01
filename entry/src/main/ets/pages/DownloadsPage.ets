@@ -266,14 +266,14 @@ export struct DownloadsPage {
       hilog.info(0x0001, TAG, 'SaveToFiles: final copied=%{public}d', copied);
       promptAction.showToast({
         message: copied > 0
-          ? `已保存 ${copied} 个文件到 Download`
-          : '没有可复制的文件(尚未下载完成)',
+          ? $r('app.string.downloads_toast_saved', copied)
+          : $r('app.string.downloads_toast_no_files'),
         duration: 2000,
       });
     } catch (e) {
       hilog.error(0x0001, TAG, 'Save to Files failed: %{private}s', String(e));
       promptAction.showToast({
-        message: `保存失败: ${String(e)}`,
+        message: $r('app.string.downloads_toast_save_failed', String(e)),
         duration: 2000,
       });
     }
@@ -465,7 +465,7 @@ export struct DownloadsPage {
       return;
     }
     if (!target.startsWith(getContext(this).filesDir)) {
-      promptAction.showToast({ message: 'Move target must be inside the app sandbox', duration: 2000 });
+      promptAction.showToast({ message: $r('app.string.downloads_toast_move_sandbox'), duration: 2000 });
       return;
     }
     try {
@@ -477,11 +477,11 @@ export struct DownloadsPage {
       // '@Concurrent' table above).
       const ptr = NativeBridge.getInstance().getSessionPtr(this.controller.sessionId);
       await taskpool.execute(concurrentTorrentSetLocation, ptr, t.id, target);
-      promptAction.showToast({ message: '已移动下载位置', duration: 2000 });
+      promptAction.showToast({ message: $r('app.string.downloads_toast_moved'), duration: 2000 });
       this.controller.reload();
     } catch (e) {
       hilog.error(0x0001, TAG, 'Relocate failed: %{private}s', String(e));
-      promptAction.showToast({ message: `移动失败: ${String(e)}`, duration: 2000 });
+      promptAction.showToast({ message: $r('app.string.downloads_toast_move_failed', String(e)), duration: 2000 });
     }
   }
 
@@ -652,7 +652,7 @@ export struct DownloadsPage {
   @Builder
   buildHeader() {
     Row() {
-      Text('Downloads')
+      Text($r('app.string.downloads_title'))
         .fontSize(FontSize.TITLE)
         .fontWeight(FontWeight.Bold)
         .fontColor(Colors.TEXT)
@@ -690,7 +690,7 @@ export struct DownloadsPage {
         .width(40)
         .height(40)
         .color(Colors.DOWNLOAD);
-      Text('Loading torrents...')
+      Text($r('app.string.downloads_loading'))
         .fontSize(FontSize.CAPTION)
         .fontColor(Colors.TEXT_SECONDARY)
         .margin({ top: Spacing.MD });
@@ -705,8 +705,8 @@ export struct DownloadsPage {
     Column() {
       EmptyState({
         icon: '⬇',
-        title: 'No Torrents',
-        description: 'Tap the + button to add a torrent file or magnet link',
+        title: $r('app.string.downloads_empty_title'),
+        description: $r('app.string.downloads_empty_desc'),
       });
     }
     .width('100%')
@@ -813,13 +813,13 @@ export struct DownloadsPage {
         .onClick(() => { this.showRelocateDialog = false; });
 
       Column() {
-        Text('更改下载位置')
+        Text($r('app.string.downloads_relocate_title'))
           .fontSize(FontSize.HEADLINE)
           .fontWeight(FontWeight.Medium)
           .fontColor(Colors.TEXT)
           .margin({ bottom: Spacing.MD });
 
-        Text('输入应用沙箱内的新目录:')
+        Text($r('app.string.downloads_relocate_hint'))
           .fontSize(FontSize.SMALL)
           .fontColor(Colors.TEXT_SECONDARY)
           .width('100%')
@@ -834,7 +834,7 @@ export struct DownloadsPage {
           .width('100%')
           .onChange((value: string) => { this.relocateTarget = value; });
 
-        Button('移动')
+        Button($r('app.string.downloads_relocate_move'))
           .fontSize(FontSize.BODY)
           .fontColor('#ffffff')
           .backgroundColor(Colors.DOWNLOAD)
@@ -844,7 +844,7 @@ export struct DownloadsPage {
           .margin({ top: Spacing.LG })
           .onClick(() => { this.doRelocate(); });
 
-        Button('取消')
+        Button($r('app.string.common_cancel'))
           .fontSize(FontSize.BODY)
           .fontColor(Colors.TEXT_SECONDARY)
           .width('90%')
@@ -872,6 +872,11 @@ export struct DownloadsPage {
   // Summary helpers
   // ═══════════════════════════════════════════════════════════════════
 
+  /** Resolve a $r-created (optionally format-arg) resource to a display string. */
+  private lbl(res: Resource): string {
+    return getContext(this).resourceManager.getStringSync(res);
+  }
+
   private summaryText(): string {
     const count = this.torrents.length;
     let downloading = 0;
@@ -890,15 +895,16 @@ export struct DownloadsPage {
 
     const parts: string[] = [];
     if (downloading > 0) {
-      parts.push(`${downloading} downloading`);
+      parts.push(this.lbl($r('app.string.downloads_summary_downloading', downloading)));
     }
     if (seeding > 0) {
-      parts.push(`${seeding} seeding`);
+      parts.push(this.lbl($r('app.string.downloads_summary_seeding', seeding)));
     }
     if (paused > 0) {
-      parts.push(`${paused} paused`);
+      parts.push(this.lbl($r('app.string.downloads_summary_paused', paused)));
     }
-    return parts.length > 0 ? parts.join(' · ') : `${count} torrents`;
+    return parts.length > 0 ? parts.join(' · ')
+      : this.lbl($r('app.string.downloads_summary_all', count));
   }
 
   private speedSummaryText(): string {

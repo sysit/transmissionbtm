@@ -122,7 +122,7 @@ export struct FileTreePage {
         });
 
       // Torrent name
-      Text(this.torrentName || 'Files')
+      Text(this.torrentName || $r('app.string.filetree_title'))
         .fontSize(FontSize.TITLE)
         .fontWeight(FontWeight.Bold)
         .fontColor(Colors.TEXT)
@@ -142,7 +142,7 @@ export struct FileTreePage {
   @Builder
   buildSummaryBar() {
     Row() {
-      Text(`${this.fileCount} files`)
+      Text($r('app.string.filetree_file_count', this.fileCount))
         .fontSize(FontSize.SMALL)
         .fontColor(Colors.TEXT_TERTIARY)
         .fontFamily('JetBrains Mono');
@@ -172,7 +172,7 @@ export struct FileTreePage {
           .width(32)
           .height(32)
           .color(Colors.DOWNLOAD);
-        Text('Loading file list...')
+        Text($r('app.string.filetree_loading'))
           .fontSize(FontSize.CAPTION)
           .fontColor(Colors.TEXT_SECONDARY)
           .margin({ top: Spacing.MD });
@@ -185,7 +185,7 @@ export struct FileTreePage {
         Text('📂')
           .fontSize(48)
           .margin({ bottom: Spacing.LG });
-        Text('No files found')
+        Text($r('app.string.filetree_empty'))
           .fontSize(FontSize.BODY)
           .fontColor(Colors.TEXT_SECONDARY);
       }

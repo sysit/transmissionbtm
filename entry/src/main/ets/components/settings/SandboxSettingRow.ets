@@ -6,7 +6,7 @@ import { Colors, FontSize, Spacing } from '../../utils/constants';
 
 @Component
 export struct SandboxSettingRow {
-  @Prop label: string = '';
+  @Prop label: ResourceStr = '';
   @Prop value: string = '';
 
   build() {
