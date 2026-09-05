@@ -128,6 +128,33 @@ describe('TorrentInfo.fromNativeJson', () => {
   });
 });
 
+describe('TorrentInfo.getDisplayProgress', () => {
+  it('shows 100% for a finished-but-still-verifying torrent (percentComplete lags)', () => {
+    // status=1 (CHECK); progress=99 → percentComplete=0.99, but remaining=0
+    // → percentDone=1.0 (all bytes on disk, verifying). The "99% stall" case.
+    const info = TorrentInfo.fromStatArray(
+      [1, 1, 99, 100, 0, 200, 0, 0, 0, 0], 'verify.mkv', 'h1');
+    expect(info.percentComplete).toBe(0.99);
+    expect(info.percentDone).toBe(1.0);
+    expect(info.isFinished()).toBe(true);
+    expect(info.getDisplayProgress()).toBe(1.0);
+  });
+
+  it('shows true percent for a genuinely incomplete torrent', () => {
+    // remaining=1 → percentDone=0.99, progress=99 → percentComplete=0.99.
+    const info = TorrentInfo.fromStatArray(
+      [1, 1, 99, 100, 1, 200, 0, 0, 0, 0], 'incomplete.mkv', 'h2');
+    expect(info.isFinished()).toBe(false);
+    expect(info.getDisplayProgress()).toBe(0.99);
+  });
+
+  it('clamps to 100%, never exceeding 1.0', () => {
+    const seed = TorrentInfo.fromStatArray(
+      [1, 3, 100, 100, 0, 0, 0, 3, 1024, 0], 'seed.torrent', 'h3');
+    expect(seed.getDisplayProgress()).toBe(1.0);
+  });
+});
+
 describe('TorrentInfo serialization', () => {
   it('toJSON produces correct fields', () => {
     const info = TorrentInfo.fromStatArray([1, 2, 72, 1000, 280, 500, 3, 0, 1024, 512], 'test', 'hash');

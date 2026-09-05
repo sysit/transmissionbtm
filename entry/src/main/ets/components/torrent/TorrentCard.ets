@@ -72,7 +72,7 @@ export struct TorrentCard {
       this.vm.torrent.status === TorrentStatus.CHECK ||
       this.vm.torrent.isFinished()) {
       ProgressBar({
-        progress: this.vm.torrent.percentComplete,
+        progress: this.vm.torrent.getDisplayProgress(),
         color: this.vm.torrent.getStatusColor(),
         barHeight: 4,
         showLabel: true,
@@ -170,7 +170,7 @@ export struct TorrentCard {
           Text($r('app.string.torrent_progress'))
             .fontSize(FontSize.SMALL)
             .fontColor(Colors.TEXT_TERTIARY);
-          Text(`${Math.round(this.vm.torrent.percentComplete * 100)}%`)
+          Text(`${Math.round(this.vm.torrent.getDisplayProgress() * 100)}%`)
             .fontSize(FontSize.CAPTION)
             .fontColor(Colors.TEXT)
             .fontFamily('JetBrains Mono')

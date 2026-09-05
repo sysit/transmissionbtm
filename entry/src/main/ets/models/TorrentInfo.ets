@@ -277,6 +277,17 @@ export class TorrentInfo {
   }
 
   /**
+   * Progress to SHOW. percentComplete can lag during TR_STATUS_CHECK (the
+   * engine puts verify progress in arr[2], not download progress), but once
+   * percentDone is 1.0 the torrent has all wanted bytes on disk — so display a
+   * finished torrent as 100%, not a 99% stall. This is the "99% stall" display
+   * fix: a genuinely incomplete torrent still shows its true (sub-100) percent.
+   */
+  getDisplayProgress(): number {
+    return Math.min(Math.max(this.percentComplete, this.percentDone), 1.0);
+  }
+
+  /**
    * The 5-value stat array consolidates wait states into active statuses
    * (CHECK_WAIT→CHECK, DOWNLOAD_WAIT→DOWNLOAD, SEED_WAIT→SEED).
    * Queued status cannot be detected from the brief stat array alone.

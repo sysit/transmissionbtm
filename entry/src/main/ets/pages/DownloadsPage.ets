@@ -21,7 +21,7 @@ import { TorrentContextMenu, TorrentAction } from '../components/torrent/Torrent
 import { AddTorrentPage } from './AddTorrentPage';
 import { FileTreePage } from './FileTreePage';
 import { EmptyState } from '../components/ui/EmptyState';
-import { formatSpeed } from '../utils/format';
+import { formatSpeed, formatSize } from '../utils/format';
 import { Colors, FontSize, Spacing, Radius } from '../utils/constants';
 import { WakeLockManager } from '../services/WakeLockManager';
 import { ConnectivityMonitor } from '../services/ConnectivityMonitor';
@@ -84,6 +84,13 @@ export struct DownloadsPage {
   // Relocate dialog (Part B): show/hide + the target path typed by the user.
   @State showRelocateDialog: boolean = false;
   @State relocateTarget: string = '';
+  // Storage (sandbox usage + orphan cleanup) — latest download-dir usage, the
+  // orphan count, the bytes the pending orphan set would free, and the confirm
+  // dialog latch.
+  @State storageUsageBytes: number = 0;
+  @State storageOrphanCount: number = 0;
+  @State storageOrphanSize: number = 0;
+  @State showCleanOrphansDialog: boolean = false;
   // Owns the session lifecycle, 1s poll, D3 wake lock, D4 connectivity monitor,
   // and torrent CRUD. Wake lock + connectivity factory are supplied here (they
   // need device-only @kit modules); host tests omit them.
@@ -100,6 +107,8 @@ export struct DownloadsPage {
   private sessionDownloadDir: string = '';
   /** <filesDir>/transmissionbtm — libtransmission torrent/resume state dir. */
   private sessionSettingsDir: string = '';
+  /** Orphan paths pending confirmation for the clean dialog. */
+  private pendingOrphans: string[] = [];
   // B2 (codex P1): set in aboutToDisappear and checked after each await in
   // initSession, so an async start that outlives page teardown can't wire the
   // native session + 5s poll with no page left to stop it.
@@ -111,6 +120,7 @@ export struct DownloadsPage {
     this.controller.onTorrents = (list: TorrentInfo[]) => {
       this.torrents = list;
       this.syncTorrentVms(list);
+      this.computeStorage();
     };
     this.controller.onLoading = (loading: boolean) => { this.isLoading = loading; };
     this.initSession();
@@ -231,6 +241,163 @@ export struct DownloadsPage {
         // Torrent metainfo cleanup is best-effort — never break the remove.
       }
     }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Storage (sandbox usage display + orphan cleanup)
+  // ═══════════════════════════════════════════════════════════════════
+
+  /** Absolute download dir — the running session writes torrent data here. */
+  private storageRootDir(): string {
+    return `${getContext(this).filesDir}/downloads`;
+  }
+
+  /** Recursively sum the regular-file byte size under a path (dir walk is
+   *  metadata-only; statSync reads no file content, so it's cheap per poll). */
+  private dirSize(path: string): number {
+    let total = 0;
+    try {
+      if (!fs.accessSync(path)) {
+        return 0;
+      }
+      const st = fs.statSync(path);
+      if (st.isFile()) {
+        return st.size;
+      }
+      if (st.isDirectory()) {
+        const entries: string[] = fs.listFileSync(path);
+        for (let i = 0; i < entries.length; i++) {
+          const child: string = `${path}/${entries[i]}`;
+          if (!fs.accessSync(child)) {
+            continue;
+          }
+          const cst = fs.statSync(child);
+          if (cst.isFile()) {
+            total += cst.size;
+          } else if (cst.isDirectory()) {
+            total += this.dirSize(child);
+          }
+        }
+      }
+    } catch (e) {
+      hilog.warn(0x0001, TAG, 'dirSize failed: %{private}s', String(e));
+    }
+    return total;
+  }
+
+  /** Top-level download-dir entry names referenced by an active torrent.
+   *  libtransmission lays a torrent under the download dir as a flat single
+   *  file (name = file name) or a folder (name = torrent name), so the active
+   *  torrent names ARE the expected top-level entries; a name not in this set
+   *  is an orphan (left behind by a removed torrent). */
+  private referencedDownloadRoots(): Set<string> {
+    const set: Set<string> = new Set();
+    for (let i = 0; i < this.torrents.length; i++) {
+      const name: string = this.torrents[i].name;
+      if (name.length > 0) {
+        set.add(name);
+      }
+    }
+    return set;
+  }
+
+  /** Absolute paths of download-dir top-level entries NOT referenced by any
+   *  active torrent. The transient .incomplete dir is always excluded. */
+  private scanOrphanPaths(): string[] {
+    const orphans: string[] = [];
+    const root: string = this.storageRootDir();
+    try {
+      if (!fs.accessSync(root)) {
+        return orphans;
+      }
+      const referenced: Set<string> = this.referencedDownloadRoots();
+      const entries: string[] = fs.listFileSync(root);
+      for (let i = 0; i < entries.length; i++) {
+        const name: string = entries[i];
+        if (name === '.incomplete' || name === '.trash') {
+          continue;
+        }
+        if (referenced.has(name)) {
+          continue;
+        }
+        orphans.push(`${root}/${name}`);
+      }
+    } catch (e) {
+      hilog.warn(0x0001, TAG, 'scanOrphans failed: %{private}s', String(e));
+    }
+    return orphans;
+  }
+
+  /** Refresh the storage chip (usage + orphan count). Called per poll (dir
+   *  walk is metadata-only, so it's cheap even with many files). */
+  private computeStorage(): void {
+    this.storageUsageBytes = this.dirSize(this.storageRootDir());
+    this.storageOrphanCount = this.scanOrphanPaths().length;
+  }
+
+  /** Delete a file or directory tree. Never throws; best-effort per entry. */
+  private deleteRecursive(path: string): void {
+    try {
+      if (!fs.accessSync(path)) {
+        return;
+      }
+      const st = fs.statSync(path);
+      if (st.isFile() || st.isSymbolicLink()) {
+        fs.unlinkSync(path);
+        return;
+      }
+      if (st.isDirectory()) {
+        const entries: string[] = fs.listFileSync(path);
+        for (let i = 0; i < entries.length; i++) {
+          this.deleteRecursive(`${path}/${entries[i]}`);
+        }
+        try {
+          fs.rmdirSync(path);
+        } catch (e) {
+          // Best-effort: a leftover non-empty dir is not worth aborting the rest.
+        }
+      }
+    } catch (e) {
+      hilog.warn(0x0001, TAG, 'deleteRecursive failed: %{private}s', String(e));
+    }
+  }
+
+  /** On "Clean orphans" tap: if any orphans exist, size them and open confirm. */
+  private onCleanOrphansPress(): void {
+    const orphans: string[] = this.scanOrphanPaths();
+    if (orphans.length === 0) {
+      promptAction.showToast({
+        message: $r('app.string.downloads_storage_no_orphans'),
+        duration: 2000,
+      });
+      return;
+    }
+    this.pendingOrphans = orphans;
+    let size = 0;
+    for (let i = 0; i < orphans.length; i++) {
+      size += this.dirSize(orphans[i]);
+    }
+    this.storageOrphanSize = size;
+    this.showCleanOrphansDialog = true;
+  }
+
+  /** Delete the confirmed orphans, refresh the chip, and toast the result. */
+  private doCleanOrphans(): void {
+    const count: number = this.pendingOrphans.length;
+    let freed = 0;
+    for (let i = 0; i < count; i++) {
+      const p: string = this.pendingOrphans[i];
+      freed += this.dirSize(p);
+      this.deleteRecursive(p);
+    }
+    this.pendingOrphans = [];
+    this.showCleanOrphansDialog = false;
+    this.computeStorage();
+    promptAction.showToast({
+      message: this.lbl($r('app.string.downloads_storage_clean_done'),
+        count, formatSize(freed)),
+      duration: 2000,
+    });
   }
 
   private onVerify(t: TorrentInfo): void {
@@ -620,6 +787,7 @@ export struct DownloadsPage {
     Stack() {
       Column() {
         this.buildHeader();
+        this.buildStorageRow();
         this.buildContent();
         this.buildFAB();
       }
@@ -643,6 +811,11 @@ export struct DownloadsPage {
       // file://docs URI and is 2-in-1-only, so it can't supply a POSIX path).
       if (this.showRelocateDialog) {
         this.buildRelocateOverlay();
+      }
+
+      // Clean-orphans confirm overlay (storage management).
+      if (this.showCleanOrphansDialog) {
+        this.buildCleanOrphansOverlay();
       }
     }
     .width('100%')
@@ -853,6 +1026,86 @@ export struct DownloadsPage {
           .backgroundColor(Colors.ELEVATED)
           .margin({ top: Spacing.SM })
           .onClick(() => { this.showRelocateDialog = false; });
+      }
+      .width('90%')
+      .borderRadius(Radius.LG)
+      .backgroundColor(Colors.SURFACE)
+      .padding({ top: Spacing.LG, bottom: Spacing.LG, left: Spacing.LG, right: Spacing.LG });
+    }
+    .width('100%')
+    .height('100%')
+    .position({ x: 0, y: 0 });
+  }
+
+  @Builder
+  buildStorageRow() {
+    Row() {
+      Text($r('app.string.downloads_storage_usage'))
+        .fontSize(FontSize.SMALL)
+        .fontColor(Colors.TEXT_SECONDARY);
+
+      Text(formatSize(this.storageUsageBytes))
+        .fontSize(FontSize.SMALL)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(Colors.TEXT)
+        .fontFamily('JetBrains Mono')
+        .margin({ left: Spacing.SM });
+
+      Blank();
+
+      Text($r('app.string.downloads_storage_clean'))
+        .fontSize(FontSize.SMALL)
+        .fontWeight(this.storageOrphanCount > 0 ? FontWeight.Medium : FontWeight.Regular)
+        .fontColor(this.storageOrphanCount > 0 ? Colors.DOWNLOAD : Colors.TEXT_TERTIARY)
+        .padding({ left: Spacing.SM })
+        .onClick(() => { this.onCleanOrphansPress(); });
+    }
+    .width('100%')
+    .padding({ left: Spacing.LG, right: Spacing.LG, bottom: Spacing.SM });
+  }
+
+  @Builder
+  buildCleanOrphansOverlay() {
+    Stack() {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor('#00000080')
+        .onClick(() => { this.showCleanOrphansDialog = false; });
+
+      Column() {
+        Text($r('app.string.downloads_storage_clean_confirm_title'))
+          .fontSize(FontSize.HEADLINE)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(Colors.TEXT)
+          .margin({ bottom: Spacing.MD });
+
+        Text(this.lbl($r('app.string.downloads_storage_clean_confirm_msg'),
+          this.storageOrphanCount, formatSize(this.storageOrphanSize)))
+          .fontSize(FontSize.SMALL)
+          .fontColor(Colors.TEXT_SECONDARY)
+          .width('100%')
+          .margin({ bottom: Spacing.SM });
+
+        Button($r('app.string.downloads_storage_clean_confirm'))
+          .fontSize(FontSize.BODY)
+          .fontColor('#ffffff')
+          .backgroundColor(Colors.DOWNLOAD)
+          .width('90%')
+          .height(48)
+          .borderRadius(Radius.MD)
+          .margin({ top: Spacing.LG })
+          .onClick(() => { this.doCleanOrphans(); });
+
+        Button($r('app.string.common_cancel'))
+          .fontSize(FontSize.BODY)
+          .fontColor(Colors.TEXT_SECONDARY)
+          .width('90%')
+          .height(44)
+          .borderRadius(Radius.MD)
+          .backgroundColor(Colors.ELEVATED)
+          .margin({ top: Spacing.SM })
+          .onClick(() => { this.showCleanOrphansDialog = false; });
       }
       .width('90%')
       .borderRadius(Radius.LG)
