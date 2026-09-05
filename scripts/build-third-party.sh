@@ -378,6 +378,40 @@ with open("'"${src_dir}"'/libtransmission/variant.h", "w") as f:
 print("  variant.h patched successfully")
 '
 
+  # Patch rpcimpl.cc: register the tr_encryption_mode serializer in the SAME
+  # translation unit that reads it. The `encryption` session-get field is the only
+  # getter routed through Converters::serialize<tr_encryption_mode>(), which reads a
+  # lazily-populated static-inline `converter_storage<T>` registry. If that TU
+  # hasn't had ensure_default_converters() run, serialize<T>() falls through to its
+  # "no serializer registered" branch and emits `"encryption"` with no value →
+  # the web client's JSON.parse fails. (FIXED + on-device verified 2026-09-05.)
+  echo "  Patching rpcimpl.cc: ensure_default_converters() in sessionGet..."
+  python3 -c '
+src = "'"${src_dir}"'/libtransmission/rpcimpl.cc"
+with open(src, "r") as f:
+    content = f.read()
+
+if "Converters::ensure_default_converters" in content:
+    print("  rpcimpl.cc already patched, skipping")
+    exit(0)
+
+# Anchor on sessionGet() so we hit ITS accessors line, not the other callers.
+sig = "sessionGet("
+sig_idx = content.find(sig)
+assert sig_idx != -1, "rpcimpl.cc: sessionGet signature not found"
+anchor = "auto const& accessors = session_accessors();"
+idx = content.find(anchor, sig_idx)
+assert idx != -1, "rpcimpl.cc: sessionGet accessors line not found"
+eol = content.find("\n", idx)
+insert_at = eol + 1
+marker = "\n    libtransmission::serializer::Converters::ensure_default_converters();\n"
+content = content[:insert_at] + marker + content[insert_at:]
+
+with open(src, "w") as f:
+    f.write(content)
+print("  rpcimpl.cc patched successfully")
+'
+
   # Replace std::ranges::* / std::views::* / std::lexicographical_compare_three_way
   # with tr::* equivalents. The oh-compat.h header (force-included below) provides
   # C++17-based implementations of these missing C++20 features.
@@ -481,12 +515,23 @@ print(f"  Patched {count} files with compat shims")
 
   # Transmission 4.1 uses C++20 and 18 submodules.
   # We use the OH toolchain with explicit paths for prebuilt OpenSSL, curl, libevent.
-  # CMAKE_PREFIX_PATH is added so find_path/find_library can locate prebuilt libs
-  # despite the OH toolchain's CMAKE_FIND_ROOT_PATH_MODE=ONLY restriction.
+  # The OH toolchain sets CMAKE_FIND_ROOT_PATH_MODE=ONLY, so find_path/find_library
+  # ONLY search CMAKE_FIND_ROOT_PATH (not CMAKE_PREFIX_PATH). Add the third-party base
+  # to FIND_ROOT_PATH so find_package(CURL/OpenSSL/libevent) locates our prebuilt libs.
+  #
+  # NOTE: comment lines must NOT sit inside the backslash-continued cmake argument
+  # list — a `#` ends the logical line and silently drops every later -D flag. Keep
+  # all prose above the command.
+  #
+  # 4.1.0 has NO ENABLE_WEB option (inert residue from the ancestor port). The
+  # RPC/web server (libtransmission/rpc-server.cc) compiles unconditionally, so
+  # only REBUILD_WEB/INSTALL_WEB matter (and only for asset install, which we
+  # don't ship). Leave REBUILD_WEB=OFF; no public_html is packaged.
   "${OH_CMAKE}" "${src_dir}" \
     -DCMAKE_TOOLCHAIN_FILE="${OH_CMAKE_TOOLCHAIN}" \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX="${prefix}" \
+    -DCMAKE_FIND_ROOT_PATH="${THIRD_PARTY}" \
     -DCMAKE_PREFIX_PATH="${THIRD_PARTY}/openssl;${THIRD_PARTY}/curl;${THIRD_PARTY}/libevent" \
     -DENABLE_DAEMON=OFF \
     -DENABLE_GTK=OFF \
@@ -498,10 +543,6 @@ print(f"  Patched {count} files with compat shims")
     -DENABLE_UTILS=OFF \
     -DINSTALL_DOC=OFF \
     -DINSTALL_LIB=ON \
-    # 4.1.0 has NO ENABLE_WEB option (inert residue from the ancestor port). The
-    # RPC/web server (libtransmission/rpc-server.cc) compiles unconditionally, so
-    # only REBUILD_WEB/INSTALL_WEB matter (and only for asset install, which we
-    # don't ship). Leave REBUILD_WEB=OFF; no public_html is packaged.
     -DREBUILD_WEB=OFF \
     -DRUN_CLANG_TIDY=OFF \
     -DWITH_CRYPTO=openssl \
