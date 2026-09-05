@@ -573,6 +573,35 @@ static napi_value ListTorrentNames(napi_env env, napi_callback_info info) {
   return result;
 }
 
+// sessionSetWebClientDir — bundle the official Transmission web client.
+// The RPC server serves web UI (rpc-server.cc handle_web_client:422) from whatever
+// tr_getWebClientDir() resolves — a static one-shot cache (platform.cc:482). That
+// cache is first populated when the RPC server is constructed during tr_sessionInit,
+// so TRANSMISSION_WEB_HOME must be set BEFORE the first sessionStart. EntryAbility
+// extracts the bundled assets to <filesDir>/public_html then calls this to point the
+// engine at them. setenv is process-wide, so the value survives live RPC re-enables
+// (tr_sessionSet re-creates the RPC server but re-reads the cached dir).
+static napi_value SessionSetWebClientDir(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value args[1];
+  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+  if (argc < 1) {
+    napi_throw_type_error(env, nullptr, "Expected a path string");
+    return nullptr;
+  }
+
+  char *path = getStringUtf8(env, args[0]);
+  if (path != nullptr && path[0] != '\0') {
+    setenv("TRANSMISSION_WEB_HOME", path, 1);
+  }
+  free(path);
+
+  napi_value result;
+  napi_get_undefined(env, &result);
+  return result;
+}
+
 // ── Module registration ─────────────────────────────────────────────
 void RegisterTransmission(napi_env env, napi_value exports) {
   napi_property_descriptor desc[] = {
@@ -580,6 +609,7 @@ void RegisterTransmission(napi_env env, napi_value exports) {
     {"sessionStop",                 nullptr, SessionStop,                 nullptr, nullptr, nullptr, napi_default, nullptr},
     {"sessionSuspend",              nullptr, SessionSuspend,              nullptr, nullptr, nullptr, napi_default, nullptr},
     {"sessionSettingsUpdate",       nullptr, SessionSettingsUpdate,       nullptr, nullptr, nullptr, napi_default, nullptr},
+    {"sessionSetWebClientDir",      nullptr, SessionSetWebClientDir,      nullptr, nullptr, nullptr, napi_default, nullptr},
     {"hasDownloadingTorrents",      nullptr, HasDownloadingTorrents,      nullptr, nullptr, nullptr, napi_default, nullptr},
     {"listTorrentNames",            nullptr, ListTorrentNames,            nullptr, nullptr, nullptr, napi_default, nullptr}
   };

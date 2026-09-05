@@ -6,11 +6,27 @@
 import { UIAbility, Want, AbilityConstant } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
+import { fileIo as fs } from '@kit.CoreFileKit';
 import { PreferencesManager, PrefKeys } from '../models/Preferences';
 import { HukProxyCipher } from '../security/HukProxyCipher';
 import { Colors } from '../utils/constants';
+import { NativeBridge } from '../bridge/NativeBridge';
 
 const TAG = 'transmissionbtm';
+
+/** Bundled Transmission web-client asset: rawfile(src) → sandbox path(dst), where
+ *  dst is relative to <filesDir>/public_html. src paths are under resources/rawfile/web; */
+interface WebAsset { src: string; dst: string; }
+
+/** The official Transmission web client (web/public_html) to serve over RPC. */
+const WEB_CLIENT_ASSETS: WebAsset[] = [
+  { src: 'web/index.html', dst: 'index.html' },
+  { src: 'web/transmission-app.js', dst: 'transmission-app.js' },
+  { src: 'web/transmission-app.js.LICENSE.txt', dst: 'transmission-app.js.LICENSE.txt' },
+  { src: 'web/images/favicon.ico', dst: 'images/favicon.ico' },
+  { src: 'web/images/favicon.png', dst: 'images/favicon.png' },
+  { src: 'web/images/webclip-icon.png', dst: 'images/webclip-icon.png' },
+];
 
 /** Parsed external intent for torrent adding. */
 export interface TorrentIntent {
@@ -149,6 +165,70 @@ export default class EntryAbility extends UIAbility {
     hilog.info(0x0001, TAG, 'EntryAbility onDestroy');
   }
 
+  /**
+   * Extract the bundled official Transmission web client from resources/rawfile/web
+   * into <filesDir>/public_html, then point the engine at it via
+   * NativeBridge.sessionSetWebClientDir (sets TRANSMISSION_WEB_HOME). Must run before
+   * the first sessionStart: tr_getWebClientDir caches the dir on first use (during the
+   * RPC server's construction during tr_sessionInit), so the env var has to be set
+   * before any session init. Idempotent — if index.html already exists (a prior cold
+   * start) skip the copy and just (re)set the env var. Never fatal: the web UI is a
+   * nice-to-have, so a failure only disables the browser client.
+   */
+  private async setupWebClientDir(): Promise<void> {
+    try {
+      const filesDir = this.context.filesDir;
+      const webDir = `${filesDir}/public_html`;
+
+      if (!fs.accessSync(`${webDir}/index.html`)) {
+        const rm = this.context.resourceManager;
+        for (let i = 0; i < WEB_CLIENT_ASSETS.length; i++) {
+          const a = WEB_CLIENT_ASSETS[i];
+          const bytes = await rm.getRawFileContent(a.src);
+          const dest = `${webDir}/${a.dst}`;
+          this.mkdirRecursive(dest.substring(0, dest.lastIndexOf('/')));
+          const file = fs.openSync(dest,
+            fs.OpenMode.CREATE | fs.OpenMode.TRUNC | fs.OpenMode.WRITE_ONLY);
+          try {
+            // getRawFileContent returns a Uint8Array that may back a larger buffer;
+            // copy the exact byte range into a fresh ArrayBuffer for writeSync.
+            fs.writeSync(file.fd, bytes.buffer.slice(
+              bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+          } finally {
+            fs.closeSync(file.fd);
+          }
+        }
+      }
+
+      NativeBridge.getInstance().sessionSetWebClientDir(webDir);
+      hilog.info(0x0001, TAG, 'Web client dir: %{public}s', webDir);
+    } catch (err) {
+      hilog.error(0x0001, TAG,
+        'Web client extraction failed (web UI unavailable): %{private}s', String(err));
+    }
+  }
+
+  /** Create a nested directory chain at a physical path. fs.mkdirSync can throw
+   *  EEXIST on an existing dir, so create level-by-level and swallow the race.
+   *  Mirrors DownloadsPage.mkdirRecursive. */
+  private mkdirRecursive(dir: string): void {
+    if (!dir || fs.accessSync(dir)) {
+      return;
+    }
+    const segments = dir.split('/').filter((s: string) => s.length > 0);
+    let cur = '';
+    for (let i = 0; i < segments.length; i++) {
+      cur = `${cur}/${segments[i]}`;
+      try {
+        if (!fs.accessSync(cur)) {
+          fs.mkdirSync(cur);
+        }
+      } catch (e) {
+        // EEXIST from a concurrent creator, or a reserved/read-only base segment.
+      }
+    }
+  }
+
   async onWindowStageCreate(windowStage: window.WindowStage): Promise<void> {
     hilog.info(0x0001, TAG, 'EntryAbility onWindowStageCreate');
 
@@ -156,6 +236,11 @@ export default class EntryAbility extends UIAbility {
     // the user-chosen locale. A change made in Settings takes effect on next
     // launch because this runs on every fresh onCreate/onWindowStageCreate.
     await this.applyAppLanguage();
+
+    // Extract the bundled web client + set TRANSMISSION_WEB_HOME before loadContent
+    // so it is in place before any page can trigger the first sessionStart (and thus
+    // before the RPC server's one-shot web-dir cache resolves).
+    await this.setupWebClientDir();
 
     // Pin the system status/navigation bars to the app's dark theme. In a
     // non-full-screen window the system renders these bars and follows the

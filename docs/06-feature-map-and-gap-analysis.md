@@ -161,11 +161,11 @@ This document maps every feature of the transmissionbtm HarmonyOS BitTorrent cli
 | # | Feature | transmissionbtm | Priority | Notes |
 |---|---------|--------------|----------|-------|
 | 8.1 | Transmission RPC server | ✅ | **P0** | Local JSON-RPC (LAN + localhost). Opt-in via Settings toggle; `rpc-bind-address` editable (default 127.0.0.1). RPC server is unconditional in transmission 4.1 — no engine rebuild needed |
-| 8.2 | Web UI serving | ❌ | **P1** | No bundled `public_html` |
-| 8.3 | Alternative web UI | 🚫 | ~~P3~~ | **Deferred to v1.1+.** Standard UI sufficient |
+| 8.2 | Web UI serving | ✅ | **P1** | Official Transmission web client bundled (`resources/rawfile/web`), extracted to `<filesDir>/public_html` + `TRANSMISSION_WEB_HOME` set before first sessionStart; served at `http://<host>:<rpcPort>/transmission/web/` |
+| 8.3 | Alternative web UI | 🚫 | ~~P3~~ | **Deferred to v1.1+.** Official client sufficient |
 | 8.4 | RPC authentication | ✅ | **P1** | On by default (`rpcAuthentication: true`, fail-safe) + HUKS-encrypted password |
 | 8.5 | RPC whitelist | ✅ | **P1** | Access control (`enableRpcWhitelist`, default 127.0.0.1) |
-| 8.6 | Web UI button in app | ❌ | **P3** | Opens browser to RPC URL — still out (no bundled web UI) |
+| 8.6 | Web UI button in app | ❌ | **P3** | Opens browser to RPC URL — the official web client is now served, so this is just an entry-point shortcut; still out |
 
 ---
 

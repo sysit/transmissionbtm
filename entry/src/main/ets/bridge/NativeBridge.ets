@@ -114,6 +114,13 @@ export class NativeBridge {
     native.sessionSettingsUpdate(this.toPtr(sessionId), settingsJson);
   }
 
+  /** Point the engine at the bundled web UI (sets the TRANSMISSION_WEB_HOME env
+   *  var). Must be called BEFORE the first sessionStart, because tr_getWebClientDir
+   *  caches the dir on first use (during the RPC server's construction). */
+  sessionSetWebClientDir(path: string): void {
+    native.sessionSetWebClientDir(path);
+  }
+
   hasDownloadingTorrents(sessionId: number): boolean {
     return native.hasDownloadingTorrents(this.toPtr(sessionId));
   }

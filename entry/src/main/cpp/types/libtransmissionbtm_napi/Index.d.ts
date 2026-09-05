@@ -27,6 +27,10 @@ declare module 'libtransmissionbtm_napi.so' {
   function sessionStop(session: BigInt, configDir: string): void;
   function sessionSuspend(session: BigInt, suspend: boolean): void;
   function sessionSettingsUpdate(session: BigInt, settingsJson: string): void;
+  /** Point the engine at the bundled web UI before the first sessionStart.
+   *  Sets TRANSMISSION_WEB_HOME (a static one-shot cache in tr_getWebClientDir),
+   *  so call this before sessionStart. path = <filesDir>/public_html. */
+  function sessionSetWebClientDir(path: string): void;
   function hasDownloadingTorrents(session: BigInt): boolean;
   function listTorrentNames(session: BigInt): string[];
 
