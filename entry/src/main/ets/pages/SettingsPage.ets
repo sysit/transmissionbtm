@@ -466,30 +466,34 @@ export struct SettingsPage {
         valueType: 'string',
         optionValues: this.encryptionOptionValues,
       });
-      ToggleSetting({
-        label: $r('app.string.settings_utp'),
-        description: $r('app.string.settings_utp_desc'),
-        prefKey: PrefKeys.UTP_ENABLED,
-        checked: $utpEnabled,
-      });
-      ToggleSetting({
-        label: $r('app.string.settings_pex'),
-        description: $r('app.string.settings_pex_desc'),
-        prefKey: PrefKeys.PEX_ENABLED,
-        checked: $pexEnabled,
-      });
-      ToggleSetting({
-        label: $r('app.string.settings_dht'),
-        description: $r('app.string.settings_dht_desc'),
-        prefKey: PrefKeys.DHT_ENABLED,
-        checked: $dhtEnabled,
-      });
-      ToggleSetting({
-        label: $r('app.string.settings_lpd'),
-        description: $r('app.string.settings_lpd_desc'),
-        prefKey: PrefKeys.LPD_ENABLED,
-        checked: $lpdEnabled,
-      });
+      // Protocol toggles — 4 short toggles packed 2-per-row to cut vertical height.
+      Row() {
+        ToggleSetting({
+          label: $r('app.string.settings_utp'),
+          prefKey: PrefKeys.UTP_ENABLED,
+          checked: $utpEnabled,
+        }).layoutWeight(1);
+        ToggleSetting({
+          label: $r('app.string.settings_pex'),
+          prefKey: PrefKeys.PEX_ENABLED,
+          checked: $pexEnabled,
+        }).layoutWeight(1);
+      }
+      .width('100%');
+
+      Row() {
+        ToggleSetting({
+          label: $r('app.string.settings_dht'),
+          prefKey: PrefKeys.DHT_ENABLED,
+          checked: $dhtEnabled,
+        }).layoutWeight(1);
+        ToggleSetting({
+          label: $r('app.string.settings_lpd'),
+          prefKey: PrefKeys.LPD_ENABLED,
+          checked: $lpdEnabled,
+        }).layoutWeight(1);
+      }
+      .width('100%');
       ToggleSetting({
         label: $r('app.string.settings_wifi_only'),
         description: $r('app.string.settings_wifi_only_desc'),
