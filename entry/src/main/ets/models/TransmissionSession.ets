@@ -92,8 +92,9 @@ export class TransmissionSession {
    *   - includeCore=true : adds download-dir + encryption so updateSettings()
    *     can re-apply the whole config to a RUNNING session via tr_sessionSet,
    *     where no native args exist to cover them.
-   * rpc-* keys stay excluded in both — RPC is session-critical internal config
-   * (init-only), not a user-editable live setting here.
+   * rpc-* keys are emitted only on the live path (includeCore=true): sessionStart
+   * receives them as explicit native args that override any JSON there, so the
+   * init path keeps buildSettingsJson free of them to avoid double-setting.
    */
   private buildSettingsObject(
     config: SessionConfig, includeCore: boolean
@@ -151,6 +152,24 @@ export class TransmissionSession {
     if (includeCore) {
       s['download-dir'] = config.downloadDir;
       s['encryption'] = this.encrModeNumber(config);
+      // RPC is start-time config via explicit native args, so the init path
+      // (includeCore=false) never emits these; on the live path we re-apply
+      // them so a running session's RPC binds/could-be-flipped without restart.
+      if (config.enableRpc) {
+        s['rpc-enabled'] = true;
+        s['rpc-port'] = config.rpcPort;
+        s['rpc-username'] = config.rpcUsername;
+        s['rpc-password'] = config.rpcPassword;
+        s['rpc-authentication-required'] = config.rpcAuthentication;
+        if (config.enableRpcWhitelist) {
+          s['rpc-whitelist'] = config.rpcWhitelist;
+          s['rpc-whitelist-enabled'] = true;
+        } else {
+          s['rpc-whitelist-enabled'] = false;
+        }
+      } else {
+        s['rpc-enabled'] = false;
+      }
     }
     return s;
   }

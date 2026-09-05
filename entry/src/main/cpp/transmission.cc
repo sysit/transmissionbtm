@@ -105,12 +105,6 @@ static void altSpeedFunc(tr_session* /*session*/, bool /*active*/, bool user_dri
 
 extern "C" {
 
-// ── transmissionVersion ─────────────────────────────────────────────
-static napi_value TransmissionVersion(napi_env env, napi_callback_info info) {
-  (void)info;
-  return newStringUtf8(env, SHORT_VERSION_STRING);
-}
-
 // ── sessionStart ────────────────────────────────────────────────────
 static napi_value SessionStart(napi_env env, napi_callback_info info) {
   size_t argc = 11;
@@ -195,6 +189,21 @@ static napi_value SessionStart(napi_env env, napi_callback_info info) {
     free(settingsJson);
   }
 
+  // 4.1 quirk: settingsJson ships kebab keys ("rpc-bind-address"), but
+  // rpc_server.cc load() reads the canonical snake quarks (TR_KEY_rpc_bind_address
+  // = "rpc_bind_address" — a distinct quark, bridged only by api-compat). So the
+  // kebab value never reaches the Field → bind falls back to 0.0.0.0. Re-home the
+  // kebab JSON value onto the snake key the Field actually reads.
+  if (auto kit = map.find(TR_KEY_rpc_bind_address_kebab_APICOMPAT); kit != map.end()) {
+    if (auto sv = kit->second.value_if<std::string_view>()) {
+      if (!sv->empty()) {
+        map[TR_KEY_rpc_bind_address] = tr_variant{std::string(*sv)};
+      }
+    }
+  } else {
+    // No kebab value → keep the engine default (0.0.0.0) unless already set.
+  }
+
   // Note: the bundled libcurl has no OS CA store (native
   // libcurl on Android/HarmonyOS can't reach the system trust store), so HTTPS
   // tracker announces fail TLS with "Could not connect to tracker" (rc=60
@@ -248,6 +257,28 @@ static napi_value SessionStart(napi_env env, napi_callback_info info) {
     free(configDir); free(downloadsDir); free(username); free(password); free(rpcWhitelist);
     napi_throw_error(env, nullptr, "Failed to initialize transmission session");
     return nullptr;
+  }
+  // RPC (task #87, follow-ups): the settings dict carries the rpc-* values, but
+  // this 4.1.0 build drops the rpc-* BOOLS on the dict→Settings path (verified on
+  // emulator 2026-09-05: map.rpc-enabled=true yet rpc_server::Settings{} reads
+  // is_enabled=false, authentication_required=false), so dict-alone never starts
+  // the listener — hence the port never binds. The STRING fields (whitelist/
+  // username/password) DO survive the merge; assert the booleans + creds via the C
+  // setters (they drive settings_ directly), clear any stale httpd (a disk
+  // settings.json with rpc-enabled:true could have bound at init), then enable
+  // LAST so start_server rebinds. Note the bind address has NO runtime setter and
+  // the kebab→snake re-home (lines 204-212) does not surface in Load(), so the
+  // listener always binds 0.0.0.0 (all interfaces = LAN + loopback reachable);
+  // access is gated by whitelist + auth, not by the bind field.
+  if (enableRpc) {
+    tr_sessionSetRPCPort(session, (uint16_t)rpcPort);
+    tr_sessionSetRPCWhitelist(session, rpcWhitelist ? rpcWhitelist : "127.0.0.1");
+    tr_sessionSetRPCWhitelistEnabled(session, enableRpcWhitelist);
+    tr_sessionSetRPCUsername(session, username ? username : "");
+    tr_sessionSetRPCPassword(session, password ? password : "");
+    tr_sessionSetRPCPasswordEnabled(session, enableAuth);
+    tr_sessionSetRPCEnabled(session, false);  // clear any stale httpd from init
+    tr_sessionSetRPCEnabled(session, true);   // start server → binds dict-loaded bind_address_
   }
   // R7 + codex review: strip proxy/RPC credentials from the settings snapshot
   // before persisting. The live session keeps the proxy (applied at init, above);
@@ -542,42 +573,15 @@ static napi_value ListTorrentNames(napi_env env, napi_callback_info info) {
   return result;
 }
 
-// ── getEncryptionMode ───────────────────────────────────────────────
-typedef struct { int32_t mode; } EncryptionData;
-static void *transmissionGetEncryptionFunc(tr_session *session, void *data, Err *err) {
-  (void)err;
-  auto *ed = (EncryptionData *) data;
-  ed->mode = (int32_t) tr_sessionGetEncryption(session);
-  return nullptr;
-}
-
-static napi_value GetEncryptionMode(napi_env env, napi_callback_info info) {
-  size_t argc = 1;
-  napi_value args[1];
-  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-
-  if (argc < 1) {
-    napi_throw_error(env, nullptr, "Expected 1 argument: session");
-    return nullptr;
-  }
-  EncryptionData d = {0};
-  runInTransmissionThread(__FILE__, __LINE__, env, args[0], transmissionGetEncryptionFunc, &d);
-  napi_value result;
-  napi_create_int32(env, d.mode, &result);
-  return result;
-}
-
 // ── Module registration ─────────────────────────────────────────────
 void RegisterTransmission(napi_env env, napi_value exports) {
   napi_property_descriptor desc[] = {
-    {"transmissionVersion",         nullptr, TransmissionVersion,         nullptr, nullptr, nullptr, napi_default, nullptr},
     {"sessionStart",                nullptr, SessionStart,                nullptr, nullptr, nullptr, napi_default, nullptr},
     {"sessionStop",                 nullptr, SessionStop,                 nullptr, nullptr, nullptr, napi_default, nullptr},
     {"sessionSuspend",              nullptr, SessionSuspend,              nullptr, nullptr, nullptr, napi_default, nullptr},
     {"sessionSettingsUpdate",       nullptr, SessionSettingsUpdate,       nullptr, nullptr, nullptr, napi_default, nullptr},
     {"hasDownloadingTorrents",      nullptr, HasDownloadingTorrents,      nullptr, nullptr, nullptr, napi_default, nullptr},
-    {"listTorrentNames",            nullptr, ListTorrentNames,            nullptr, nullptr, nullptr, napi_default, nullptr},
-    {"getEncryptionMode",           nullptr, GetEncryptionMode,           nullptr, nullptr, nullptr, napi_default, nullptr}
+    {"listTorrentNames",            nullptr, ListTorrentNames,            nullptr, nullptr, nullptr, napi_default, nullptr}
   };
   napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);
 }

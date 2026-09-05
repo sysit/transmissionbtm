@@ -80,6 +80,8 @@ export struct SettingsPage {
   @State rpcAuthentication: boolean = defaultSessionConfig().rpcAuthentication;
   @State rpcUsername: string = defaultSessionConfig().rpcUsername;
   @State rpcPassword: string = defaultSessionConfig().rpcPassword;
+  @State rpcWhitelist: string = defaultSessionConfig().rpcWhitelist;
+  @State rpcWhitelistEnabled: boolean = defaultSessionConfig().enableRpcWhitelist;
 
   // ── Seeding ────────────────────────────────────────────────────
   @State seedRatioLimited: boolean = defaultSessionConfig().seedRatioLimited;
@@ -157,6 +159,8 @@ export struct SettingsPage {
       this.rpcAuthentication = await pm.getBoolean(PrefKeys.RPC_AUTHENTICATION, this.rpcAuthentication);
       this.rpcUsername = await pm.getString(PrefKeys.RPC_USERNAME, this.rpcUsername);
       this.rpcPassword = await pm.getString(PrefKeys.RPC_PASSWORD, this.rpcPassword);
+      this.rpcWhitelist = await pm.getString(PrefKeys.RPC_WHITELIST, this.rpcWhitelist);
+      this.rpcWhitelistEnabled = await pm.getBoolean(PrefKeys.ENABLE_RPC_WHITELIST, this.rpcWhitelistEnabled);
 
       // Seeding
       this.seedRatioLimited = await pm.getBoolean(PrefKeys.SEED_RATIO_LIMITED, this.seedRatioLimited);
@@ -568,6 +572,20 @@ export struct SettingsPage {
             prefKey: PrefKeys.RPC_PASSWORD,
             value: $rpcPassword,
             inputType: InputType.Password,
+          });
+        }
+        ToggleSetting({
+          label: $r('app.string.settings_rpc_whitelist_enabled'),
+          description: $r('app.string.settings_rpc_whitelist_enabled_desc'),
+          prefKey: PrefKeys.ENABLE_RPC_WHITELIST,
+          checked: $rpcWhitelistEnabled,
+        });
+        if (this.rpcWhitelistEnabled) {
+          EditSetting({
+            label: $r('app.string.settings_rpc_whitelist'),
+            hint: $r('app.string.settings_rpc_whitelist_hint'),
+            prefKey: PrefKeys.RPC_WHITELIST,
+            value: $rpcWhitelist,
           });
         }
       }

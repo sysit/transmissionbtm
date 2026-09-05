@@ -29,9 +29,9 @@
 | # | 事项 | 为什么 | 位置 | 状态 |
 |---|------|--------|------|------|
 | A1 | **git init + 首次提交** | 当前零版本控制，任何改动不可回退 | 根目录 | ✅ `0aa0aa0` |
-| A2 | **默认 `enableRpc=false`** | 无 Web 前端、无 Web 组件可打开；监听 9091 白担风险；白名单一旦放宽到局域网 + 无认证 = 局域网内可控 | `SessionConfig.ets:78` | ✅ `0aa0aa0` |
+| A2 | **默认 `enableRpc=false`** | 无 Web 前端、无 Web 组件可打开；监听 9091 白担风险；白名单一旦放宽到局域网 + 无认证 = 局域网内可控。保持默认关闭（opt-in），开启后鉴权默认 `true`（fail-safe） | `SessionConfig.ets:78` | ✅ `0aa0aa0` |
 | A3 | **移除 EntryAbility 服务启动调用** | `TransmissionService` 已从 module.json5 移除，每次启动必然静默失败 | `EntryAbility.ets:107` | ✅ `0aa0aa0` |
-| A4 | RPC 设置 UI 与能力对齐 | SettingsPage 有完整 RPC 组（端口/白名单/认证）但能力不存在，属空壳 | SettingsPage | ✅ `0aa0aa0` |
+| A4 | RPC 设置 UI 与能力对齐 | ~~SettingsPage 完整 RPC 组（端口/白名单/认证）但能力不存在，属空壳~~ —— 已启用本地 JSON-RPC（transmission 4.1 RPC server 无条件编译，无需重建引擎）；能力与 UI 已对齐，**该事项已消除** | SettingsPage + SessionConfig | ✅ 已解决（2026-09-05 启用 `rpcBindAddress`/auth 默认 true） |
 
 ## 阶段 B — 架构修复（结构性，最高优先）
 

@@ -47,11 +47,11 @@ export interface SessionConfig {
   seedRatioLimited: boolean;
   idleSeedingLimit: number;
   idleSeedingLimitEnabled: boolean;
-// Session-critical (not exposed in UI)
+// RPC opt-in gate — Settings exposes a toggle for enableRpc (JSON-RPC control
+// endpoint) and a whitelist toggle/address edit. Off by default (no bundled web
+// UI), so 9091 only opens once the user flips the enable RPC toggle.
   enableRpc: boolean;
   enableRpcWhitelist: boolean;
-  increaseSoBuf: boolean;
-  enableSeqDownload: boolean;
   settingsDir: string;
 }
 
@@ -60,7 +60,7 @@ export function defaultSessionConfig(): SessionConfig {
     downloadDir: '/storage/downloads',
     incompleteDir: '/storage/downloads/.incomplete',
     peerPort: 51413, rpcPort: 9091,
-    rpcWhitelist: '127.0.0.1', rpcAuthentication: false,
+    rpcWhitelist: '127.0.0.1', rpcAuthentication: true,
     rpcUsername: '', rpcPassword: '',
     speedLimitDown: 0, speedLimitUp: 0,
     speedLimitDownEnabled: false, speedLimitUpEnabled: false,
@@ -75,11 +75,11 @@ export function defaultSessionConfig(): SessionConfig {
     blocklistEnabled: false, blocklistUrl: '',
     seedRatioLimit: 2.0, seedRatioLimited: false,
     idleSeedingLimit: 30, idleSeedingLimitEnabled: false,
-    // RPC listener is disabled by default: no web UI exists (ENABLE_WEB=OFF),
-    // so binding 9091 only exposes an unauthenticated control surface.
-    // See docs/11 A2. D7 (web control) would re-enable with auth.
+    // RPC listener is disabled by default (opt-in): no web UI exists, so 9091
+    // only opens after the user flips enableRpc. When enabled, auth defaults ON
+    // (fail-safe) and the bind address is honored by the engine (loopback
+    // 127.0.0.1 by default; the user sets 0.0.0.0 for LAN). See docs/11 A2/D7.
     enableRpc: false, enableRpcWhitelist: true,
-    increaseSoBuf: true, enableSeqDownload: false,
     settingsDir: '/storage/transmission',
   };
 }

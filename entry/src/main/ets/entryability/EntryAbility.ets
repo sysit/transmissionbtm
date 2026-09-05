@@ -8,6 +8,7 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
 import { PreferencesManager, PrefKeys } from '../models/Preferences';
 import { HukProxyCipher } from '../security/HukProxyCipher';
+import { Colors } from '../utils/constants';
 
 const TAG = 'transmissionbtm';
 
@@ -156,6 +157,14 @@ export default class EntryAbility extends UIAbility {
     // launch because this runs on every fresh onCreate/onWindowStageCreate.
     await this.applyAppLanguage();
 
+    // Pin the system status/navigation bars to the app's dark theme. In a
+    // non-full-screen window the system renders these bars and follows the
+    // SYSTEM theme, so an always-dark app would show a light bar band + dark
+    // icons on light-theme devices (the review nit "状态栏对比度/适配"). Color
+    // them to match Colors.BG with light icons — content is already auto-inset
+    // below the status bar, so no avoid-area underlap work is needed here.
+    // Applied AFTER loadContent so Navigation's own page-level SystemBar init
+    // (which clears these) can't stomp our values.
     windowStage.loadContent('pages/Index', (err) => {
       if (err.code) {
         hilog.error(0x0001, TAG,
@@ -163,7 +172,33 @@ export default class EntryAbility extends UIAbility {
         return;
       }
       hilog.info(0x0001, TAG, 'Succeeded in loading the content.');
+      this.applyStatusBarTheme(windowStage);
     });
+  }
+
+  /**
+   * Pin the system status/navigation bars to the app's dark theme. The app's
+   * palette is always dark (Colors.BG), but a non-full-screen window renders the
+   * status/nav bars via the SYSTEM theme — on a light-theme device that yields a
+   * light band + dark icons over the dark app, a HarmonyOS UX-compliance nit.
+   * Setting the bar colors to Colors.BG with light content keeps it seamless on
+   * every device theme. Content is already auto-inset below the status bar, so
+   * no avoid-area underlap handling is required here.
+   */
+  private async applyStatusBarTheme(windowStage: window.WindowStage): Promise<void> {
+    try {
+      const win = windowStage.getMainWindowSync();
+      await win.setWindowSystemBarProperties({
+        statusBarColor: Colors.BG,          // status band matches app surface
+        statusBarContentColor: Colors.TEXT, // light icons on dark
+        navigationBarColor: Colors.BG,
+        navigationBarContentColor: Colors.TEXT,
+      });
+      hilog.info(0x0001, TAG, 'Status/navigation bar theme applied (dark).');
+    } catch (err) {
+      hilog.error(0x0001, TAG,
+        'setWindowSystemBarProperties failed: %{public}s', String(err));
+    }
   }
 
   onWindowStageDestroy(): void {

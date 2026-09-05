@@ -15,8 +15,6 @@
 
 // ── Submodule declarations (extern "C", defined in respective .cc files) ──
 extern "C" {
-void RegisterHash(napi_env env, napi_value exports);
-void RegisterEnv(napi_env env, napi_value exports);
 void RegisterCurl(napi_env env, napi_value exports);
 void RegisterNativeToArkts(napi_env env, napi_value exports);
 void RegisterCommons(napi_env env, napi_value exports);
@@ -51,8 +49,6 @@ static napi_value Init(napi_env env, napi_value exports) {
   }
 
   // Submodules (each Register* adds its functions to exports)
-  RegisterEnv(env, exports);
-  RegisterHash(env, exports);
   RegisterCurl(env, exports);
   RegisterNativeToArkts(env, exports);
   RegisterCommons(env, exports);

@@ -34,12 +34,12 @@ describe('defaultSessionConfig', () => {
   });
 
   it('has correct RPC defaults', () => {
-    // RPC listener is off by default: no web UI (ENABLE_WEB=OFF), so binding
-    // 9091 only exposes an unauthenticated control surface (SessionConfig.ets).
+    // RPC listener is off by default: no bundled web UI, so binding 9091 is an
+    // opt-in via the Settings toggle (SessionConfig.ets).
     expect(cfg.enableRpc).toBe(false);
     expect(cfg.enableRpcWhitelist).toBe(true);
     expect(cfg.rpcWhitelist).toBe('127.0.0.1');
-    expect(cfg.rpcAuthentication).toBe(false);
+    expect(cfg.rpcAuthentication).toBe(true);
     expect(cfg.rpcUsername).toBe('');
     expect(cfg.rpcPassword).toBe('');
   });
@@ -88,8 +88,6 @@ describe('defaultSessionConfig', () => {
   });
 
   it('has correct advanced defaults', () => {
-    expect(cfg.increaseSoBuf).toBe(true);
-    expect(cfg.enableSeqDownload).toBe(false);
     expect(cfg.settingsDir).toBe('/storage/transmission');
   });
 

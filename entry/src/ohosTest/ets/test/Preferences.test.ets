@@ -74,12 +74,10 @@ export default function preferencesTest(): void {
     it('has_all_session_critical_keys', 0, (): void => {
       expect(PrefKeys.ENABLE_RPC).assertEqual('enable_rpc');
       expect(PrefKeys.ENABLE_RPC_WHITELIST).assertEqual('enable_rpc_whitelist');
-      expect(PrefKeys.INCREASE_SO_BUF).assertEqual('increase_so_buf');
-      expect(PrefKeys.ENABLE_SEQ_DOWNLOAD).assertEqual('enable_seq_download');
       expect(PrefKeys.SETTINGS_DIR).assertEqual('settings_dir');
     });
 
-    it('has_exactly_45_keys_total', 0, (): void => {
+    it('has_exactly_43_keys_total', 0, (): void => {
       // Count all static readonly string properties on PrefKeys.
       // This test verifies no keys were accidentally added or removed.
       const keys: string[] = [
@@ -125,17 +123,15 @@ export default function preferencesTest(): void {
         PrefKeys.IDLE_SEEDING_LIMIT_ENABLED,
         PrefKeys.ENABLE_RPC,
         PrefKeys.ENABLE_RPC_WHITELIST,
-        PrefKeys.INCREASE_SO_BUF,
-        PrefKeys.ENABLE_SEQ_DOWNLOAD,
         PrefKeys.SETTINGS_DIR,
       ];
-      expect(keys.length).assertEqual(45);
+      expect(keys.length).assertEqual(43);
       // Verify all keys are unique (no duplicates).
       const unique: Set<string> = new Set();
       for (let i = 0; i < keys.length; i++) {
         unique.add(keys[i]);
       }
-      expect(unique.size).assertEqual(45);
+      expect(unique.size).assertEqual(43);
     });
 
     it('pref_key_names_use_snake_case', 0, (): void => {

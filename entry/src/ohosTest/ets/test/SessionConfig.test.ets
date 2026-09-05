@@ -27,7 +27,7 @@ export default function sessionConfigTest(): void {
       expect(config.peerPort).assertEqual(51413);
       expect(config.rpcPort).assertEqual(9091);
       expect(config.rpcWhitelist).assertEqual('127.0.0.1');
-      expect(config.rpcAuthentication).assertFalse();
+      expect(config.rpcAuthentication).assertTrue();
       expect(config.rpcUsername).assertEqual('');
       expect(config.rpcPassword).assertEqual('');
       expect(config.peerLimitGlobal).assertEqual(200);
@@ -83,14 +83,11 @@ export default function sessionConfigTest(): void {
 
     it('returns_valid_session_critical_defaults', 0, (): void => {
       const config: SessionConfig = defaultSessionConfig();
-      // A2 (docs/11): RPC listener off by default — no web UI exists
-      // (ENABLE_WEB=OFF), so binding 9091 only exposes an unauthenticated
-      // control surface. The whitelist stays on so a future D7 (web control)
+      // RPC listener off by default — no bundled web UI, so 9091 is an opt-in
+      // via the Settings toggle. The whitelist stays on so a future web-control
       // opt-in binds to 127.0.0.1.
       expect(config.enableRpc).assertFalse();
       expect(config.enableRpcWhitelist).assertTrue();
-      expect(config.increaseSoBuf).assertTrue();
-      expect(config.enableSeqDownload).assertFalse();
       expect(config.settingsDir).assertEqual('/storage/transmission');
     });
 
@@ -165,8 +162,6 @@ export default function sessionConfigTest(): void {
         idleSeedingLimitEnabled: true,
         enableRpc: true,
         enableRpcWhitelist: false,
-        increaseSoBuf: true,
-        enableSeqDownload: false,
         settingsDir: '/test/transmission',
       };
       expect(config.downloadDir).assertEqual('/test/dl');

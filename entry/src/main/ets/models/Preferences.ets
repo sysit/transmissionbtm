@@ -94,11 +94,9 @@ export class PrefKeys {
   static readonly IDLE_SEEDING_LIMIT: string = 'idle_seeding_limit';
   static readonly IDLE_SEEDING_LIMIT_ENABLED: string = 'idle_seeding_limit_enabled';
 
-// Session-critical (not exposed in UI)
+// Session-critical (exposed in Settings → Remote Control group)
   static readonly ENABLE_RPC: string = 'enable_rpc';
   static readonly ENABLE_RPC_WHITELIST: string = 'enable_rpc_whitelist';
-  static readonly INCREASE_SO_BUF: string = 'increase_so_buf';
-  static readonly ENABLE_SEQ_DOWNLOAD: string = 'enable_seq_download';
   static readonly SETTINGS_DIR: string = 'settings_dir';
 }
 
@@ -217,8 +215,6 @@ export class PreferencesManager {
       [PrefKeys.IDLE_SEEDING_LIMIT_ENABLED, defaults.idleSeedingLimitEnabled],
       [PrefKeys.ENABLE_RPC, defaults.enableRpc],
       [PrefKeys.ENABLE_RPC_WHITELIST, defaults.enableRpcWhitelist],
-      [PrefKeys.INCREASE_SO_BUF, defaults.increaseSoBuf],
-      [PrefKeys.ENABLE_SEQ_DOWNLOAD, defaults.enableSeqDownload],
       [PrefKeys.WIFI_ONLY, false],
       [PrefKeys.PRIVACY_ACCEPTED, false],
     ];
@@ -319,7 +315,8 @@ export class PreferencesManager {
       if (key === PrefKeys.PROXY_PASSWORD || key === PrefKeys.RPC_PASSWORD) {
         // Decrypt the stored envelope. Legacy plaintext (no huk1: prefix) is
         // returned as-is. A broken envelope decrypts to null → fall back to def
-        // (an unset password) rather than surfacing ciphertext to the UI.
+        // (an unset password) rather than surfacing ciphertext to the UI. Both
+        // credentials are encrypted at rest; RPC is not plaintext-special-cased.
         return await this.passwordCipher.decrypt(raw) ?? def;
       }
       return raw;
@@ -480,8 +477,6 @@ export class PreferencesManager {
         idleSeedingLimitEnabled: await this.getBoolean(PrefKeys.IDLE_SEEDING_LIMIT_ENABLED, defs.idleSeedingLimitEnabled),
         enableRpc: await this.getBoolean(PrefKeys.ENABLE_RPC, defs.enableRpc),
         enableRpcWhitelist: await this.getBoolean(PrefKeys.ENABLE_RPC_WHITELIST, defs.enableRpcWhitelist),
-        increaseSoBuf: await this.getBoolean(PrefKeys.INCREASE_SO_BUF, defs.increaseSoBuf),
-        enableSeqDownload: await this.getBoolean(PrefKeys.ENABLE_SEQ_DOWNLOAD, defs.enableSeqDownload),
         settingsDir: await this.getString(PrefKeys.SETTINGS_DIR, defs.settingsDir),
       };
     } catch (err) {
@@ -536,8 +531,6 @@ export class PreferencesManager {
       await store.put(PrefKeys.IDLE_SEEDING_LIMIT_ENABLED, config.idleSeedingLimitEnabled);
       await store.put(PrefKeys.ENABLE_RPC, config.enableRpc);
       await store.put(PrefKeys.ENABLE_RPC_WHITELIST, config.enableRpcWhitelist);
-      await store.put(PrefKeys.INCREASE_SO_BUF, config.increaseSoBuf);
-      await store.put(PrefKeys.ENABLE_SEQ_DOWNLOAD, config.enableSeqDownload);
       await store.put(PrefKeys.SETTINGS_DIR, config.settingsDir);
       await store.flush();
     } catch (err) {

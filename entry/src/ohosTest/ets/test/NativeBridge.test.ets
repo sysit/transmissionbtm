@@ -140,16 +140,6 @@ export default function nativeBridgeTest() {
       expect(typeof bridge.torrentSetLocation).assertEqual('function');
     });
 
-    // ── Hash utilities (1 method) ────────────────────────────────────
-    it('has_hashBytesToString', 0, () => {
-      const bridge = safeGetNativeBridge();
-      if (!bridge) {
-        expect(true).assertTrue();
-        return;
-      }
-      expect(typeof bridge.hashBytesToString).assertEqual('function');
-    });
-
     // ── Composite methods (2 methods) ────────────────────────────────
     it('has_composite_methods', 0, () => {
       const bridge = safeGetNativeBridge();
@@ -164,7 +154,7 @@ export default function nativeBridgeTest() {
       expect(typeof bridge.torrentReannounce).assertEqual('function');
     });
 
-    // ── Total method count: 26 public instance methods ───────────────
+    // ── Total method count: 25 public instance methods ───────────────
     //
     // The current NativeBridge.ets surface:
     //   Version (1)      getVersion
@@ -178,15 +168,14 @@ export default function nativeBridgeTest() {
     //                    torrentGetFileName, torrentGetFileStat
     //   Stats (1)        torrentStatBrief
     //   Error/Control(3) torrentGetError, torrentState, torrentSetLocation
-    //   Hash (1)         hashBytesToString
     //   Composite (2)    torrentSetFileWanted, torrentReannounce
     //
     // (nativeToArktsInit/nativeToArktsRelease were removed — the TSFN handles
     //  are managed internally by the bridge; envSet/envUnset, getEncryptionMode,
-    //  transmissionVersion, torrentSetDnd and hashStringToBytes were removed as
-    //  dead native-backed wrappers in R9.)
+    //  transmissionVersion, torrentSetDnd, hashStringToBytes and hashBytesToString
+    //  were removed as dead native-backed wrappers in R9/R10.)
 
-    it('has_26_public_methods_total', 0, () => {
+    it('has_25_public_methods_total', 0, () => {
       const bridge = safeGetNativeBridge();
       if (!bridge) {
         expect(true).assertTrue();
@@ -201,16 +190,12 @@ export default function nativeBridgeTest() {
       // Composite: torrentReannounce.
       const hasTorrentReannounce: boolean =
         typeof bridge.torrentReannounce === 'function';
-      // Hash.
-      const hasHashBytesToString: boolean =
-        typeof bridge.hashBytesToString === 'function';
 
       expect(hasGetVersion).assertTrue();
       expect(hasSessionStart).assertTrue();
       expect(hasTorrentAdd).assertTrue();
       expect(hasTorrentSetFileWanted).assertTrue();
       expect(hasTorrentReannounce).assertTrue();
-      expect(hasHashBytesToString).assertTrue();
     });
 
     it('note_torrentMagnetToTorrentFile_not_exposed', 0, () => {

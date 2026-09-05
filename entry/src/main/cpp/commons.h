@@ -101,12 +101,9 @@ int  findTorrentByHash(tr_session *session, uint8_t *hash, Err *err);
 #define findTorrentByIdEx(session, id, err) findTorrentById(session, id, err); errCheck(err)
 tr_torrent *findTorrentById(tr_session *session, int id, Err *err);
 
-// 4.0.6: getFileInfo/getWantedFileInfo return tr_file_view by value
+// 4.0.6: getFileInfo returns tr_file_view by value
 #define getFileInfoEx(tor, idx, err) getFileInfo(tor, idx, err); errCheck(err)
 tr_file_view getFileInfo(tr_torrent *tor, uint32_t idx, Err *err);
-
-#define getWantedFileInfoEx(tor, idx, err) getWantedFileInfo(tor, idx, err); errCheck(err)
-tr_file_view getWantedFileInfo(tr_torrent *tor, uint32_t idx, Err *err);
 
 // ── Thread dispatch ──────────────────────────────────────────────
 #define runInTransmissionThreadEx(env, jsession, func, data) \

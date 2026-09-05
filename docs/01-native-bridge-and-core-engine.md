@@ -205,7 +205,7 @@ libtransmissionbtm_napi.so (N-API)
 1. **openssl**: Download → Configure for OH (no-idea, no-camellia, no-seed, no-bf, no-cast, no-rc2, no-md2, no-md4, no-mdc2, no-dsa, no-err, no-engine, no-tests, no-dso, no-dynamic-engine, no-stdio) → Build static
 2. **curl** (depends openssl): Download → `--disable-shared --enable-static --disable-dict/gopher/imap/pop3/rtsp/smtp/telnet/tftp` → Build static
 3. **libevent** (depends openssl): Download → CMake with `DISABLE_BENCHMARK/TESTS/SAMPLES=ON` → Build static
-4. **transmission** (depends all above): Build from upstream 4.1.0 stable via `scripts/build-third-party.sh` → CMake with `-DENABLE_DAEMON/CLI/GTK/QT/MAC/UTILS/TESTS=OFF -DENABLE_WEB=ON` → Build static
+4. **transmission** (depends all above): Build from upstream 4.1.0 stable via `scripts/build-third-party.sh` → CMake with `-DENABLE_DAEMON/CLI/GTK/QT/MAC/UTILS/TESTS=OFF` → Build static. (4.1.0 has no `ENABLE_WEB` CMake option; the RPC/web server in `libtransmission/rpc-server.cc` compiles unconditionally — only `REBUILD_WEB`/`INSTALL_WEB` affect asset install.)
 
 ---
 

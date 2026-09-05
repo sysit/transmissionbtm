@@ -495,10 +495,13 @@ print(f"  Patched {count} files with compat shims")
     -DENABLE_TESTS=OFF \
     -DENABLE_NLS=OFF \
     -DENABLE_MAC=OFF \
-    -DENABLE_WEB=OFF \
     -DENABLE_UTILS=OFF \
     -DINSTALL_DOC=OFF \
     -DINSTALL_LIB=ON \
+    # 4.1.0 has NO ENABLE_WEB option (inert residue from the ancestor port). The
+    # RPC/web server (libtransmission/rpc-server.cc) compiles unconditionally, so
+    # only REBUILD_WEB/INSTALL_WEB matter (and only for asset install, which we
+    # don't ship). Leave REBUILD_WEB=OFF; no public_html is packaged.
     -DREBUILD_WEB=OFF \
     -DRUN_CLANG_TIDY=OFF \
     -DWITH_CRYPTO=openssl \

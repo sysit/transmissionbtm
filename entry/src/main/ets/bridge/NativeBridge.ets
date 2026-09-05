@@ -276,18 +276,6 @@ export class NativeBridge {
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // Hash Utilities
-  // ═══════════════════════════════════════════════════════════════════
-  hashBytesToString(hash: Uint8Array): string {
-    // P2 fix (codex review): hash.buffer is the whole backing store; for a
-    // sliced view that ignores byteOffset/byteLength and hex-encodes the
-    // wrong region. Slice the view's exact span before handing it to native.
-    const span: ArrayBuffer = hash.buffer.slice(hash.byteOffset,
-      hash.byteOffset + hash.byteLength);
-    return native.hashBytesToString(span);
-  }
-
-  // ═══════════════════════════════════════════════════════════════════
   // Composite / Convenience methods
   // ═══════════════════════════════════════════════════════════════════
   torrentSetFileWanted(sessionId: number, torrentId: number, files: boolean[]): void {

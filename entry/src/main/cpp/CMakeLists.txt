@@ -23,7 +23,7 @@ set(THIRD_PARTY ${CMAKE_SOURCE_DIR}/third_party)
 # ── Source files (full bridge) ─────────────────────────────
 set(SOURCES
     napi_init.cpp commons.cc transmission.cc torrent.cc
-    native_to_arkts.cc hash.cc curl.cc env.cc
+    native_to_arkts.cc curl.cc
 )
 
 # ── Build target ──────────────────────────────────────────────

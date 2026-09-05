@@ -1,14 +1,13 @@
 // transmissionbtm — Torrent CRUD + statistics (N-API)
 // transmissionbtm — torrent CRUD + stat collection via N-API
 // Updated for Transmission 4.1 C++ API (2026-07-12)
-// 20 exported functions
 //
 // Key 4.0.6→4.1 changes:
 //   metainfo_ is private → use tor->info_hash(), tor->file_count(), etc.
 //   completion_ is private → use tor->size_when_done(), tor->has_piece(), etc.
 //   swarm is private → use tr_torrentStat() for peer counts and speeds
 //   bytes_uploaded_ is private → use tr_torrentStat()->uploadedEver
-//   cache is internal → read_block() removed; torrentGetPiece stubbed
+//   cache is internal → read_block() removed (torrentGetPiece deleted in R10)
 //   tr_file_view → still exists, tr_torrentFile() unchanged
 //   tor->error / tor->error_string → tor->error().error_type()==TR_STAT_LOCAL_ERROR / errmsg()
 
@@ -495,103 +494,8 @@ static napi_value TorrentGetHash(napi_env env, napi_callback_info info) {
   napi_value r; napi_get_undefined(env, &r); return r;
 }
 
-// ── torrentGetPieceHash ─────────────────────────────────────────────
-typedef struct { int32_t id; int64_t idx; uint8_t *hash; } GetPieceHashData;
-static void *torrentGetPieceHashFunc(tr_session *s, void *d, Err *err) {
-  auto *ph = (GetPieceHashData *) d;
-  tr_torrent *tor = findTorrentById(s, ph->id, err);
-  if (tor && ph->idx >= 0 && ph->idx < (int64_t)tor->piece_count()) {
-    // 4.1: tor->piece_hash(idx) is public
-    auto const &pieceHash = tor->piece_hash((tr_piece_index_t)ph->idx);
-    memcpy(ph->hash, std::data(pieceHash), SHA_DIGEST_LENGTH);
-  }
-  return nullptr;
-}
-// RESERVED (E1, docs/11): no ArkTS caller today. Corresponds to the original
-// torrentGetPieceHash feature; kept for the D5 HTTP-streaming / file-preview
-// reserve (per-piece hash integrity check).
-static napi_value TorrentGetPieceHash(napi_env env, napi_callback_info info) {
-  size_t argc = 4; napi_value args[4];
-  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-  void *hashBuf = nullptr; size_t hashBufLen = 0;
-  // P1 fix (codex review): verify the output buffer holds 20 bytes before
-  // torrentGetPieceHashFunc memcpy's the SHA-1 into it.
-  napi_get_arraybuffer_info(env, args[3], &hashBuf, &hashBufLen);
-  if (hashBuf == nullptr || hashBufLen < SHA_DIGEST_LENGTH) {
-    napi_throw_error(env, nullptr, "Hash buffer too small, need 20 bytes");
-    return nullptr;
-  }
-  GetPieceHashData d = {getInt32Napi(env, args[1]), getInt64FromBigInt(env, args[2]),
-                        (uint8_t *) hashBuf};
-  runInTransmissionThread(__FILE__, __LINE__, env, args[0], torrentGetPieceHashFunc, &d);
-  napi_value r; napi_get_undefined(env, &r); return r;
-}
-
-// ── torrentSetPiecesHiPri ───────────────────────────────────────────
-typedef struct { int32_t id; int64_t first, last; } SetPiecesHiPriData;
-static void *torrentSetPiecesHiPriFunc(tr_session *s, void *d, Err *err) {
-  auto *sp = (SetPiecesHiPriData *) d;
-  tr_torrent *tor = findTorrentById(s, sp->id, err);
-  if (!tor) return nullptr;
-  tr_piece_index_t pc = tor->piece_count();
-  tr_piece_index_t first = (tr_piece_index_t)sp->first;
-  tr_piece_index_t last = (tr_piece_index_t)sp->last;
-  if (last >= pc) last = pc - 1;
-  if (first > last) return nullptr;
-
-  // 4.1 has no per-piece priority setter — a piece's priority is derived from its
-  // containing FILE (piece_priority() is read-only). Hi-pri a piece range by setting
-  // TR_PRI_HIGH on every file whose piece span overlaps [first,last] (endPiece is
-  // exclusive, so a file covers [beginPiece, endPiece) and overlaps the range iff
-  // beginPiece <= last && endPiece > first).
-  std::vector<tr_file_index_t> files;
-  for (tr_file_index_t f = 0; f < tor->file_count(); ++f) {
-    auto const view = tr_torrentFile(tor, f);
-    if (view.beginPiece <= last && view.endPiece > first) files.push_back(f);
-  }
-  if (!files.empty()) {
-    tr_torrentSetFilePriorities(tor, files.data(), (tr_file_index_t)files.size(), TR_PRI_HIGH);
-  }
-  return nullptr;
-}
-// RESERVED (E1, docs/11): no ArkTS caller today. Maps to the original
-// set-pieces-high-priority feature; kept for the D5 sequential-download /
-// play-while-downloading reserve. Implemented as FILE-level priority — 4.1 has no
-// per-piece priority setter, so hi-pri a piece range by raising the containing files.
-static napi_value TorrentSetPiecesHiPri(napi_env env, napi_callback_info info) {
-  size_t argc = 4; napi_value args[4];
-  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-  SetPiecesHiPriData d = {getInt32Napi(env, args[1]), getInt64FromBigInt(env, args[2]),
-                          getInt64FromBigInt(env, args[3])};
-  runInTransmissionThread(__FILE__, __LINE__, env, args[0], torrentSetPiecesHiPriFunc, &d);
-  napi_value r; napi_get_undefined(env, &r); return r;
-}
-
-// ── torrentFindFile ─────────────────────────────────────────────────
-typedef struct { int32_t id, fileIdx; } FileData;
-static void *torrentFindFileFunc(tr_session *s, void *d, Err *err) {
-  auto *fd = (FileData *) d;
-  tr_torrent *tor = findTorrentById(s, fd->id, err);
-  if (!tor) return nullptr;
-  getWantedFileInfo(tor, (uint32_t)fd->fileIdx, err);
-  if (err->isSet) return nullptr;
-  // 4.1: tr_torrentFindFile still exists
-  auto path = tr_torrentFindFile(tor, (tr_file_index_t)fd->fileIdx);
-  return strdup(path.c_str());
-}
-// RESERVED (E1, docs/11): no ArkTS caller today. Maps to the original
-// torrentFindFile feature (locate a torrent's data on disk).
-static napi_value TorrentFindFile(napi_env env, napi_callback_info info) {
-  size_t argc = 3; napi_value args[3];
-  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-  FileData d = {getInt32Napi(env, args[1]), getInt32Napi(env, args[2])};
-  char *path = (char *) runInTransmissionThread(__FILE__, __LINE__, env, args[0],
-      torrentFindFileFunc, &d);
-  if (!path) { napi_value r; napi_get_null(env, &r); return r; }
-  napi_value r = newStringUtf8(env, path); free(path); return r;
-}
-
 // ── torrentGetFileName ──────────────────────────────────────────────
+typedef struct { int32_t id, fileIdx; } FileData;
 static void *torrentGetFileNameFunc(tr_session *s, void *d, Err *err) {
   auto *fd = (FileData *) d;
   tr_torrent *tor = findTorrentById(s, fd->id, err);
@@ -690,103 +594,6 @@ static napi_value TorrentGetFileStat(napi_env env, napi_callback_info info) {
   }
   if (d.alloc) free(d.bf);
   return r;
-}
-
-// ── torrentGetPiece ─────────────────────────────────────────────────
-// Reads piece data directly from downloaded files via POSIX I/O.
-// Transmission 4.1 made cache->readBlock() private, so we read from
-// the on-disk files tr_torrentFindFile() resolves.
-typedef struct { int32_t id, offset, len; int64_t pieceIdx; uint8_t *dst; } GetPieceData;
-static void *torrentGetPieceFunc(tr_session *s, void *d, Err *err) {
-  auto *gp = (GetPieceData *) d;
-  tr_torrent *tor = findTorrentById(s, gp->id, err);
-  if (!tor || !gp->dst || gp->len <= 0) return nullptr;
-
-  tr_piece_index_t pieceIdx = static_cast<tr_piece_index_t>(gp->pieceIdx);
-  if (pieceIdx >= tor->piece_count()) {
-    memset(gp->dst, 0, (uint32_t)gp->len);
-    return nullptr;
-  }
-
-  uint32_t pieceSize = tor->piece_size();
-
-  // P1 fix (codex review): validate offset/len against the piece size before
-  // computing byte ranges. A negative offset would underflow the uint64 math
-  // and read from arbitrary file offsets; len beyond the piece would read
-  // into the next piece's bytes.
-  if (gp->offset < 0 || (uint64_t)gp->offset >= pieceSize ||
-      gp->len <= 0 || (uint64_t)gp->len > (uint64_t)pieceSize - (uint64_t)gp->offset) {
-    memset(gp->dst, 0, (uint32_t)gp->len);
-    return nullptr;
-  }
-
-  uint64_t byteStart = pieceIdx * (uint64_t)pieceSize + (uint64_t)gp->offset;
-  uint64_t byteEnd = byteStart + (uint64_t)gp->len;
-
-  // Iterate through files to find which ones contain the requested byte range
-  uint64_t fileByteOff = 0;
-  tr_file_index_t fileCount = tor->file_count();
-  size_t bytesRead = 0;
-
-  for (tr_file_index_t i = 0; i < fileCount && bytesRead < (size_t)gp->len; i++) {
-    uint64_t fileSize = tor->file_size(i);
-    uint64_t fileEnd = fileByteOff + fileSize;
-
-    // Check overlap: [fileByteOff, fileEnd) vs [byteStart, byteEnd)
-    if (fileEnd <= byteStart || fileByteOff >= byteEnd) {
-      fileByteOff = fileEnd;
-      continue;
-    }
-
-    // Compute read boundaries within this file
-    uint64_t readOff = (byteStart > fileByteOff) ? (byteStart - fileByteOff) : 0;
-    uint64_t readEnd = (byteEnd < fileEnd) ? (byteEnd - fileByteOff) : fileSize;
-    size_t readLen = (size_t)(readEnd - readOff);
-
-    // Open the file and read
-    std::string path = tr_torrentFindFile(tor, i);
-    if (!path.empty()) {
-      int fd = open(path.c_str(), O_RDONLY);
-      if (fd >= 0) {
-        ssize_t n = pread(fd, gp->dst + bytesRead, readLen, (off_t)readOff);
-        if (n > 0) bytesRead += (size_t)n;
-        close(fd);
-      }
-    }
-
-    fileByteOff = fileEnd;
-  }
-
-  // Zero-fill any unread portion
-  if (bytesRead < (size_t)gp->len) {
-    memset(gp->dst + bytesRead, 0, (size_t)gp->len - bytesRead);
-  }
-  return nullptr;
-}
-// RESERVED (E1, docs/11): no ArkTS caller today. Maps to the original
-// torrentGetPiece feature; kept for the D5 HTTP-streaming / preview reserve
-// (read a specific piece's raw bytes).
-static napi_value TorrentGetPiece(napi_env env, napi_callback_info info) {
-  size_t argc = 6; napi_value args[6];
-  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-  void *dst = nullptr; size_t dstLen = 0;
-  napi_status status = napi_get_arraybuffer_info(env, args[3], &dst, &dstLen);
-  int32_t len = getInt32Napi(env, args[5]);
-  // P1 fix (codex review): reject a destination buffer smaller than the
-  // requested length before the native func writes into it.
-  if (status != napi_ok || dst == nullptr || len < 0 || dstLen < (size_t)len) {
-    napi_throw_error(env, nullptr, "Destination buffer too small for piece data");
-    return nullptr;
-  }
-  GetPieceData d = {getInt32Napi(env, args[1]), getInt32Napi(env, args[4]),
-                    len, getInt64FromBigInt(env, args[2]),
-                    (uint8_t *) dst};
-  runInTransmissionThread(__FILE__, __LINE__, env, args[0], torrentGetPieceFunc, &d);
-  // C5 (codex): don't touch napi while a dispatch exception is pending.
-  if (hasPendingException(env)) {
-    return nullptr;
-  }
-  napi_value r; napi_get_undefined(env, &r); return r;
 }
 
 // ── torrentStatBrief (10 int64 per torrent) ─────────────────────────
@@ -1111,12 +918,8 @@ void RegisterTorrent(napi_env env, napi_value exports) {
     {"torrentFindByHash",        nullptr, TorrentFindByHash,        nullptr, nullptr, nullptr, napi_default, nullptr},
     {"torrentGetName",           nullptr, TorrentGetName,           nullptr, nullptr, nullptr, napi_default, nullptr},
     {"torrentGetHash",           nullptr, TorrentGetHash,           nullptr, nullptr, nullptr, napi_default, nullptr},
-    {"torrentGetPieceHash",      nullptr, TorrentGetPieceHash,      nullptr, nullptr, nullptr, napi_default, nullptr},
-    {"torrentSetPiecesHiPri",    nullptr, TorrentSetPiecesHiPri,    nullptr, nullptr, nullptr, napi_default, nullptr},
-    {"torrentFindFile",          nullptr, TorrentFindFile,          nullptr, nullptr, nullptr, napi_default, nullptr},
     {"torrentGetFileName",       nullptr, TorrentGetFileName,       nullptr, nullptr, nullptr, napi_default, nullptr},
     {"torrentGetFileStat",       nullptr, TorrentGetFileStat,       nullptr, nullptr, nullptr, napi_default, nullptr},
-    {"torrentGetPiece",          nullptr, TorrentGetPiece,          nullptr, nullptr, nullptr, napi_default, nullptr},
     {"torrentStatBrief",         nullptr, TorrentStatBrief,         nullptr, nullptr, nullptr, napi_default, nullptr},
     {"torrentGetError",          nullptr, TorrentGetError,          nullptr, nullptr, nullptr, napi_default, nullptr},
     {"torrentState",             nullptr, TorrentState,             nullptr, nullptr, nullptr, napi_default, nullptr},

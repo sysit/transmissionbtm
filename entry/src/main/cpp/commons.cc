@@ -172,19 +172,6 @@ tr_file_view getFileInfo(tr_torrent *tor, uint32_t idx, Err *err) {
   return tr_torrentFile(tor, idx);
 }
 
-// ── Wanted file info by index ───────────────────────────────────────
-tr_file_view getWantedFileInfo(tr_torrent *tor, uint32_t idx, Err *err) {
-  tr_file_view f = getFileInfo(tor, idx, err);
-  if (err != nullptr && err->isSet) goto CATCH;
-  if (!f.wanted) {
-    if (err != nullptr)
-      err->set(ERR_ARG, "File #%d is unwanted for download: %s", idx, f.name);
-    return {};
-  }
-  CATCH:
-  return f;
-}
-
 // ── Err::set implementation ──────────────────────────────────────────
 // P0 fix (codex review): real method on Err (was a null function pointer).
 void Err::set(const char *exception, const char *msg, ...) {

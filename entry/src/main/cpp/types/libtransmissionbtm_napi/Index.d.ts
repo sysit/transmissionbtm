@@ -1,5 +1,5 @@
 // transmissionbtm — N-API type declarations (M1 full bridge)
-// All 36 methods exported from libtransmissionbtm_napi.so.
+// All 28 methods exported from libtransmissionbtm_napi.so.
 // Signatures match C++ N-API exports exactly (ground truth: napi_get_cb_info arg extraction).
 
 /**
@@ -11,7 +11,6 @@ declare module 'libtransmissionbtm_napi.so' {
   function getVersion(): string;
 
   // ── Session lifecycle ────────────────────────────────
-  function transmissionVersion(): string;
   function sessionStart(
     configDir: string,
     downloadsDir: string,
@@ -27,9 +26,9 @@ declare module 'libtransmissionbtm_napi.so' {
   ): BigInt;  // tr_session* pointer as uint64 BigInt
   function sessionStop(session: BigInt, configDir: string): void;
   function sessionSuspend(session: BigInt, suspend: boolean): void;
+  function sessionSettingsUpdate(session: BigInt, settingsJson: string): void;
   function hasDownloadingTorrents(session: BigInt): boolean;
   function listTorrentNames(session: BigInt): string[];
-  function getEncryptionMode(session: BigInt): number;
 
   // ── Torrent CRUD ─────────────────────────────────────
   /** Returns: 0=OK, 1=PARSE_ERR, 2=DUPLICATE, 3=OK_DELETE */
@@ -60,14 +59,8 @@ declare module 'libtransmissionbtm_napi.so' {
   function torrentGetName(session: BigInt, torrentId: number): string;
   /** Writes 20-byte SHA1 info hash into hashOut. */
   function torrentGetHash(session: BigInt, torrentId: number, hashOut: ArrayBuffer): void;
-  /** Writes 20-byte SHA1 piece hash into hashOut. piece is BigInt piece index. */
-  function torrentGetPieceHash(session: BigInt, torrentId: number, piece: BigInt, hashOut: ArrayBuffer): void;
-  /** Prioritize piece range. first/last are BigInt piece indices. */
-  function torrentSetPiecesHiPri(session: BigInt, torrentId: number, firstPiece: BigInt, lastPiece: BigInt): void;
 
   // ── File operations ──────────────────────────────────
-  /** Find on-disk file path by file index. Returns path string or null. */
-  function torrentFindFile(session: BigInt, torrentId: number, fileIndex: number): string;
   /** Get logical file name from torrent metadata. */
   function torrentGetFileName(session: BigInt, torrentId: number, fileIndex: number): string;
   /** Get detailed file stat. Returns ArrayBuffer of int64 values:
@@ -75,8 +68,6 @@ declare module 'libtransmissionbtm_napi.so' {
    *   [4]=lastPiece, [5]=status(0=normal,1=complete,2=dnd),
    *   then piece availability bitfield (64 pieces per int64). */
   function torrentGetFileStat(session: BigInt, torrentId: number, fileIndex: number): ArrayBuffer;
-  /** Read piece data from cache. dst is target buffer, offset/len within piece. */
-  function torrentGetPiece(session: BigInt, torrentId: number, pieceIndex: BigInt, dst: ArrayBuffer, offset: number, len: number): void;
 
   // ── Torrent statistics ───────────────────────────────
   /** Returns ArrayBuffer of int64 values: [id, status, progress, sizeWhenDone,
@@ -94,13 +85,6 @@ declare module 'libtransmissionbtm_napi.so' {
   function torrentSetLocation(session: BigInt, torrentId: number, newDir: string): void;
   /** Force a manual tracker announce (tr_torrentManualUpdate). */
   function torrentReannounce(session: BigInt, torrentId: number): void;
-
-  // ── Hash utilities ───────────────────────────────────
-  function hashBytesToString(hash: ArrayBuffer): string;    // Binary → hex string
-  function hashStringToBytes(hashStr: string): ArrayBuffer; // Hex string → 20-byte buffer
-
-  // ── Environment variables ────────────────────────────
-  function envSet(name: string, value?: string): void;
 
   // ── HTTP download (libcurl) ──────────────────────────
   function curlDownload(url: string, dst: string, timeout: number): void;

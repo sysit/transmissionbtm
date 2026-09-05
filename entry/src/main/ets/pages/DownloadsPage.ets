@@ -872,9 +872,14 @@ export struct DownloadsPage {
   // Summary helpers
   // ═══════════════════════════════════════════════════════════════════
 
-  /** Resolve a $r-created (optionally format-arg) resource to a display string. */
-  private lbl(res: Resource): string {
-    return getContext(this).resourceManager.getStringSync(res);
+  /**
+   * Resolve a $r-created resource to a display string. The resource strings
+   * (downloads_summary_*) contain a %d placeholder; the format-arg must be
+   * passed to getStringSync(res, ...args), NOT embedded in `$r` — the
+   * Resource-only overload leaves `%d` literal. Consumers pass the count here.
+   */
+  private lbl(res: Resource, ...args: (string | number)[]): string {
+    return getContext(this).resourceManager.getStringSync(res, ...args);
   }
 
   private summaryText(): string {
@@ -895,16 +900,16 @@ export struct DownloadsPage {
 
     const parts: string[] = [];
     if (downloading > 0) {
-      parts.push(this.lbl($r('app.string.downloads_summary_downloading', downloading)));
+      parts.push(this.lbl($r('app.string.downloads_summary_downloading'), downloading));
     }
     if (seeding > 0) {
-      parts.push(this.lbl($r('app.string.downloads_summary_seeding', seeding)));
+      parts.push(this.lbl($r('app.string.downloads_summary_seeding'), seeding));
     }
     if (paused > 0) {
-      parts.push(this.lbl($r('app.string.downloads_summary_paused', paused)));
+      parts.push(this.lbl($r('app.string.downloads_summary_paused'), paused));
     }
     return parts.length > 0 ? parts.join(' · ')
-      : this.lbl($r('app.string.downloads_summary_all', count));
+      : this.lbl($r('app.string.downloads_summary_all'), count);
   }
 
   private speedSummaryText(): string {
