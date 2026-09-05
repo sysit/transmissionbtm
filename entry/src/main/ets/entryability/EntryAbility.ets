@@ -14,20 +14,6 @@ import { NativeBridge } from '../bridge/NativeBridge';
 
 const TAG = 'transmissionbtm';
 
-/** Bundled Transmission web-client asset: rawfile(src) → sandbox path(dst), where
- *  dst is relative to <filesDir>/public_html. src paths are under resources/rawfile/web; */
-interface WebAsset { src: string; dst: string; }
-
-/** The official Transmission web client (web/public_html) to serve over RPC. */
-const WEB_CLIENT_ASSETS: WebAsset[] = [
-  { src: 'web/index.html', dst: 'index.html' },
-  { src: 'web/transmission-app.js', dst: 'transmission-app.js' },
-  { src: 'web/transmission-app.js.LICENSE.txt', dst: 'transmission-app.js.LICENSE.txt' },
-  { src: 'web/images/favicon.ico', dst: 'images/favicon.ico' },
-  { src: 'web/images/favicon.png', dst: 'images/favicon.png' },
-  { src: 'web/images/webclip-icon.png', dst: 'images/webclip-icon.png' },
-];
-
 /** Parsed external intent for torrent adding. */
 export interface TorrentIntent {
   kind: 'magnet' | 'file' | 'unknown';
@@ -166,45 +152,63 @@ export default class EntryAbility extends UIAbility {
   }
 
   /**
-   * Extract the bundled official Transmission web client from resources/rawfile/web
-   * into <filesDir>/public_html, then point the engine at it via
-   * NativeBridge.sessionSetWebClientDir (sets TRANSMISSION_WEB_HOME). Must run before
-   * the first sessionStart: tr_getWebClientDir caches the dir on first use (during the
-   * RPC server's construction during tr_sessionInit), so the env var has to be set
-   * before any session init. Idempotent — if index.html already exists (a prior cold
-   * start) skip the copy and just (re)set the env var. Never fatal: the web UI is a
-   * nice-to-have, so a failure only disables the browser client.
+   * Extract the bundled web client (resources/rawfile/web — the transmission-web-
+   * control-ng React SPA's dist) into <filesDir>/public_html, then point the engine at
+   * it via NativeBridge.sessionSetWebClientDir (sets TRANSMISSION_WEB_HOME). Must run
+   * before the first sessionStart: tr_getWebClientDir caches the dir on first use
+   * (during the RPC server's construction during tr_sessionInit), so the env var has to
+   * be set before any session init. Re-extracted every cold start so a stale copy from
+   * an older app build can't be served after an in-place upgrade. Never fatal: the web
+   * UI is a nice-to-have, so a failure only disables the browser client.
    */
   private async setupWebClientDir(): Promise<void> {
     try {
-      const filesDir = this.context.filesDir;
-      const webDir = `${filesDir}/public_html`;
-
-      if (!fs.accessSync(`${webDir}/index.html`)) {
-        const rm = this.context.resourceManager;
-        for (let i = 0; i < WEB_CLIENT_ASSETS.length; i++) {
-          const a = WEB_CLIENT_ASSETS[i];
-          const bytes = await rm.getRawFileContent(a.src);
-          const dest = `${webDir}/${a.dst}`;
-          this.mkdirRecursive(dest.substring(0, dest.lastIndexOf('/')));
-          const file = fs.openSync(dest,
-            fs.OpenMode.CREATE | fs.OpenMode.TRUNC | fs.OpenMode.WRITE_ONLY);
-          try {
-            // getRawFileContent returns a Uint8Array that may back a larger buffer;
-            // copy the exact byte range into a fresh ArrayBuffer for writeSync.
-            fs.writeSync(file.fd, bytes.buffer.slice(
-              bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
-          } finally {
-            fs.closeSync(file.fd);
-          }
-        }
-      }
-
+      const webDir = `${this.context.filesDir}/public_html`;
+      // Always re-extract every cold start. A prior build (e.g. the official client
+      // from an older app version) may have left a stale/partial public_html on disk
+      // after an in-place upgrade, so an "index.html already exists" check would skip
+      // the copy and serve the stale UI. No single existence check proves the dist is
+      // complete (index.html + hashed assets/*.js both matter), so re-copy the whole
+      // tree each launch — ~2.9MB / 367 files, cheap, and guarantees the served web
+      // client always matches the bundled dist.
+      await this.extractRawfileTree('web', webDir);
       NativeBridge.getInstance().sessionSetWebClientDir(webDir);
       hilog.info(0x0001, TAG, 'Web client dir: %{public}s', webDir);
     } catch (err) {
       hilog.error(0x0001, TAG,
         'Web client extraction failed (web UI unavailable): %{private}s', String(err));
+    }
+  }
+
+  /** Copy every file under resources/rawfile/<relDir> into <dstDir>, preserving the tree
+   *  (subdirectories included). getRawFileContent succeeds for a file and throws for a
+   *  directory, so a successful content read means "file" (copy it) and a throw means
+   *  "directory" (recurse). A directory that turns out to be unlistable just propagates
+   *  up to setupWebClientDir's catch — no infinite recursion. */
+  private async extractRawfileTree(relDir: string, dstDir: string): Promise<void> {
+    const rm = this.context.resourceManager;
+    const entries = await rm.getRawFileList(relDir);
+    for (let i = 0; i < entries.length; i++) {
+      const name = entries[i];
+      const relChild = `${relDir}/${name}`;
+      const absChild = `${dstDir}/${name}`;
+      try {
+        const bytes = await rm.getRawFileContent(relChild);
+        this.mkdirRecursive(dstDir);
+        const file = fs.openSync(absChild,
+          fs.OpenMode.CREATE | fs.OpenMode.TRUNC | fs.OpenMode.WRITE_ONLY);
+        try {
+          // getRawFileContent returns a Uint8Array that may back a larger buffer;
+          // copy the exact byte range into a fresh ArrayBuffer for writeSync.
+          fs.writeSync(file.fd, bytes.buffer.slice(
+            bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+        } finally {
+          fs.closeSync(file.fd);
+        }
+      } catch (e) {
+        // Directory (or an unreadable path) — recurse.
+        await this.extractRawfileTree(relChild, absChild);
+      }
     }
   }
 
