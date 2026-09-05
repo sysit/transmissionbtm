@@ -70,7 +70,7 @@
     { "name": "settings_enable_blocklist_desc", "value": "屏蔽已知的恶意 IP 段" },
     { "name": "settings_blocklist_url", "value": "黑名单 URL" },
     { "name": "settings_enable_rpc", "value": "启用 RPC 服务器" },
-    { "name": "settings_enable_rpc_desc", "value": "默认关闭。启用后会绑定 RPC 端口并附带内置网页界面（浏览器访问 http://<主机>:<端口>/transmission/web/）；请保持白名单与鉴权开启。" },
+    { "name": "settings_enable_rpc_desc", "value": "\u9ed8\u8ba4\u5173\u95ed\u3002\u542f\u7528\u540e\u5728 http://<\u4e3b\u673a>:<\u7aef\u53e3>/transmission/web/ \u63d0\u4f9b\u7f51\u9875\u754c\u9762\u3002\u672c\u673a\u8bf7\u8bbf\u95ee http://127.0.0.1:<\u7aef\u53e3>/transmission/web/\uff08\u59cb\u7ec8\u5141\u8bb8\u56de\u73af\uff0c\u901f\u5ea6\u6700\u5feb\uff09\uff1b\u5176\u4ed6\u7535\u8111\u8bf7\u7528\u672c\u673a\u5c40\u57df\u7f51 IP\uff08http://<\u5c40\u57df\u7f51IP>:<\u7aef\u53e3>/transmission/web/\uff09\u3002\u8bf7\u4fdd\u6301\u767d\u540d\u5355\u4e0e\u9274\u6743\u5f00\u542f\u3002" },
     { "name": "settings_rpc_port", "value": "RPC 端口" },
     { "name": "settings_authentication", "value": "身份验证" },
     { "name": "settings_authentication_desc", "value": "访问 RPC 需要用户名和密码" },

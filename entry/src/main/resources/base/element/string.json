@@ -70,7 +70,7 @@
     { "name": "settings_enable_blocklist_desc", "value": "Block known malicious IP ranges" },
     { "name": "settings_blocklist_url", "value": "Blocklist URL" },
     { "name": "settings_enable_rpc", "value": "Enable RPC server" },
-    { "name": "settings_enable_rpc_desc", "value": "Off by default. Enabling binds the RPC port and its bundled web UI (browse http://<host>:<port>/transmission/web/); keep whitelist & auth set." },
+    { "name": "settings_enable_rpc_desc", "value": "Off by default. Enabling serves the web UI at http://<host>:<port>/transmission/web/. On this phone browse http://127.0.0.1:<port>/transmission/web/ (loopback is always allowed, instant); other machines use this phone's LAN IP (http://<lan-ip>:<port>/transmission/web/). Keep whitelist & auth set." },
     { "name": "settings_rpc_port", "value": "RPC port" },
     { "name": "settings_authentication", "value": "Authentication" },
     { "name": "settings_authentication_desc", "value": "Require username & password for RPC access" },

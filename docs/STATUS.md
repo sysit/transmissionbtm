@@ -9,7 +9,17 @@
 
 ---
 
-## 2026-09-05 — leftover-debt batch: 99%-stall display fix + sandbox storage management (+ live re-apply marked done)
+## 2026-09-05 — on-device RPC self-connect fix (loopback always allowed) + web-detail diagnosis
+
+Root cause of the paired report — *from other machines `http://172.16.1.40:9091` works, but on the phone itself `127.0.0.1` won't open and `172.16.1.40` takes minutes* — is the device being unable to reach **its own** RPC:
+- **`127.0.0.1` "won't open" = RPC 403.** The engine's IP allow-list (`tr_rpc_server::is_address_allowed`, libtransmission/rpc-server.cc ~396) glob-matches the *numeric* source IP against `rpc-whitelist` and rejects non-matches when `rpc-whitelist-enabled` is on, logging `Rejected request from <host> (IP not whitelisted)` (rpc-server.cc:545; `<host>` is the numeric IP via `NI_NUMERICHOST`, never the string `localhost`). The app normalizes a user whitelist (`normalizeRpcWhitelist` — CIDR→glob), but a LAN-only value like `172.16.1.*` **does not contain `127.0.0.1`**, so the phone's browser → `127.0.0.1` → 403. Notably `isHostnameAllowed()` (the Host allow-list) *already* exempts `localhost` + any numeric-IP Host; only `is_address_allowed()` lacked the loopback exemption.
+- **`172.16.1.40` self-connect "minutes" = WiFi hairpin** (phone → AP → back to self), slow/flaky on the radio. From a LAN machine the source IP is `172.16.1.x`, which the glob matches, so remote access is fast.
+
+**Fix (engine-level — replaces the earlier `ensureRpcLoopback` union hack)** — the backend now **default-allows loopback** in `is_address_allowed`, so the whitelist string stays **clean** of loopback tokens (`127.0.0.1`/`localhost`/`::1`). Patch in the built engine source `.build-third-party/probe-410/libtransmission/rpc-server.cc` (the real 4.1.0, tag `2724011`; `.build-third-party/transmission` is a stale 4.2-dev clone): after the IPv4-mapped normalization and **before** the whitelist glob, `return true` when the address is `127.0.0.1` / `::1` / `localhost` / `127.*`. Rebuilt `libtransmission.a` incrementally (`make -j transmission` in `transmission-main-build` → recopied to `third_party/transmission/lib/`), then relinked into the N-API `.so` (installed HAP carries it). ArkTS: `ensureRpcLoopback` deleted from `SessionConfig.ets`; `Preferences.ets` `getSessionConfig()` now just `normalizeRpcWhitelist(...)`; `defaultSessionConfig().rpcWhitelist` default is now `''`. **On-device verified (Pura 80):** whitelist set to LAN-only `172.16.1.1/24` (persisted — confirmed in the pulled `transmissionbtm_preferences`) with `按 IP 限制访问` ON; device browser → `http://127.0.0.1:9091` connects (netstat `127.0.0.1:xxx → 127.0.0.1:9091 ESTABLISHED`, LAN peer `172.16.1.5` also ESTABLISHED) with **zero** `Rejected request` in the engine log. Host vitest `99/99` (the 3 `ensureRpcLoopback` tests removed); HAP build green.
+
+**Web-detail (Issue 2)** — "select a torrent → can't query trackers/files/peers" was reproduced to be **not an engine problem**: `torrent-get` with the full detail field set (`files`/`fileStats`/`trackers`/`trackerStats`/`peers`/`peersFrom`/`webseeds`/`wanted`) returns complete, well-formed data in **~9 ms** on a live session (4.1.0 stable). It collapses into the same self-connect root cause when the web client is opened on-device: the detail RPC fires against the unreachable/slow on-device host. (Engine-side serialization verified clean; no control-ng field/UI mismatch found.)
+
+
 
 Tackled the three open leftovers in order (`就按这个顺序，一起解决`). HAP build green; host vitest `80/80` (+ new TorrentInfo suite). On-device: installed + launched on the Pura 90 API24 emulator — the Downloads page renders the new storage row.
 

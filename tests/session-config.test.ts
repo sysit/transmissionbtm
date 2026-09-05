@@ -38,7 +38,9 @@ describe('defaultSessionConfig', () => {
     // opt-in via the Settings toggle (SessionConfig.ets).
     expect(cfg.enableRpc).toBe(false);
     expect(cfg.enableRpcWhitelist).toBe(true);
-    expect(cfg.rpcWhitelist).toBe('127.0.0.1');
+    // Loopback default is empty — the engine default-allows it, so the
+    // whitelist string stays clean of loopback tokens.
+    expect(cfg.rpcWhitelist).toBe('');
     expect(cfg.rpcAuthentication).toBe(true);
     expect(cfg.rpcUsername).toBe('');
     expect(cfg.rpcPassword).toBe('');
@@ -123,3 +125,4 @@ describe('normalizeRpcWhitelist', () => {
     expect(normalizeRpcWhitelist('')).toBe('');
   });
 });
+
