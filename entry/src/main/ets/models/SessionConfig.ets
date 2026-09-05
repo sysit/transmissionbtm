@@ -83,3 +83,42 @@ export function defaultSessionConfig(): SessionConfig {
     settingsDir: '/storage/transmission',
   };
 }
+
+// Transmission's RPC whitelist is a glob list (tr_wildmat, `*` wildcard) — NOT
+// CIDR. A user naturally types a subnet as CIDR ("172.16.1.1/24"); if passed
+// literally it matches nothing, so any LAN client (e.g. a phone on 172.16.1.x)
+// gets HTTP 403 "Unauthorized IP Address" even though it's in the intended LAN.
+// Translate a byte-aligned CIDR token to the equivalent glob so the engine
+// actually matches it. Non-CIDR tokens and non-byte-aligned prefixes pass
+// through untouched (a /0 or /25 can't be expressed as a safe byte-aligned
+// glob, so we leave them as-is rather than over-open the whitelist).
+function cidrToGlob(token: string): string {
+  const t = token.trim();
+  const m = /^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\/([0-9]{1,2})$/.exec(t);
+  if (!m) { return t; }
+  const octets: number[] = [m[1], m[2], m[3], m[4]].map((n: string) => Number(n));
+  if (octets.some((n: number) => n > 255)) { return t; }
+  const len = Number(m[5]);
+  if (len === 0 || len % 8 !== 0) { return t; } // only /8 /16 /24 /32 exact
+  const full = Math.floor(len / 8);
+  const parts: string[] = octets.slice(0, full).map((n: number) => String(n));
+  // A trailing `*` matches any remaining octets (tr_wildmat's `*` spans dots),
+  // so /8 → "10.*", /16 → "192.168.*", /24 → "172.16.1.*", /32 → exact IP.
+  if (full < 4) { parts.push('*'); }
+  return parts.join('.');
+}
+
+/**
+ * Normalize a stored RPC whitelist string into the glob form Transmission
+ * understands. Split on the engine's `" ,;"` delimiters, translate each CIDR
+ * token, and rejoin. "127.0.0.1,172.16.1.1/24" → "127.0.0.1,172.16.1.*".
+ * Applied when a SessionConfig is read from Preferences, covering both the
+ * session-start native args and the live re-apply path.
+ */
+export function normalizeRpcWhitelist(raw: string): string {
+  if (!raw) { return raw; }
+  return raw.split(/[ ,;]+/)
+    .map(cidrToGlob)
+    .filter((t: string) => t.length > 0)
+    .join(',');
+}

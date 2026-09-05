@@ -21,7 +21,6 @@ import { SettingsLoadingState } from '../components/settings/SettingsLoadingStat
 import { SettingsErrorBanner } from '../components/settings/SettingsErrorBanner';
 import { SettingsResetDialog } from '../components/settings/SettingsResetDialog';
 import { SandboxSettingRow } from '../components/settings/SandboxSettingRow';
-import { PublishFolderRow } from '../components/settings/PublishFolderRow';
 import { PreferencesManager, PrefKeys } from '../models/Preferences';
 import { defaultSessionConfig } from '../models/SessionConfig';
 import { hilog } from '@kit.PerformanceAnalysisKit';
@@ -40,7 +39,6 @@ export struct SettingsPage {
   @State startAddedTorrents: boolean = defaultSessionConfig().startAddedTorrents;
   @State renamePartialFiles: boolean = defaultSessionConfig().renamePartialFiles;
   @State trashOriginalTorrentFile: boolean = defaultSessionConfig().trashOriginalTorrentFile;
-  @State publishDir: string = '';
 
   // ── Speed ──────────────────────────────────────────────────────
   @State speedLimitDownEnabled: boolean = defaultSessionConfig().speedLimitDownEnabled;
@@ -67,7 +65,7 @@ export struct SettingsPage {
   // ── WiFi-only gating (Network) ─────────────────────────────────
   // Read by ConnectivityMonitor directly via PrefKeys.WIFI_ONLY /
   // WIFI_SSID — they gate transfers at runtime, not engine config.
-  @State wifiOnly: boolean = false;
+  @State wifiOnly: boolean = true;
   @State wifiSsid: string = '';
 
   // ── Blocklist ──────────────────────────────────────────────────
@@ -118,7 +116,6 @@ export struct SettingsPage {
       this.startAddedTorrents = await pm.getBoolean(PrefKeys.START_ADDED_TORRENTS, this.startAddedTorrents);
       this.renamePartialFiles = await pm.getBoolean(PrefKeys.RENAME_PARTIAL_FILES, this.renamePartialFiles);
       this.trashOriginalTorrentFile = await pm.getBoolean(PrefKeys.TRASH_ORIGINAL_TORRENT_FILE, this.trashOriginalTorrentFile);
-      this.publishDir = await pm.getString(PrefKeys.PUBLISH_DIR, '');
 
       // Speed
       this.speedLimitDownEnabled = await pm.getBoolean(PrefKeys.SPEED_LIMIT_DOWN_ENABLED, this.speedLimitDownEnabled);
@@ -146,7 +143,7 @@ export struct SettingsPage {
       this.pexEnabled = await pm.getBoolean(PrefKeys.PEX_ENABLED, this.pexEnabled);
       this.dhtEnabled = await pm.getBoolean(PrefKeys.DHT_ENABLED, this.dhtEnabled);
       this.lpdEnabled = await pm.getBoolean(PrefKeys.LPD_ENABLED, this.lpdEnabled);
-      this.wifiOnly = await pm.getBoolean(PrefKeys.WIFI_ONLY, false);
+      this.wifiOnly = await pm.getBoolean(PrefKeys.WIFI_ONLY, true);
       this.wifiSsid = await pm.getString(PrefKeys.WIFI_SSID, '');
 
       // Blocklist
@@ -303,10 +300,9 @@ export struct SettingsPage {
       // sandbox path, and publish finished data via the torrent "Save to Files".
       // Download dir is read-only: HarmonyOS NEXT sandboxes third-party apps and
       // the engine needs a real POSIX path, so DownloadsPage.applySandboxPaths()
-      // overrides the session dir to the app filesDir. Publish folder is the one
-      // actionable control — it copies finished files to a system-visible place.
+      // overrides the session dir to the app filesDir. Publish finished files via
+      // a torrent's "Save to Files" action.
       SandboxSettingRow({ label: $r('app.string.settings_download_dir'), value: this.getSandboxDir() });
-      PublishFolderRow({ publishDir: $publishDir });
       Row() {
         Text($r('app.string.settings_sandbox_desc'))
           .fontSize(FontSize.CAPTION)

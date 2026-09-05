@@ -18,6 +18,14 @@ export struct EditSetting {
 
   private dialogController: CustomDialogController | null = null;
 
+  /** Row text: never reveal a password in plaintext — always show a mask. */
+  private displayText(): ResourceStr {
+    if (this.inputType === InputType.Password) {
+      return this.value ? '••••••••' : this.hint;
+    }
+    return this.value || this.hint;
+  }
+
   aboutToAppear(): void {
     this.dialogController = new CustomDialogController({
       builder: EditSettingDialog({
@@ -56,7 +64,7 @@ export struct EditSetting {
         .fontColor(Colors.TEXT)
         .layoutWeight(1);
 
-      Text(this.value || this.hint)
+      Text(this.displayText())
         .fontSize(FontSize.CAPTION)
         .fontColor(this.value ? Colors.DOWNLOAD : Colors.TEXT_TERTIARY)
         .maxLines(1)

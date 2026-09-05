@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { defaultSessionConfig, EncryptionMode } from '../entry/src/main/ets/models/SessionConfig.ets';
+import { defaultSessionConfig, EncryptionMode, normalizeRpcWhitelist } from '../entry/src/main/ets/models/SessionConfig.ets';
 
 describe('EncryptionMode', () => {
   it('has three modes as string values', () => {
@@ -97,5 +97,29 @@ describe('defaultSessionConfig', () => {
     expect('downloadDir' in cfg).toBe(true);
     expect('encryptionMode' in cfg).toBe(true);
     expect('peerPort' in cfg).toBe(true);
+  });
+});
+
+describe('normalizeRpcWhitelist', () => {
+  it('translates byte-aligned CIDR to glob', () => {
+    expect(normalizeRpcWhitelist('127.0.0.1,172.16.1.1/24')).toBe('127.0.0.1,172.16.1.*');
+    expect(normalizeRpcWhitelist('10.0.0.0/8')).toBe('10.*');
+    expect(normalizeRpcWhitelist('192.168.0.0/16')).toBe('192.168.*');
+    expect(normalizeRpcWhitelist('192.168.1.5/32')).toBe('192.168.1.5');
+  });
+
+  it('leaves non-CIDR and non-byte-aligned tokens untouched', () => {
+    expect(normalizeRpcWhitelist('127.0.0.1')).toBe('127.0.0.1');
+    expect(normalizeRpcWhitelist('172.16.1.*')).toBe('172.16.1.*');
+    // /25 is not byte-aligned: leave as-is rather than over-broaden to .*
+    expect(normalizeRpcWhitelist('172.16.1.128/25')).toBe('172.16.1.128/25');
+    // /0 would match every IP — too open, leave as-is (matches nothing safely)
+    expect(normalizeRpcWhitelist('0.0.0.0/0')).toBe('0.0.0.0/0');
+  });
+
+  it('handles space/semicolon delimiters and empties', () => {
+    expect(normalizeRpcWhitelist('127.0.0.1, 172.16.1.1/24')).toBe('127.0.0.1,172.16.1.*');
+    expect(normalizeRpcWhitelist('127.0.0.1;172.16.1.1/24')).toBe('127.0.0.1,172.16.1.*');
+    expect(normalizeRpcWhitelist('')).toBe('');
   });
 });

@@ -214,7 +214,7 @@ export class ConnectivityMonitor {
   private async isWifiOnlyEnabled(): Promise<boolean> {
     try {
       const prefs = PreferencesManager.getInstance();
-      return await prefs.getBoolean(KEY_WIFI_ONLY, false);
+      return await prefs.getBoolean(KEY_WIFI_ONLY, true);
     } catch (err) {
       hilog.error(0x0001, TAG,
         'isWifiOnlyEnabled failed: %{private}s', String(err));

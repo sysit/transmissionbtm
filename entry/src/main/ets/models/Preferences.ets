@@ -9,7 +9,7 @@
 
 import { preferences } from '@kit.ArkData';
 import { hilog } from '@kit.PerformanceAnalysisKit';
-import { SessionConfig, EncryptionMode, defaultSessionConfig } from './SessionConfig';
+import { SessionConfig, EncryptionMode, defaultSessionConfig, normalizeRpcWhitelist } from './SessionConfig';
 import { ProxyCipher, LegacyProxyCipher } from '../security/ProxyCipher';
 
 const TAG = 'PreferencesManager';
@@ -22,7 +22,6 @@ const STORE_NAME = 'transmissionbtm_preferences';
 export class PrefKeys {
   // Session
   static readonly DOWNLOAD_DIR: string = 'download_dir';
-  static readonly PUBLISH_DIR: string = 'publish_dir';
   static readonly INCOMPLETE_DIR: string = 'incomplete_dir';
   static readonly PEER_PORT: string = 'peer_port';
   static readonly RPC_PORT: string = 'rpc_port';
@@ -215,7 +214,7 @@ export class PreferencesManager {
       [PrefKeys.IDLE_SEEDING_LIMIT_ENABLED, defaults.idleSeedingLimitEnabled],
       [PrefKeys.ENABLE_RPC, defaults.enableRpc],
       [PrefKeys.ENABLE_RPC_WHITELIST, defaults.enableRpcWhitelist],
-      [PrefKeys.WIFI_ONLY, false],
+      [PrefKeys.WIFI_ONLY, true],
       [PrefKeys.PRIVACY_ACCEPTED, false],
     ];
 
@@ -437,7 +436,7 @@ export class PreferencesManager {
         incompleteDir: await this.getString(PrefKeys.INCOMPLETE_DIR, defs.incompleteDir),
         peerPort: await this.getInt(PrefKeys.PEER_PORT, defs.peerPort),
         rpcPort: await this.getInt(PrefKeys.RPC_PORT, defs.rpcPort),
-        rpcWhitelist: await this.getString(PrefKeys.RPC_WHITELIST, defs.rpcWhitelist),
+        rpcWhitelist: normalizeRpcWhitelist(await this.getString(PrefKeys.RPC_WHITELIST, defs.rpcWhitelist)),
         rpcAuthentication: await this.getBoolean(PrefKeys.RPC_AUTHENTICATION, defs.rpcAuthentication),
         rpcUsername: await this.getString(PrefKeys.RPC_USERNAME, defs.rpcUsername),
         rpcPassword: await this.getString(PrefKeys.RPC_PASSWORD, defs.rpcPassword),
