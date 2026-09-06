@@ -30,6 +30,12 @@ import { NativeBridge } from '../bridge/NativeBridge';
 
 const TAG = 'DownloadsPage';
 
+// Throttle the recursive storage-directory size walk (computeStorage): the
+// per-poll refresh stays cheap (top-level orphan scan) while the full-tree byte
+// total is recomputed at most this often, so a large download library can't
+// freeze the UI every 5s poll.
+const STORAGE_USAGE_REFRESH_MS = 30000;
+
 // Save-to-Files export target (HarmonyOS NEXT public Download).
 //
 // A consumer app CANNOT write the public Download dir by permission on a phone:
@@ -109,6 +115,8 @@ export struct DownloadsPage {
   private sessionSettingsDir: string = '';
   /** Orphan paths pending confirmation for the clean dialog. */
   private pendingOrphans: string[] = [];
+  /** Last time the expensive full-tree size walk ran (computeStorage throttle). */
+  private lastStorageUsageMs: number = 0;
   // B2 (codex P1): set in aboutToDisappear and checked after each await in
   // initSession, so an async start that outlives page teardown can't wire the
   // native session + 5s poll with no page left to stop it.
@@ -289,14 +297,18 @@ export struct DownloadsPage {
    *  libtransmission lays a torrent under the download dir as a flat single
    *  file (name = file name) or a folder (name = torrent name), so the active
    *  torrent names ARE the expected top-level entries; a name not in this set
-   *  is an orphan (left behind by a removed torrent). */
+   *  is an orphan (left behind by a removed torrent). A relocated torrent sits
+   *  under `<downloads>/moved_<id>` (the onSetLocation default target), so that
+   *  entry is whitelisted too — otherwise the orphan scanner would flag an
+   *  active torrent's relocated data and the Clean action could delete it. */
   private referencedDownloadRoots(): Set<string> {
     const set: Set<string> = new Set();
     for (let i = 0; i < this.torrents.length; i++) {
-      const name: string = this.torrents[i].name;
-      if (name.length > 0) {
-        set.add(name);
+      const t: TorrentInfo = this.torrents[i];
+      if (t.name.length > 0) {
+        set.add(t.name);
       }
+      set.add(`moved_${t.id}`);
     }
     return set;
   }
@@ -328,11 +340,17 @@ export struct DownloadsPage {
     return orphans;
   }
 
-  /** Refresh the storage chip (usage + orphan count). Called per poll (dir
-   *  walk is metadata-only, so it's cheap even with many files). */
+  /** Refresh the storage chip (usage + orphan count). Called per poll.
+   *  scanOrphanPaths() is cheap (one top-level listing); the recursive dirSize()
+   *  full-tree walk is throttled to STORAGE_USAGE_REFRESH_MS so a large
+   *  download library can't freeze the UI every 5s poll. */
   private computeStorage(): void {
-    this.storageUsageBytes = this.dirSize(this.storageRootDir());
     this.storageOrphanCount = this.scanOrphanPaths().length;
+    const now = Date.now();
+    if (now - this.lastStorageUsageMs >= STORAGE_USAGE_REFRESH_MS) {
+      this.lastStorageUsageMs = now;
+      this.storageUsageBytes = this.dirSize(this.storageRootDir());
+    }
   }
 
   /** Delete a file or directory tree. Never throws; best-effort per entry. */
@@ -377,6 +395,10 @@ export struct DownloadsPage {
     for (let i = 0; i < orphans.length; i++) {
       size += this.dirSize(orphans[i]);
     }
+    // Keep the confirm overlay's count in sync with the freshly-computed set:
+    // the poll may not have run since the files changed, so storageOrphanCount
+    // could otherwise show a stale (or zero) count while deleting several.
+    this.storageOrphanCount = orphans.length;
     this.storageOrphanSize = size;
     this.showCleanOrphansDialog = true;
   }
@@ -392,6 +414,9 @@ export struct DownloadsPage {
     }
     this.pendingOrphans = [];
     this.showCleanOrphansDialog = false;
+    // Force the usage walk on the next refresh so the chip reflects what was
+    // just deleted, instead of waiting out the STORAGE_USAGE_REFRESH_MS throttle.
+    this.lastStorageUsageMs = 0;
     this.computeStorage();
     promptAction.showToast({
       message: this.lbl($r('app.string.downloads_storage_clean_done'),
