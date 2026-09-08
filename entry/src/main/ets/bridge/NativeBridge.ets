@@ -68,14 +68,10 @@ export class NativeBridge {
   // ═══════════════════════════════════════════════════════════════════
   sessionStart(
     configDir: string, downloadsDir: string, encrMode: number,
-    enableRpc: boolean, rpcPort: number, enableAuth: boolean,
-    username: string, password: string, enableRpcWhitelist: boolean,
-    rpcWhitelist: string, settingsJson: string = ''
+    settingsJson: string = ''
   ): number {
     const ptr: BigInt = native.sessionStart(
-      configDir, downloadsDir, encrMode, enableRpc, rpcPort,
-      enableAuth, username, password, enableRpcWhitelist, rpcWhitelist,
-      settingsJson
+      configDir, downloadsDir, encrMode, settingsJson
     );
     if (ptr === BigInt(0)) {
       hilog.error(0x0001, TAG, 'sessionStart returned null session pointer');
@@ -112,13 +108,6 @@ export class NativeBridge {
    */
   sessionSettingsUpdate(sessionId: number, settingsJson: string): void {
     native.sessionSettingsUpdate(this.toPtr(sessionId), settingsJson);
-  }
-
-  /** Point the engine at the bundled web UI (sets the TRANSMISSION_WEB_HOME env
-   *  var). Must be called BEFORE the first sessionStart, because tr_getWebClientDir
-   *  caches the dir on first use (during the RPC server's construction). */
-  sessionSetWebClientDir(path: string): void {
-    native.sessionSetWebClientDir(path);
   }
 
   hasDownloadingTorrents(sessionId: number): boolean {
@@ -261,7 +250,7 @@ export class NativeBridge {
   //   onTorrentChanged / onTorrentStopped -> exactly one int32 arg (= torrent id)
   //   onSessionChanged / onAltSpeedChanged -> zero args
   // Native must be called BEFORE sessionStart, because SessionStart wires the
-  // tr_session RPC callbacks that produce these events. The .d.ts declares a
+  // tr_session change callbacks that produce these events. The .d.ts declares a
   // loose (...args: Object[]) => void; adapt concrete signatures to it here.
   // ═══════════════════════════════════════════════════════════════════
   nativeToArktsInit(

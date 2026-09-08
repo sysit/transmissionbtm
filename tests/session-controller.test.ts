@@ -1,7 +1,7 @@
 // transmissionbtm — SessionController host unit tests
 //
 // Drive the controller with a fake TransmissionSession (no native, no device
-// @kit modules — the wake-lock / connectivity collaborators are omitted).
+// @kit modules — the keep-alive / connectivity collaborators are omitted).
 // Covers lifecycle, action delegation, remove-hide timing, and emission.
 
 import { describe, it, expect, vi } from 'vitest';

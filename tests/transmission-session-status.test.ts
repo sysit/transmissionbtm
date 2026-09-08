@@ -50,8 +50,7 @@ function newSession(): TransmissionSession {
   vi.spyOn(native, 'sessionStart').mockReturnValue(BigInt(1));
   const sid: number = NativeBridge.getInstance().sessionStart(
     '/tmp/transmission-session-test/settings', '/tmp/transmission-session-test/downloads',
-    1 /* encryption PREFER */, false /* rpc */, 9091, false /* auth */, '', '',
-    false /* whitelist */, '*', '{}'
+    1 /* encryption PREFER */, '{}'
   );
   const session = new TransmissionSession();
   session.sessionId = sid;

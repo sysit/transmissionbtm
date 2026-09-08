@@ -2,7 +2,7 @@
 //
 // Consolidates the DownloadsPage session side-effects into one observable,
 // addressable unit: the libtransmission session lifecycle, the 5s polling
-// loop, the D3 wake lock, and the D4 connectivity monitor (network-loss
+// loop, the D3 keep-alive, and the D4 connectivity monitor (network-loss
 // suspend/resume). The page keeps its own @State and subscribes through
 // onTorrents()/onLoading(), so ArkUI reactivity is unchanged — only the
 // side-effect ownership moves out of the page into this controller.
@@ -10,7 +10,7 @@
 // Testability: TransmissionSession is constructor-injectable and the wake
 // lock / connectivity monitor are injected collaborators, so host tests drive
 // a fake session (and omit the collaborators) without touching native. The
-// wake lock type is imported type-only so the module has no runtime
+// keep-alive type is imported type-only so the module has no runtime
 // dependency on @kit.BasicServicesKit (which host vitest does not mock).
 //
 // Callers:
@@ -21,7 +21,7 @@ import { PreferencesManager } from '../models/Preferences';
 import { SessionConfig } from '../models/SessionConfig';
 import { TorrentInfo } from '../models/TorrentInfo';
 import { TorrentFile } from '../models/TorrentFile';
-import type { WakeLockManager } from './WakeLockManager';
+import type { KeepAliveManager } from './KeepAliveManager';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 
 const TAG = 'SessionController';
@@ -34,13 +34,13 @@ export interface ConnectivityContract {
 
 export class SessionController {
   private session: TransmissionSession;
-  /** D3 wake-lock holder. Undefined => wake lock disabled (host tests omit it). */
-  private wakeLock: WakeLockManager | null;
+  /** D3 keep-alive holder (continuous task). Null => disabled (host tests omit it). */
+  private keepAlive: KeepAliveManager | null;
   /** D4 connectivity factory. Undefined => no network suspend/resume. */
   private connectivityFactory: ((onAvailable: () => void, onLost: () => void) => ConnectivityContract) | null;
 
   private pollTimer: number = -1;
-  private wakeLockActive: boolean = false;
+  private keepAliveActive: boolean = false;
   private connectivity: ConnectivityContract | null = null;
   private netPaused: boolean = false;
   private _started: boolean = false;
@@ -55,11 +55,11 @@ export class SessionController {
 
   constructor(
     session: TransmissionSession = new TransmissionSession(),
-    wakeLock: WakeLockManager | null = null,
+    keepAlive: KeepAliveManager | null = null,
     connectivityFactory: ((onAvailable: () => void, onLost: () => void) => ConnectivityContract) | null = null
   ) {
     this.session = session;
-    this.wakeLock = wakeLock;
+    this.keepAlive = keepAlive;
     this.connectivityFactory = connectivityFactory;
   }
 
@@ -72,7 +72,7 @@ export class SessionController {
   }
 
   /**
-   * Start the native session, then the 5s poll, the wake lock, and the
+   * Start the native session, then the 5s poll, the keep-alive, and the
    * connectivity monitor. Mirrors the page's former initSession(): the page
    * resolves sandbox paths into config BEFORE calling start; here we start the
    * session and begin polling.
@@ -104,7 +104,7 @@ export class SessionController {
     }
   }
 
-  /** Tear down the poll, wake lock, connectivity monitor, and session. */
+  /** Tear down the poll, keep-alive, connectivity monitor, and session. */
   stop(): void {
     // Unsub from the settings change-notifier first so a concurrent settings
     // edit can't re-apply to a session we're about to close.
@@ -113,10 +113,10 @@ export class SessionController {
       this.unregisterSettingsListener = null;
     }
     this.stopPolling();
-    if (this.wakeLock !== null) {
-      this.wakeLock.release();
+    if (this.keepAlive !== null) {
+      this.keepAlive.release();
     }
-    this.wakeLockActive = false;
+    this.keepAliveActive = false;
     if (this.connectivity !== null) {
       this.connectivity.destroy().catch((e: Error) => {
         hilog.error(0x0001, TAG, 'connectivity destroy failed: %{private}s', String(e));
@@ -186,7 +186,7 @@ export class SessionController {
     this.refresh();
   }
 
-  /** True if any torrent is actively downloading (wake-lock gate). */
+  /** True if any torrent is actively downloading (keep-alive gate). */
   hasDownloading(): boolean {
     try {
       return this.session.hasDownloadingTorrents();
@@ -212,7 +212,7 @@ export class SessionController {
     }
   }
 
-  /** Read the full torrent list once and emit it. Also drives the wake lock. */
+  /** Read the full torrent list once and emit it. Also drives the keep-alive. */
   private refresh(): void {
     let list: TorrentInfo[] = this.latest;
     try {
@@ -222,7 +222,7 @@ export class SessionController {
     }
     this.latest = list;
     this.onTorrents(list);
-    this.updateWakeLock();
+    this.updateKeepAlive();
   }
 
   private hide(torrentId: number): void {
@@ -230,22 +230,22 @@ export class SessionController {
     this.onTorrents(this.latest);
   }
 
-  // ── D3 wake lock (acquire only on idle→active transitions) ──────────
+  // ── D3 keep-alive (hold while transferring) ─────────────────────────
 
-  private updateWakeLock(): void {
-    if (this.wakeLock === null) {
+  private updateKeepAlive(): void {
+    if (this.keepAlive === null) {
       return;
     }
     const active = this.hasDownloading();
-    if (active && !this.wakeLockActive) {
-      this.wakeLockActive = true;
-      this.wakeLock.acquire('active torrent transfer').catch((e: Error) => {
-        hilog.error(0x0001, TAG, 'wake lock acquire failed: %{private}s', String(e));
-        this.wakeLockActive = false;
+    if (active && !this.keepAliveActive) {
+      this.keepAliveActive = true;
+      this.keepAlive.acquire('active torrent transfer').catch((e: Error) => {
+        hilog.error(0x0001, TAG, 'keep-alive acquire failed: %{private}s', String(e));
+        this.keepAliveActive = false;
       });
-    } else if (!active && this.wakeLockActive) {
-      this.wakeLockActive = false;
-      this.wakeLock.release();
+    } else if (!active && this.keepAliveActive) {
+      this.keepAliveActive = false;
+      this.keepAlive.release();
     }
   }
 

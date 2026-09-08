@@ -4,7 +4,7 @@
 
 This domain implements a custom, embedded HTTP server serving torrent file content for streaming and UPnP/DLNA media server functionality. All networking is built from scratch on Java `ServerSocket`/`Socket` with raw byte-level HTTP parsing — no third-party HTTP libraries. The SSDP module handles UPnP device discovery via multicast UDP.
 
-Key ports: 9091 (Transmission RPC/web UI, native), 9092 (Java HTTP server, configurable), 1900 (SSDP multicast).
+Key ports: 9092 (Java HTTP server, configurable), 1900 (SSDP multicast).
 
 ---
 

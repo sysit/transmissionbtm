@@ -29,9 +29,9 @@
 | # | 事项 | 为什么 | 位置 | 状态 |
 |---|------|--------|------|------|
 | A1 | **git init + 首次提交** | 当前零版本控制，任何改动不可回退 | 根目录 | ✅ `0aa0aa0` |
-| A2 | **默认 `enableRpc=false`** | 无 Web 前端、无 Web 组件可打开；监听 9091 白担风险；白名单一旦放宽到局域网 + 无认证 = 局域网内可控。保持默认关闭（opt-in），开启后鉴权默认 `true`（fail-safe） | `SessionConfig.ets:78` | ✅ `0aa0aa0` |
+| A2 | ~~默认 `enableRpc=false`~~ | **已作废（2026-09-08）**：RPC 功能整体删除，`enableRpc` 与 9091 监听器均不存在 | — | 🗑️ |
 | A3 | **移除 EntryAbility 服务启动调用** | `TransmissionService` 已从 module.json5 移除，每次启动必然静默失败 | `EntryAbility.ets:107` | ✅ `0aa0aa0` |
-| A4 | RPC 设置 UI 与能力对齐 | ~~SettingsPage 完整 RPC 组（端口/白名单/认证）但能力不存在，属空壳~~ —— 已启用本地 JSON-RPC（transmission 4.1 RPC server 无条件编译，无需重建引擎）；能力与 UI 已对齐，**该事项已消除** | SettingsPage + SessionConfig | ✅ 已解决（2026-09-05 启用 `rpcBindAddress`/auth 默认 true） |
+| A4 | ~~RPC 设置 UI 与能力对齐~~ | **已作废（2026-09-08）**：RPC 功能整体删除，Settings 的 Remote Control 组一并移除 | — | 🗑️ |
 
 ## 阶段 B — 架构修复（结构性，最高优先）
 
@@ -64,7 +64,7 @@
 | D4 | **网络感知复活** | ✅ `34a0333`：DownloadsPage 会话启动后注册 ConnectivityMonitor，lost→`suspend(true)`/available→`suspend(false)`（`tr_sessionSetPaused`），netPaused 转换守卫；wifi_only 偏好门控保留 | ConnectivityMonitor → DownloadsPage | M |
 | D5 | HTTP 流媒体（等片/边下边播/M3U） | **决策：延后 v1.1+（已评估）**。无 HttpServerService/任何流媒体代码；L 级旗舰（HTTP Range/Content-Range + 顺序优先级）；CLAUDE.md:94 已列 v1.1+。`torrentGetPiece`/`torrentSetPiecesHiPri` 保留为预留（E1） | 评估 v1.0 范围 → v1.1+ | L |
 | D6 | UPnP/DLNA、监视目录 | **决策：v1.1+**（清单自定）；CLAUDE.md:94 已延后（UPnP/DLNA/SSDP、Watch Dirs） | v1.1 | L |
-| D7 | Web 控制面 | **决策：不做（v1.0 内）**。依赖 A2=`enableRpc=false`；开回 RPC 撤销安全基线，且无 Web 组件打开入口。若未来 v2 恢复，需逆向开 enableRpc + rawfile 打包轻量 web UI | rawfile + Web 组件 | L |
+| D7 | ~~Web 控制面~~ | **已作废（2026-09-08）**：RPC/Web 功能整体删除（含 `rawfile/web` 与引擎 RPC 启动路径）。不再有「恢复」选项 | — | — |
 
 ## 阶段 E — 死代码收口
 
@@ -100,4 +100,4 @@
 
 - 每阶段后：`./hvigorw assembleHap --mode module -p product=default -p buildMode=debug --no-daemon`
 - 真机回归：`assembleHap -p module=entry@ohosTest` + `hdc install` + `aa test`（**222 用例** — E4 删 SessionState 类后随删 10 个死用例，重点 7.1 会话 / 7.2 添加+列表 / 7.8 DnD / 7.9 并发 / 7.11 迁移 / 7.12 删除）
-- 安全项：A2 后 `hdc shell` 确认 9091 不再监听
+- 安全项：RPC 已删除（2026-09-08）——`hdc shell "grep -i 2383 /proc/net/tcp /proc/net/tcp6"` 应无输出（9091 = 0x2383）

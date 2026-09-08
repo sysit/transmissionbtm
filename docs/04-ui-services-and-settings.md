@@ -187,18 +187,6 @@ Uses `R.id.listener_tag` to prevent duplicate listener registration.
 | `INCREASE_SO_BUF` | boolean | false | Increase socket buffers (needs root) |
 | `ENABLE_SEQ_DOWNLOAD` | boolean | false | Sequential download |
 
-### RPC & Web
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `ENABLE_RPC` | boolean | true | Enable RPC server |
-| `RPC_PORT` | int | 9091 | RPC port |
-| `ENABLE_ALT_WEB_UI` | boolean | false | Alternative web UI |
-| `ENABLE_RPC_AUTH` | boolean | false | RPC authentication |
-| `RPC_UNAME` | String | "" | RPC username |
-| `RPC_PASSWD` | String | "" | RPC password |
-| `ENABLE_RPC_WHITELIST` | boolean | false | RPC whitelist |
-| `RPC_WHITELIST` | String | "127.0.0.1,192.168.*.*" | Whitelist entries |
-
 ### UPnP
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
@@ -221,7 +209,7 @@ Uses `R.id.listener_tag` to prevent duplicate listener registration.
 | Layout | Key Content |
 |--------|------------|
 | `main.xml` | TabLayout + ViewPager + Start/Stop + Web UI buttons |
-| `settings.xml` | ScrollView > GridLayout: dirs, WiFi, encryption, boot, performance, UPnP, RPC |
+| `settings.xml` | ScrollView > GridLayout: dirs, WiFi, encryption, boot, performance, UPnP |
 | `torrent_view.xml` | Merge: title, play, menu, details, ProgressBar, content (file tree) |
 | `download_torrent.xml` | ProgressBar, file list, download dir BrowseView, download/cancel buttons |
 | `downloads.xml` | ScrollView > TorrentsList |

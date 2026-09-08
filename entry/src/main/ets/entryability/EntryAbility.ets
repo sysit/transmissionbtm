@@ -6,7 +6,6 @@
 import { UIAbility, Want, AbilityConstant } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
-import { fileIo as fs } from '@kit.CoreFileKit';
 import { PreferencesManager, PrefKeys } from '../models/Preferences';
 import { HukProxyCipher } from '../security/HukProxyCipher';
 import { Colors } from '../utils/constants';
@@ -151,88 +150,6 @@ export default class EntryAbility extends UIAbility {
     hilog.info(0x0001, TAG, 'EntryAbility onDestroy');
   }
 
-  /**
-   * Extract the bundled web client (resources/rawfile/web — the transmission-web-
-   * control-ng React SPA's dist) into <filesDir>/public_html, then point the engine at
-   * it via NativeBridge.sessionSetWebClientDir (sets TRANSMISSION_WEB_HOME). Must run
-   * before the first sessionStart: tr_getWebClientDir caches the dir on first use
-   * (during the RPC server's construction during tr_sessionInit), so the env var has to
-   * be set before any session init. Re-extracted every cold start so a stale copy from
-   * an older app build can't be served after an in-place upgrade. Never fatal: the web
-   * UI is a nice-to-have, so a failure only disables the browser client.
-   */
-  private async setupWebClientDir(): Promise<void> {
-    try {
-      const webDir = `${this.context.filesDir}/public_html`;
-      // Always re-extract every cold start. A prior build (e.g. the official client
-      // from an older app version) may have left a stale/partial public_html on disk
-      // after an in-place upgrade, so an "index.html already exists" check would skip
-      // the copy and serve the stale UI. No single existence check proves the dist is
-      // complete (index.html + hashed assets/*.js both matter), so re-copy the whole
-      // tree each launch — ~2.9MB / 367 files, cheap, and guarantees the served web
-      // client always matches the bundled dist.
-      await this.extractRawfileTree('web', webDir);
-      NativeBridge.getInstance().sessionSetWebClientDir(webDir);
-      hilog.info(0x0001, TAG, 'Web client dir: %{public}s', webDir);
-    } catch (err) {
-      hilog.error(0x0001, TAG,
-        'Web client extraction failed (web UI unavailable): %{private}s', String(err));
-    }
-  }
-
-  /** Copy every file under resources/rawfile/<relDir> into <dstDir>, preserving the tree
-   *  (subdirectories included). getRawFileContent succeeds for a file and throws for a
-   *  directory, so a successful content read means "file" (copy it) and a throw means
-   *  "directory" (recurse). A directory that turns out to be unlistable just propagates
-   *  up to setupWebClientDir's catch — no infinite recursion. */
-  private async extractRawfileTree(relDir: string, dstDir: string): Promise<void> {
-    const rm = this.context.resourceManager;
-    const entries = await rm.getRawFileList(relDir);
-    for (let i = 0; i < entries.length; i++) {
-      const name = entries[i];
-      const relChild = `${relDir}/${name}`;
-      const absChild = `${dstDir}/${name}`;
-      try {
-        const bytes = await rm.getRawFileContent(relChild);
-        this.mkdirRecursive(dstDir);
-        const file = fs.openSync(absChild,
-          fs.OpenMode.CREATE | fs.OpenMode.TRUNC | fs.OpenMode.WRITE_ONLY);
-        try {
-          // getRawFileContent returns a Uint8Array that may back a larger buffer;
-          // copy the exact byte range into a fresh ArrayBuffer for writeSync.
-          fs.writeSync(file.fd, bytes.buffer.slice(
-            bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
-        } finally {
-          fs.closeSync(file.fd);
-        }
-      } catch (e) {
-        // Directory (or an unreadable path) — recurse.
-        await this.extractRawfileTree(relChild, absChild);
-      }
-    }
-  }
-
-  /** Create a nested directory chain at a physical path. fs.mkdirSync can throw
-   *  EEXIST on an existing dir, so create level-by-level and swallow the race.
-   *  Mirrors DownloadsPage.mkdirRecursive. */
-  private mkdirRecursive(dir: string): void {
-    if (!dir || fs.accessSync(dir)) {
-      return;
-    }
-    const segments = dir.split('/').filter((s: string) => s.length > 0);
-    let cur = '';
-    for (let i = 0; i < segments.length; i++) {
-      cur = `${cur}/${segments[i]}`;
-      try {
-        if (!fs.accessSync(cur)) {
-          fs.mkdirSync(cur);
-        }
-      } catch (e) {
-        // EEXIST from a concurrent creator, or a reserved/read-only base segment.
-      }
-    }
-  }
-
   async onWindowStageCreate(windowStage: window.WindowStage): Promise<void> {
     hilog.info(0x0001, TAG, 'EntryAbility onWindowStageCreate');
 
@@ -240,11 +157,6 @@ export default class EntryAbility extends UIAbility {
     // the user-chosen locale. A change made in Settings takes effect on next
     // launch because this runs on every fresh onCreate/onWindowStageCreate.
     await this.applyAppLanguage();
-
-    // Extract the bundled web client + set TRANSMISSION_WEB_HOME before loadContent
-    // so it is in place before any page can trigger the first sessionStart (and thus
-    // before the RPC server's one-shot web-dir cache resolves).
-    await this.setupWebClientDir();
 
     // Pin the system status/navigation bars to the app's dark theme. In a
     // non-full-screen window the system renders these bars and follows the

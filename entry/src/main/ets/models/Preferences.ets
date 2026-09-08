@@ -9,11 +9,19 @@
 
 import { preferences } from '@kit.ArkData';
 import { hilog } from '@kit.PerformanceAnalysisKit';
-import { SessionConfig, EncryptionMode, defaultSessionConfig, normalizeRpcWhitelist } from './SessionConfig';
+import { SessionConfig, EncryptionMode, defaultSessionConfig } from './SessionConfig';
 import { ProxyCipher, LegacyProxyCipher } from '../security/ProxyCipher';
 
 const TAG = 'PreferencesManager';
 const STORE_NAME = 'transmissionbtm_preferences';
+
+/** Keys persisted by the removed RPC feature. Pruned once at startup so an
+ *  upgrade from a pre-removal build leaves no orphaned settings behind. */
+const ORPHAN_RPC_KEYS: string[] = [
+  'rpc_port', 'rpc_whitelist', 'rpc_authentication',
+  'rpc_username', 'rpc_password',
+  'enable_rpc', 'enable_rpc_whitelist',
+];
 
 // ═══════════════════════════════════════════════════════════════════
 // Preference Keys (40+ — one per SessionConfig field)
@@ -24,11 +32,6 @@ export class PrefKeys {
   static readonly DOWNLOAD_DIR: string = 'download_dir';
   static readonly INCOMPLETE_DIR: string = 'incomplete_dir';
   static readonly PEER_PORT: string = 'peer_port';
-  static readonly RPC_PORT: string = 'rpc_port';
-  static readonly RPC_WHITELIST: string = 'rpc_whitelist';
-  static readonly RPC_AUTHENTICATION: string = 'rpc_authentication';
-  static readonly RPC_USERNAME: string = 'rpc_username';
-  static readonly RPC_PASSWORD: string = 'rpc_password';
 
   // Speed Limits
   static readonly SPEED_LIMIT_DOWN: string = 'speed_limit_down';
@@ -93,9 +96,6 @@ export class PrefKeys {
   static readonly IDLE_SEEDING_LIMIT: string = 'idle_seeding_limit';
   static readonly IDLE_SEEDING_LIMIT_ENABLED: string = 'idle_seeding_limit_enabled';
 
-// Session-critical (exposed in Settings → Remote Control group)
-  static readonly ENABLE_RPC: string = 'enable_rpc';
-  static readonly ENABLE_RPC_WHITELIST: string = 'enable_rpc_whitelist';
   static readonly SETTINGS_DIR: string = 'settings_dir';
 }
 
@@ -171,6 +171,7 @@ export class PreferencesManager {
     try {
       this.store = await preferences.getPreferences(context, STORE_NAME);
       await this.applyDefaults();
+      await this.pruneRemovedKeys();
       hilog.info(0x0001, TAG, 'PreferencesManager initialized');
     } catch (err) {
       hilog.error(0x0001, TAG,
@@ -196,7 +197,6 @@ export class PreferencesManager {
     const defaults = defaultSessionConfig();
 
     const boolDefaults: [string, boolean][] = [
-      [PrefKeys.RPC_AUTHENTICATION, defaults.rpcAuthentication],
       [PrefKeys.SPEED_LIMIT_DOWN_ENABLED, defaults.speedLimitDownEnabled],
       [PrefKeys.SPEED_LIMIT_UP_ENABLED, defaults.speedLimitUpEnabled],
       [PrefKeys.ALT_SPEED_ENABLED, defaults.altSpeedEnabled],
@@ -212,15 +212,12 @@ export class PreferencesManager {
       [PrefKeys.BLOCKLIST_ENABLED, defaults.blocklistEnabled],
       [PrefKeys.SEED_RATIO_LIMITED, defaults.seedRatioLimited],
       [PrefKeys.IDLE_SEEDING_LIMIT_ENABLED, defaults.idleSeedingLimitEnabled],
-      [PrefKeys.ENABLE_RPC, defaults.enableRpc],
-      [PrefKeys.ENABLE_RPC_WHITELIST, defaults.enableRpcWhitelist],
       [PrefKeys.WIFI_ONLY, true],
       [PrefKeys.PRIVACY_ACCEPTED, false],
     ];
 
     const intDefaults: [string, number][] = [
       [PrefKeys.PEER_PORT, defaults.peerPort],
-      [PrefKeys.RPC_PORT, defaults.rpcPort],
       [PrefKeys.SPEED_LIMIT_DOWN, defaults.speedLimitDown],
       [PrefKeys.SPEED_LIMIT_UP, defaults.speedLimitUp],
       [PrefKeys.ALT_SPEED_DOWN, defaults.altSpeedDown],
@@ -237,9 +234,6 @@ export class PreferencesManager {
     const strDefaults: [string, string][] = [
       [PrefKeys.DOWNLOAD_DIR, defaults.downloadDir],
       [PrefKeys.INCOMPLETE_DIR, defaults.incompleteDir],
-      [PrefKeys.RPC_WHITELIST, defaults.rpcWhitelist],
-      [PrefKeys.RPC_USERNAME, defaults.rpcUsername],
-      [PrefKeys.RPC_PASSWORD, defaults.rpcPassword],
       [PrefKeys.ENCRYPTION_MODE, defaults.encryptionMode],
       [PrefKeys.PROXY_URL, defaults.proxyUrl],
       [PrefKeys.PROXY_USERNAME, defaults.proxyUsername],
@@ -273,6 +267,23 @@ export class PreferencesManager {
       await store.put(PrefKeys.SEED_RATIO_LIMIT, defaults.seedRatioLimit);
     }
 
+    await store.flush();
+  }
+
+  /**
+   * One-shot cleanup of preference keys whose feature was removed (RPC).
+   * Runs at startup; `has()` guards the delete so a fresh install costs
+   * nothing and an upgraded install drops its orphans exactly once.
+   */
+  private async pruneRemovedKeys(): Promise<void> {
+    const store = this.guard();
+    for (let i = 0; i < ORPHAN_RPC_KEYS.length; i++) {
+      const key = ORPHAN_RPC_KEYS[i];
+      if (await store.has(key)) {
+        await store.delete(key);
+        hilog.info(0x0001, TAG, 'Pruned orphaned preference %{public}s', key);
+      }
+    }
     await store.flush();
   }
 
@@ -311,11 +322,10 @@ export class PreferencesManager {
   async getString(key: string, def: string = ''): Promise<string> {
     try {
       const raw = await this.guard().get(key, def) as string;
-      if (key === PrefKeys.PROXY_PASSWORD || key === PrefKeys.RPC_PASSWORD) {
+      if (key === PrefKeys.PROXY_PASSWORD) {
         // Decrypt the stored envelope. Legacy plaintext (no huk1: prefix) is
         // returned as-is. A broken envelope decrypts to null → fall back to def
-        // (an unset password) rather than surfacing ciphertext to the UI. Both
-        // credentials are encrypted at rest; RPC is not plaintext-special-cased.
+        // (an unset password) rather than surfacing ciphertext to the UI.
         return await this.passwordCipher.decrypt(raw) ?? def;
       }
       return raw;
@@ -363,7 +373,7 @@ export class PreferencesManager {
 
   async setString(key: string, value: string): Promise<void> {
     try {
-      const toStore = (key === PrefKeys.PROXY_PASSWORD || key === PrefKeys.RPC_PASSWORD)
+      const toStore = (key === PrefKeys.PROXY_PASSWORD)
         ? await this.passwordCipher.encrypt(value)
         : value;
       await this.guard().put(key, toStore);
@@ -435,11 +445,6 @@ export class PreferencesManager {
         downloadDir: await this.getString(PrefKeys.DOWNLOAD_DIR, defs.downloadDir),
         incompleteDir: await this.getString(PrefKeys.INCOMPLETE_DIR, defs.incompleteDir),
         peerPort: await this.getInt(PrefKeys.PEER_PORT, defs.peerPort),
-        rpcPort: await this.getInt(PrefKeys.RPC_PORT, defs.rpcPort),
-        rpcWhitelist: normalizeRpcWhitelist(await this.getString(PrefKeys.RPC_WHITELIST, defs.rpcWhitelist)),
-        rpcAuthentication: await this.getBoolean(PrefKeys.RPC_AUTHENTICATION, defs.rpcAuthentication),
-        rpcUsername: await this.getString(PrefKeys.RPC_USERNAME, defs.rpcUsername),
-        rpcPassword: await this.getString(PrefKeys.RPC_PASSWORD, defs.rpcPassword),
         speedLimitDown: await this.getInt(PrefKeys.SPEED_LIMIT_DOWN, defs.speedLimitDown),
         speedLimitUp: await this.getInt(PrefKeys.SPEED_LIMIT_UP, defs.speedLimitUp),
         speedLimitDownEnabled: await this.getBoolean(PrefKeys.SPEED_LIMIT_DOWN_ENABLED, defs.speedLimitDownEnabled),
@@ -474,8 +479,6 @@ export class PreferencesManager {
         seedRatioLimited: await this.getBoolean(PrefKeys.SEED_RATIO_LIMITED, defs.seedRatioLimited),
         idleSeedingLimit: await this.getInt(PrefKeys.IDLE_SEEDING_LIMIT, defs.idleSeedingLimit),
         idleSeedingLimitEnabled: await this.getBoolean(PrefKeys.IDLE_SEEDING_LIMIT_ENABLED, defs.idleSeedingLimitEnabled),
-        enableRpc: await this.getBoolean(PrefKeys.ENABLE_RPC, defs.enableRpc),
-        enableRpcWhitelist: await this.getBoolean(PrefKeys.ENABLE_RPC_WHITELIST, defs.enableRpcWhitelist),
         settingsDir: await this.getString(PrefKeys.SETTINGS_DIR, defs.settingsDir),
       };
     } catch (err) {
@@ -491,11 +494,6 @@ export class PreferencesManager {
       await store.put(PrefKeys.DOWNLOAD_DIR, config.downloadDir);
       await store.put(PrefKeys.INCOMPLETE_DIR, config.incompleteDir);
       await store.put(PrefKeys.PEER_PORT, config.peerPort);
-      await store.put(PrefKeys.RPC_PORT, config.rpcPort);
-      await store.put(PrefKeys.RPC_WHITELIST, config.rpcWhitelist);
-      await store.put(PrefKeys.RPC_AUTHENTICATION, config.rpcAuthentication);
-      await store.put(PrefKeys.RPC_USERNAME, config.rpcUsername);
-      await this.setString(PrefKeys.RPC_PASSWORD, config.rpcPassword);
       await store.put(PrefKeys.SPEED_LIMIT_DOWN, config.speedLimitDown);
       await store.put(PrefKeys.SPEED_LIMIT_UP, config.speedLimitUp);
       await store.put(PrefKeys.SPEED_LIMIT_DOWN_ENABLED, config.speedLimitDownEnabled);
@@ -528,8 +526,6 @@ export class PreferencesManager {
       await store.put(PrefKeys.SEED_RATIO_LIMITED, config.seedRatioLimited);
       await store.put(PrefKeys.IDLE_SEEDING_LIMIT, config.idleSeedingLimit);
       await store.put(PrefKeys.IDLE_SEEDING_LIMIT_ENABLED, config.idleSeedingLimitEnabled);
-      await store.put(PrefKeys.ENABLE_RPC, config.enableRpc);
-      await store.put(PrefKeys.ENABLE_RPC_WHITELIST, config.enableRpcWhitelist);
       await store.put(PrefKeys.SETTINGS_DIR, config.settingsDir);
       await store.flush();
     } catch (err) {

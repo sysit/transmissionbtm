@@ -153,8 +153,6 @@ function makeIsolatedConfig(tag: string): SessionConfig {
   cfg.downloadDir = `${base}/e2e_${unique}_dl`;
   ensureDir(cfg.settingsDir);
   ensureDir(cfg.downloadDir);
-  cfg.enableRpc = false;
-  cfg.enableRpcWhitelist = false;
   cfg.dhtEnabled = false;
   cfg.pexEnabled = false;
   cfg.lpdEnabled = false;

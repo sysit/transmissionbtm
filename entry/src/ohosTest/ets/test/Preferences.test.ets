@@ -20,11 +20,6 @@ export default function preferencesTest(): void {
 
     it('has_all_network_keys', 0, (): void => {
       expect(PrefKeys.PEER_PORT).assertEqual('peer_port');
-      expect(PrefKeys.RPC_PORT).assertEqual('rpc_port');
-      expect(PrefKeys.RPC_WHITELIST).assertEqual('rpc_whitelist');
-      expect(PrefKeys.RPC_AUTHENTICATION).assertEqual('rpc_authentication');
-      expect(PrefKeys.RPC_USERNAME).assertEqual('rpc_username');
-      expect(PrefKeys.RPC_PASSWORD).assertEqual('rpc_password');
       expect(PrefKeys.PEER_LIMIT_GLOBAL).assertEqual('peer_limit_global');
       expect(PrefKeys.PEER_LIMIT_PER_TORRENT).assertEqual('peer_limit_per_torrent');
     });
@@ -72,23 +67,16 @@ export default function preferencesTest(): void {
     });
 
     it('has_all_session_critical_keys', 0, (): void => {
-      expect(PrefKeys.ENABLE_RPC).assertEqual('enable_rpc');
-      expect(PrefKeys.ENABLE_RPC_WHITELIST).assertEqual('enable_rpc_whitelist');
       expect(PrefKeys.SETTINGS_DIR).assertEqual('settings_dir');
     });
 
-    it('has_exactly_43_keys_total', 0, (): void => {
+    it('has_exactly_36_keys_total', 0, (): void => {
       // Count all static readonly string properties on PrefKeys.
       // This test verifies no keys were accidentally added or removed.
       const keys: string[] = [
         PrefKeys.DOWNLOAD_DIR,
         PrefKeys.INCOMPLETE_DIR,
         PrefKeys.PEER_PORT,
-        PrefKeys.RPC_PORT,
-        PrefKeys.RPC_WHITELIST,
-        PrefKeys.RPC_AUTHENTICATION,
-        PrefKeys.RPC_USERNAME,
-        PrefKeys.RPC_PASSWORD,
         PrefKeys.SPEED_LIMIT_DOWN,
         PrefKeys.SPEED_LIMIT_UP,
         PrefKeys.SPEED_LIMIT_DOWN_ENABLED,
@@ -121,24 +109,21 @@ export default function preferencesTest(): void {
         PrefKeys.SEED_RATIO_LIMITED,
         PrefKeys.IDLE_SEEDING_LIMIT,
         PrefKeys.IDLE_SEEDING_LIMIT_ENABLED,
-        PrefKeys.ENABLE_RPC,
-        PrefKeys.ENABLE_RPC_WHITELIST,
         PrefKeys.SETTINGS_DIR,
       ];
-      expect(keys.length).assertEqual(43);
+      expect(keys.length).assertEqual(36);
       // Verify all keys are unique (no duplicates).
       const unique: Set<string> = new Set();
       for (let i = 0; i < keys.length; i++) {
         unique.add(keys[i]);
       }
-      expect(unique.size).assertEqual(43);
+      expect(unique.size).assertEqual(36);
     });
 
     it('pref_key_names_use_snake_case', 0, (): void => {
       // All keys should follow snake_case convention.
       const keys: string[] = [
         PrefKeys.DOWNLOAD_DIR,
-        PrefKeys.RPC_AUTHENTICATION,
         PrefKeys.SPEED_LIMIT_DOWN_ENABLED,
         PrefKeys.IDLE_SEEDING_LIMIT_ENABLED,
       ];

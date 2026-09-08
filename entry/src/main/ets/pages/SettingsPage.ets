@@ -9,10 +9,9 @@
 //   Speed      — rate limits, alt speed (turtle mode)
 //   Network    — ports, peer limits, encryption, protocol toggles
 //   Blocklist  — IP blocklist toggle + URL
-//   RPC        — RPC server port, auth, credentials
 //   Seeding    — ratio stop, idle stop
 
-import { Colors, FontSize, Spacing, Radius } from '../utils/constants';
+import { Colors, FontSize, Spacing, Radius, AppConstants } from '../utils/constants';
 import { SettingsGroup } from '../components/settings/SettingsGroup';
 import { ToggleSetting } from '../components/settings/ToggleSetting';
 import { EditSetting } from '../components/settings/EditSetting';
@@ -71,15 +70,6 @@ export struct SettingsPage {
   // ── Blocklist ──────────────────────────────────────────────────
   @State blocklistEnabled: boolean = defaultSessionConfig().blocklistEnabled;
   @State blocklistUrl: string = defaultSessionConfig().blocklistUrl;
-
-  // ── RPC ────────────────────────────────────────────────────────
-  @State rpcEnabled: boolean = defaultSessionConfig().enableRpc;
-  @State rpcPort: string = String(defaultSessionConfig().rpcPort);
-  @State rpcAuthentication: boolean = defaultSessionConfig().rpcAuthentication;
-  @State rpcUsername: string = defaultSessionConfig().rpcUsername;
-  @State rpcPassword: string = defaultSessionConfig().rpcPassword;
-  @State rpcWhitelist: string = defaultSessionConfig().rpcWhitelist;
-  @State rpcWhitelistEnabled: boolean = defaultSessionConfig().enableRpcWhitelist;
 
   // ── Seeding ────────────────────────────────────────────────────
   @State seedRatioLimited: boolean = defaultSessionConfig().seedRatioLimited;
@@ -149,15 +139,6 @@ export struct SettingsPage {
       // Blocklist
       this.blocklistEnabled = await pm.getBoolean(PrefKeys.BLOCKLIST_ENABLED, this.blocklistEnabled);
       this.blocklistUrl = await pm.getString(PrefKeys.BLOCKLIST_URL, this.blocklistUrl);
-
-      // RPC
-      this.rpcEnabled = await pm.getBoolean(PrefKeys.ENABLE_RPC, this.rpcEnabled);
-      this.rpcPort = String(await pm.getInt(PrefKeys.RPC_PORT, Number(this.rpcPort)));
-      this.rpcAuthentication = await pm.getBoolean(PrefKeys.RPC_AUTHENTICATION, this.rpcAuthentication);
-      this.rpcUsername = await pm.getString(PrefKeys.RPC_USERNAME, this.rpcUsername);
-      this.rpcPassword = await pm.getString(PrefKeys.RPC_PASSWORD, this.rpcPassword);
-      this.rpcWhitelist = await pm.getString(PrefKeys.RPC_WHITELIST, this.rpcWhitelist);
-      this.rpcWhitelistEnabled = await pm.getBoolean(PrefKeys.ENABLE_RPC_WHITELIST, this.rpcWhitelistEnabled);
 
       // Seeding
       this.seedRatioLimited = await pm.getBoolean(PrefKeys.SEED_RATIO_LIMITED, this.seedRatioLimited);
@@ -255,7 +236,6 @@ export struct SettingsPage {
           this.BuildSpeedSection();
           this.BuildNetworkSection();
           this.BuildBlocklistSection();
-          this.BuildRpcSection();
           this.BuildSeedingSection();
           this.BuildResetButton();
         }
@@ -293,24 +273,17 @@ export struct SettingsPage {
   @Builder
   BuildDownloadsSection() {
     SettingsGroup({ title: $r('app.string.settings_section_downloads') }) {
-      // Download & incomplete dirs are read-only (see getSandboxDir). HarmonyOS
-      // NEXT sandboxes third-party apps; the engine needs a real POSIX path, so
-      // DownloadsPage.applySandboxPaths() overrides the session dirs to the app
+      // Both rows are read-only (see getSandboxDir). HarmonyOS NEXT sandboxes
+      // third-party apps; the engine needs a real POSIX path, so
+      // DownloadsPage.applySandboxPaths() overrides the session dir to the app
       // filesDir. A folder picked here would be silently ignored — show the real
-      // sandbox path, and publish finished data via the torrent "Save to Files".
-      // Download dir is read-only: HarmonyOS NEXT sandboxes third-party apps and
-      // the engine needs a real POSIX path, so DownloadsPage.applySandboxPaths()
-      // overrides the session dir to the app filesDir. Publish finished files via
-      // a torrent's "Save to Files" action.
+      // sandbox path plus the fixed export target; publish finished data via the
+      // torrent "Save to Files" action.
       SandboxSettingRow({ label: $r('app.string.settings_download_dir'), value: this.getSandboxDir() });
-      Row() {
-        Text($r('app.string.settings_sandbox_desc'))
-          .fontSize(FontSize.CAPTION)
-          .fontColor(Colors.TEXT_SECONDARY)
-          .layoutWeight(1);
-      }
-      .width('100%')
-      .padding({ left: Spacing.LG, right: Spacing.LG, top: 2, bottom: Spacing.MD });
+      SandboxSettingRow({
+        label: $r('app.string.torrent_action_save_files'),
+        value: AppConstants.SANDBOX_EXPORT_DIR,
+      });
 
       ToggleSetting({
         label: $r('app.string.settings_start_when_added'),
@@ -527,67 +500,6 @@ export struct SettingsPage {
           prefKey: PrefKeys.BLOCKLIST_URL,
           value: $blocklistUrl,
         });
-      }
-    }
-  }
-
-  // ═══════════════════════════════════════════════════════════════
-  // RPC Section
-  // ═══════════════════════════════════════════════════════════════
-
-  @Builder
-  BuildRpcSection() {
-    SettingsGroup({ title: $r('app.string.settings_section_rpc') }) {
-      ToggleSetting({
-        label: $r('app.string.settings_enable_rpc'),
-        description: $r('app.string.settings_enable_rpc_desc'),
-        prefKey: PrefKeys.ENABLE_RPC,
-        checked: $rpcEnabled,
-      });
-      if (this.rpcEnabled) {
-        EditSetting({
-          label: $r('app.string.settings_rpc_port'),
-          hint: '9091',
-          prefKey: PrefKeys.RPC_PORT,
-          value: $rpcPort,
-          inputType: InputType.Number,
-          valueType: 'number',
-        });
-        ToggleSetting({
-          label: $r('app.string.settings_authentication'),
-          description: $r('app.string.settings_authentication_desc'),
-          prefKey: PrefKeys.RPC_AUTHENTICATION,
-          checked: $rpcAuthentication,
-        });
-        if (this.rpcAuthentication) {
-          EditSetting({
-            label: $r('app.string.settings_username'),
-            hint: 'admin',
-            prefKey: PrefKeys.RPC_USERNAME,
-            value: $rpcUsername,
-          });
-          EditSetting({
-            label: $r('app.string.settings_password'),
-            hint: '••••••••',
-            prefKey: PrefKeys.RPC_PASSWORD,
-            value: $rpcPassword,
-            inputType: InputType.Password,
-          });
-        }
-        ToggleSetting({
-          label: $r('app.string.settings_rpc_whitelist_enabled'),
-          description: $r('app.string.settings_rpc_whitelist_enabled_desc'),
-          prefKey: PrefKeys.ENABLE_RPC_WHITELIST,
-          checked: $rpcWhitelistEnabled,
-        });
-        if (this.rpcWhitelistEnabled) {
-          EditSetting({
-            label: $r('app.string.settings_rpc_whitelist'),
-            hint: $r('app.string.settings_rpc_whitelist_hint'),
-            prefKey: PrefKeys.RPC_WHITELIST,
-            value: $rpcWhitelist,
-          });
-        }
       }
     }
   }

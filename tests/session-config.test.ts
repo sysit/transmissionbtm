@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { defaultSessionConfig, EncryptionMode, normalizeRpcWhitelist } from '../entry/src/main/ets/models/SessionConfig.ets';
+import { defaultSessionConfig, EncryptionMode } from '../entry/src/main/ets/models/SessionConfig.ets';
 
 describe('EncryptionMode', () => {
   it('has three modes as string values', () => {
@@ -22,7 +22,6 @@ describe('defaultSessionConfig', () => {
 
   it('has correct network defaults', () => {
     expect(cfg.peerPort).toBe(51413);
-    expect(cfg.rpcPort).toBe(9091);
     expect(cfg.utpEnabled).toBe(true);
     expect(cfg.pexEnabled).toBe(true);
     expect(cfg.dhtEnabled).toBe(true);
@@ -31,19 +30,6 @@ describe('defaultSessionConfig', () => {
 
   it('defaults to PREFER encryption', () => {
     expect(cfg.encryptionMode).toBe(EncryptionMode.PREFER);
-  });
-
-  it('has correct RPC defaults', () => {
-    // RPC listener is off by default: no bundled web UI, so binding 9091 is an
-    // opt-in via the Settings toggle (SessionConfig.ets).
-    expect(cfg.enableRpc).toBe(false);
-    expect(cfg.enableRpcWhitelist).toBe(true);
-    // Loopback default is empty — the engine default-allows it, so the
-    // whitelist string stays clean of loopback tokens.
-    expect(cfg.rpcWhitelist).toBe('');
-    expect(cfg.rpcAuthentication).toBe(true);
-    expect(cfg.rpcUsername).toBe('');
-    expect(cfg.rpcPassword).toBe('');
   });
 
   it('has correct speed limit defaults', () => {
@@ -102,27 +88,4 @@ describe('defaultSessionConfig', () => {
   });
 });
 
-describe('normalizeRpcWhitelist', () => {
-  it('translates byte-aligned CIDR to glob', () => {
-    expect(normalizeRpcWhitelist('127.0.0.1,172.16.1.1/24')).toBe('127.0.0.1,172.16.1.*');
-    expect(normalizeRpcWhitelist('10.0.0.0/8')).toBe('10.*');
-    expect(normalizeRpcWhitelist('192.168.0.0/16')).toBe('192.168.*');
-    expect(normalizeRpcWhitelist('192.168.1.5/32')).toBe('192.168.1.5');
-  });
-
-  it('leaves non-CIDR and non-byte-aligned tokens untouched', () => {
-    expect(normalizeRpcWhitelist('127.0.0.1')).toBe('127.0.0.1');
-    expect(normalizeRpcWhitelist('172.16.1.*')).toBe('172.16.1.*');
-    // /25 is not byte-aligned: leave as-is rather than over-broaden to .*
-    expect(normalizeRpcWhitelist('172.16.1.128/25')).toBe('172.16.1.128/25');
-    // /0 would match every IP — too open, leave as-is (matches nothing safely)
-    expect(normalizeRpcWhitelist('0.0.0.0/0')).toBe('0.0.0.0/0');
-  });
-
-  it('handles space/semicolon delimiters and empties', () => {
-    expect(normalizeRpcWhitelist('127.0.0.1, 172.16.1.1/24')).toBe('127.0.0.1,172.16.1.*');
-    expect(normalizeRpcWhitelist('127.0.0.1;172.16.1.1/24')).toBe('127.0.0.1,172.16.1.*');
-    expect(normalizeRpcWhitelist('')).toBe('');
-  });
-});
 

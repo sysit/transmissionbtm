@@ -20,6 +20,7 @@
 #include <libtransmission/variant.h>
 #include <libtransmission/quark.h>
 #include <libtransmission/session.h>
+#include <libtransmission/utils.h>
 #include <cstring>
 #include <cstdlib>
 #include <cstdarg>
@@ -34,7 +35,6 @@
 // is idempotent — tr_sessionClose frees the session, so a second stop with the
 // same handle would otherwise use-after-free. The registry also backs
 // getSession() validation: only SessionStart-created handles are accepted.
-#define TR_DEFAULT_RPC_PORT 9091
 
 // R7 (#19/#25) + codex review P1: the composed proxy-url (with embedded
 // user:pass@) is applied to the live session at init, but must NEVER be written
@@ -44,15 +44,10 @@
 // setting (session-settings.h Field{TR_KEY_proxy_url}), so strip it from any
 // settings variant before tr_sessionSaveSettings. The app re-applies proxy from
 // its (HUKS-encrypted) preferences on every session start, so losing it from the
-// snapshot is harmless. The RPC username/password are the same class of secret:
-// they are valid session-settings keys and would otherwise be written in
-// plaintext by tr_sessionSaveSettings, mirroring the proxy exposure — strip
-// those too.
+// snapshot is harmless.
 static void StripCredentialsFromSettings(tr_variant &settings) {
   if (auto *map = settings.get_if<tr_variant::Map>()) {
     map->erase(TR_KEY_proxy_url);
-    map->erase(TR_KEY_rpc_username);
-    map->erase(TR_KEY_rpc_password);
   }
 }
 
@@ -107,12 +102,12 @@ extern "C" {
 
 // ── sessionStart ────────────────────────────────────────────────────
 static napi_value SessionStart(napi_env env, napi_callback_info info) {
-  size_t argc = 11;
-  napi_value args[11];
+  size_t argc = 4;
+  napi_value args[4];
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
 
-  if (argc < 10) {
-    napi_throw_error(env, nullptr, "Expected at least 10 arguments");
+  if (argc < 3) {
+    napi_throw_error(env, nullptr, "Expected at least 3 arguments");
     return nullptr;
   }
 
@@ -129,33 +124,19 @@ static napi_value SessionStart(napi_env env, napi_callback_info info) {
     napi_throw_type_error(env, nullptr, "Argument 2 must be an int32");
     return nullptr;
   }
-  bool enableRpc, enableAuth, enableRpcWhitelist;
-  if (napi_get_value_bool(env, args[3], &enableRpc) != napi_ok) {
-    free(configDir); free(downloadsDir);
-    napi_throw_type_error(env, nullptr, "Argument 3 must be a boolean");
-    return nullptr;
-  }
-  int32_t rpcPort = TR_DEFAULT_RPC_PORT;
-  if (napi_get_value_int32(env, args[4], &rpcPort) != napi_ok) {
-    free(configDir); free(downloadsDir);
-    napi_throw_type_error(env, nullptr, "Argument 4 must be an int32");
-    return nullptr;
-  }
-  if (napi_get_value_bool(env, args[5], &enableAuth) != napi_ok) {
-    free(configDir); free(downloadsDir);
-    napi_throw_type_error(env, nullptr, "Argument 5 must be a boolean");
-    return nullptr;
-  }
-  char *username = getStringUtf8(env, args[6]);
-  char *password = getStringUtf8(env, args[7]);
-  if (napi_get_value_bool(env, args[8], &enableRpcWhitelist) != napi_ok) {
-    free(configDir); free(downloadsDir); free(username); free(password);
-    napi_throw_type_error(env, nullptr, "Argument 8 must be a boolean");
-    return nullptr;
-  }
-  char *rpcWhitelist = getStringUtf8(env, args[9]);
 
   bool suspend = false;
+
+  // REQUIRED: tr_lib_init() registers the serializer's default converters
+  // (serializer::Converters::ensure_default_converters) and runs
+  // curl_global_init. Upstream clients (daemon/gtk/qt) call it at startup;
+  // tr_sessionInit does NOT. Without it every serializer::save() field whose
+  // type needs a converter (bool, int64, string, log_level, port, ...)
+  // serializes to monostate -> JsonWriter emits the key with no value ->
+  // rapidjson's parity-based separator logic corrupts the whole object, so
+  // settings.json came out unparseable ("key": "next-key", bare numbers in
+  // key position). std::call_once-guarded, so calling it per session is safe.
+  tr_lib_init();
 
   // 4.1: Get default settings as value type, then override specific keys.
   // try_emplace is on tr_variant::Map, not on tr_variant directly.
@@ -166,8 +147,8 @@ static napi_value SessionStart(napi_env env, napi_callback_info info) {
   // persisted SessionConfig (speed limits, alt-speed, proxy, blocklist,
   // seeding limits, peer ports, ...) was never applied. Merge it over the
   // defaults first; explicit args below then override the keys they cover.
-  if (argc >= 11) {
-    char *settingsJson = getStringUtf8(env, args[10]);
+  if (argc >= 4) {
+    char *settingsJson = getStringUtf8(env, args[3]);
     if (settingsJson != nullptr && settingsJson[0] != '\0') {
       // parse_json is private on tr_variant_serde — parse() is the public
       // entry point (serde::json() selects the JSON format). Pass an explicit
@@ -187,21 +168,6 @@ static napi_value SessionStart(napi_env env, napi_callback_info info) {
     // M4 (review): settingsJson was only freed on the non-empty branch — an
     // empty-string arg leaked. free() is null-safe; run it on every path.
     free(settingsJson);
-  }
-
-  // 4.1 quirk: settingsJson ships kebab keys ("rpc-bind-address"), but
-  // rpc_server.cc load() reads the canonical snake quarks (TR_KEY_rpc_bind_address
-  // = "rpc_bind_address" — a distinct quark, bridged only by api-compat). So the
-  // kebab value never reaches the Field → bind falls back to 0.0.0.0. Re-home the
-  // kebab JSON value onto the snake key the Field actually reads.
-  if (auto kit = map.find(TR_KEY_rpc_bind_address_kebab_APICOMPAT); kit != map.end()) {
-    if (auto sv = kit->second.value_if<std::string_view>()) {
-      if (!sv->empty()) {
-        map[TR_KEY_rpc_bind_address] = tr_variant{std::string(*sv)};
-      }
-    }
-  } else {
-    // No kebab value → keep the engine default (0.0.0.0) unless already set.
   }
 
   // Note: the bundled libcurl has no OS CA store (native
@@ -228,70 +194,22 @@ static napi_value SessionStart(napi_env env, napi_callback_info info) {
   // the old hardcoded `= true` made the Settings peer-port control a no-op).
   map[TR_KEY_port_forwarding_enabled] = false;
 
-  // RPC settings
-  if (enableRpc) {
-    map[TR_KEY_rpc_enabled] = true;
-    map[TR_KEY_rpc_port] = static_cast<int64_t>(rpcPort);
-
-    if (enableAuth) {
-      map[TR_KEY_rpc_username] = tr_variant{username ? username : ""};
-      map[TR_KEY_rpc_password] = tr_variant{password ? password : ""};
-      map[TR_KEY_rpc_authentication_required] = true;
-    } else {
-      map[TR_KEY_rpc_authentication_required] = false;
-    }
-
-    if (enableRpcWhitelist) {
-      map[TR_KEY_rpc_whitelist] = tr_variant{rpcWhitelist ? rpcWhitelist : "127.0.0.1"};
-      map[TR_KEY_rpc_whitelist_enabled] = true;
-    } else {
-      map[TR_KEY_rpc_whitelist_enabled] = false;
-    }
-  } else {
-    map[TR_KEY_rpc_enabled] = false;
-  }
-
   // 4.1: tr_sessionInit takes std::string_view and tr_variant const&
   tr_session *session = tr_sessionInit(configDir, true, settings);
   if (session == nullptr) {
-    free(configDir); free(downloadsDir); free(username); free(password); free(rpcWhitelist);
+    free(configDir); free(downloadsDir);
     napi_throw_error(env, nullptr, "Failed to initialize transmission session");
     return nullptr;
   }
-  // RPC (task #87, follow-ups): the settings dict carries the rpc-* values, but
-  // this 4.1.0 build drops the rpc-* BOOLS on the dict→Settings path (verified on
-  // emulator 2026-09-05: map.rpc-enabled=true yet rpc_server::Settings{} reads
-  // is_enabled=false, authentication_required=false), so dict-alone never starts
-  // the listener — hence the port never binds. The STRING fields (whitelist/
-  // username/password) DO survive the merge; assert the booleans + creds via the C
-  // setters (they drive settings_ directly), clear any stale httpd (a disk
-  // settings.json with rpc-enabled:true could have bound at init), then enable
-  // LAST so start_server rebinds. Note the bind address has NO runtime setter and
-  // the kebab→snake re-home (lines 204-212) does not surface in Load(), so the
-  // listener always binds 0.0.0.0 (all interfaces = LAN + loopback reachable);
-  // access is gated by whitelist + auth, not by the bind field.
-  if (enableRpc) {
-    tr_sessionSetRPCPort(session, (uint16_t)rpcPort);
-    tr_sessionSetRPCWhitelist(session, rpcWhitelist ? rpcWhitelist : "127.0.0.1");
-    tr_sessionSetRPCWhitelistEnabled(session, enableRpcWhitelist);
-    tr_sessionSetRPCUsername(session, username ? username : "");
-    tr_sessionSetRPCPassword(session, password ? password : "");
-    tr_sessionSetRPCPasswordEnabled(session, enableAuth);
-    tr_sessionSetRPCEnabled(session, false);  // clear any stale httpd from init
-    tr_sessionSetRPCEnabled(session, true);   // start server → binds dict-loaded bind_address_
-  }
-  // R7 + codex review: strip proxy/RPC credentials from the settings snapshot
+  // R7 + codex review: strip the proxy credential from the settings snapshot
   // before persisting. The live session keeps the proxy (applied at init, above);
-  // only the on-disk settings.json drops the inline user:pass@ and rpc creds.
+  // only the on-disk settings.json drops the inline user:pass@.
   StripCredentialsFromSettings(settings);
   tr_sessionSaveSettings(session, configDir, settings);
   registerSessionHandle(session);
 
   free(configDir);
   free(downloadsDir);
-  free(username);
-  free(password);
-  free(rpcWhitelist);
 
   napi_value jsession;
   napi_create_bigint_uint64(env, (uint64_t)(uintptr_t)session, &jsession);
@@ -345,7 +263,7 @@ static napi_value SessionStop(napi_env env, napi_callback_info info) {
 
   // 4.1: tr_sessionGetSettings returns tr_variant by value
   auto settings = tr_sessionGetSettings(session);
-  // R7 + codex review: strip proxy/RPC credentials from the snapshot before
+  // R7 + codex review: strip the proxy credential from the snapshot before
   // persisting (the session may still hold proxy-url internalized from init).
   StripCredentialsFromSettings(settings);
   tr_sessionSaveSettings(session, configDir, settings);
@@ -573,35 +491,6 @@ static napi_value ListTorrentNames(napi_env env, napi_callback_info info) {
   return result;
 }
 
-// sessionSetWebClientDir — bundle the official Transmission web client.
-// The RPC server serves web UI (rpc-server.cc handle_web_client:422) from whatever
-// tr_getWebClientDir() resolves — a static one-shot cache (platform.cc:482). That
-// cache is first populated when the RPC server is constructed during tr_sessionInit,
-// so TRANSMISSION_WEB_HOME must be set BEFORE the first sessionStart. EntryAbility
-// extracts the bundled assets to <filesDir>/public_html then calls this to point the
-// engine at them. setenv is process-wide, so the value survives live RPC re-enables
-// (tr_sessionSet re-creates the RPC server but re-reads the cached dir).
-static napi_value SessionSetWebClientDir(napi_env env, napi_callback_info info) {
-  size_t argc = 1;
-  napi_value args[1];
-  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-
-  if (argc < 1) {
-    napi_throw_type_error(env, nullptr, "Expected a path string");
-    return nullptr;
-  }
-
-  char *path = getStringUtf8(env, args[0]);
-  if (path != nullptr && path[0] != '\0') {
-    setenv("TRANSMISSION_WEB_HOME", path, 1);
-  }
-  free(path);
-
-  napi_value result;
-  napi_get_undefined(env, &result);
-  return result;
-}
-
 // ── Module registration ─────────────────────────────────────────────
 void RegisterTransmission(napi_env env, napi_value exports) {
   napi_property_descriptor desc[] = {
@@ -609,7 +498,6 @@ void RegisterTransmission(napi_env env, napi_value exports) {
     {"sessionStop",                 nullptr, SessionStop,                 nullptr, nullptr, nullptr, napi_default, nullptr},
     {"sessionSuspend",              nullptr, SessionSuspend,              nullptr, nullptr, nullptr, napi_default, nullptr},
     {"sessionSettingsUpdate",       nullptr, SessionSettingsUpdate,       nullptr, nullptr, nullptr, napi_default, nullptr},
-    {"sessionSetWebClientDir",      nullptr, SessionSetWebClientDir,      nullptr, nullptr, nullptr, napi_default, nullptr},
     {"hasDownloadingTorrents",      nullptr, HasDownloadingTorrents,      nullptr, nullptr, nullptr, napi_default, nullptr},
     {"listTorrentNames",            nullptr, ListTorrentNames,            nullptr, nullptr, nullptr, napi_default, nullptr}
   };

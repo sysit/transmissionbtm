@@ -42,14 +42,14 @@ import native from 'libtransmissionbtm_napi.so';
 2. `nativeToArktsInit()` — C++ side stores the `napi_env` reference and the callback function refs used by the TSFN
 3. `envSet("TR_CURL_SSL_NO_VERIFY", "true")` + `envSet("TR_CURL_PROXY_SSL_NO_VERIFY", "true")`
 
-### 1.2 Complete Native Method Catalog (35 methods)
+### 1.2 Complete Native Method Catalog (28 methods)
 
 **Session (transmission.cc):**
 
 | Method | Description |
 |--------|-------------|
 | `transmissionVersion` | Transmission `SHORT_VERSION_STRING` |
-| `sessionStart` | Init session (configDir, downloadsDir, encrMode, RPC settings, loadConfig, sequential, paused). Returns opaque session ptr (BigInt). Throws on error |
+| `sessionStart` | Init session `(configDir, downloadsDir, encrMode, settingsJson?)`. Returns opaque session ptr (BigInt). Throws on error |
 | `sessionStop` | Save settings + close session |
 | `sessionSuspend` | Suspend/resume session |
 | `hasDownloadingTorrents` | True if any torrent downloading/checking |
@@ -129,14 +129,14 @@ They are invoked from the libtransmission event thread through a ThreadSafeFunct
 1. `tr_variantInitDict(&settings)`
 2. If loadConfig: `tr_sessionLoadSettings()`
 3. Set defaults: `rename_partial_files=false`, `peer_port_random_on_start=true`
-4. Apply config: download_dir, encryption, sequential, RPC (enabled/port/auth/whitelist)
+4. Apply config: download_dir, encryption, sequential
 5. Init formatters: mem (KiB/MiB/GiB/TiB), size (kB/MB/GB/TB), speed
 6. `tr_sessionInit(configDir, true, &settings)` — creates session, starts DHT/PEX/LPD/port-mapping/µTP
 7. `tr_sessionSaveSettings()`
-8. Event thread: `tr_sessionSetPaused(false)`, register RPC + alt speed callbacks, `tr_sessionLoadTorrents()`
+8. Event thread: `tr_sessionSetPaused(false)`, register change-notification + alt speed callbacks, `tr_sessionLoadTorrents()`
 9. Return session as opaque pointer (BigInt)
 
-**RPC Callback (`rpcFunc`):**
+**Change-notification callback (`rpcFunc` — upstream's misnomer; it is NOT the RPC server):**
 - `TR_RPC_TORRENT_ADDED` → if no metadata: register metadata callback → fall through → `callAddedOrChangedCallback()`
 - `TR_RPC_TORRENT_STOPPED/REMOVING/TRASHING` → `callStoppedCallback()` + `callSessionChangedCallback()`
 - `TR_RPC_SESSION_CHANGED` → `callSessionChangedCallback()`
@@ -205,7 +205,7 @@ libtransmissionbtm_napi.so (N-API)
 1. **openssl**: Download → Configure for OH (no-idea, no-camellia, no-seed, no-bf, no-cast, no-rc2, no-md2, no-md4, no-mdc2, no-dsa, no-err, no-engine, no-tests, no-dso, no-dynamic-engine, no-stdio) → Build static
 2. **curl** (depends openssl): Download → `--disable-shared --enable-static --disable-dict/gopher/imap/pop3/rtsp/smtp/telnet/tftp` → Build static
 3. **libevent** (depends openssl): Download → CMake with `DISABLE_BENCHMARK/TESTS/SAMPLES=ON` → Build static
-4. **transmission** (depends all above): Build from upstream 4.1.0 stable via `scripts/build-third-party.sh` → CMake with `-DENABLE_DAEMON/CLI/GTK/QT/MAC/UTILS/TESTS=OFF` → Build static. (4.1.0 has no `ENABLE_WEB` CMake option; the RPC/web server in `libtransmission/rpc-server.cc` compiles unconditionally — only `REBUILD_WEB`/`INSTALL_WEB` affect asset install.)
+4. **transmission** (depends all above): Build from upstream 4.1.0 stable via `scripts/build-third-party.sh` → CMake with `-DENABLE_DAEMON/CLI/GTK/QT/MAC/UTILS/TESTS=OFF` → Build static.
 
 ---
 
@@ -219,9 +219,9 @@ libtransmissionbtm_napi.so (N-API)
 | `models/TorrentStat.ets` | 10-field stat parser |
 | `models/TransmissionSession.ets` | Session-facing domain object (start/stop, addTorrent, suspend/resume) |
 | `models/Preferences.ets` | Preference keys + typed getters/setters |
-| `models/SessionConfig.ets` | Session start config (RPC, directories, encryption) |
+| `models/SessionConfig.ets` | Session start config (directories, encryption, settings) |
 | `services/ConnectivityMonitor.ets` | Network connectivity observer (WiFi-only / SSID gate) |
-| `services/WakeLockManager.ets` | CPU + WiFi wake lock management |
+| `services/KeepAliveManager.ets` | Continuous background task (`dataTransfer`) held while transferring |
 | `services/SessionController.ets` | Session lifecycle controller in-process (replaces removed service) |
 | `utils/format.ets` | Size/speed/ETA formatting |
 | `utils/constants.ets` | Design tokens (Colors, FontSize, Spacing, Radius, Duration) |

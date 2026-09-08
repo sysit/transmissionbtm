@@ -378,38 +378,146 @@ with open("'"${src_dir}"'/libtransmission/variant.h", "w") as f:
 print("  variant.h patched successfully")
 '
 
-  # Patch rpcimpl.cc: register the tr_encryption_mode serializer in the SAME
-  # translation unit that reads it. The `encryption` session-get field is the only
-  # getter routed through Converters::serialize<tr_encryption_mode>(), which reads a
-  # lazily-populated static-inline `converter_storage<T>` registry. If that TU
-  # hasn't had ensure_default_converters() run, serialize<T>() falls through to its
-  # "no serializer registered" branch and emits `"encryption"` with no value →
-  # the web client's JSON.parse fails. (FIXED + on-device verified 2026-09-05.)
-  echo "  Patching rpcimpl.cc: ensure_default_converters() in sessionGet..."
+  # NOTE: the old rpcimpl.cc patch (ensure_default_converters() inside
+  # sessionGet) was deleted 2026-09-08. It was a TU-local workaround for the same
+  # missing-init bug that is now fixed properly by tr_lib_init() in the bridge
+  # (entry/src/main/cpp/transmission.cc, called at SessionStart). The converter
+  # registry is a C++17 inline variable (serializer.h: `static inline
+  # ConverterStorage<T> converter_storage;`) — one instance per process — so
+  # registering from the bridge's TU is program-wide. Do not re-add this patch.
+
+  # Patch rpcimpl.cc: replace small::max_size_map with std::map. The OH clang 15
+  # build does not compile small::max_size_map (3 call sites, all in this file;
+  # the rest of small/ — small::vector, map.hpp itself — is used by other TUs and
+  # is fine). std::map is behaviourally equivalent for these lookup/insert uses.
+  echo "  Patching rpcimpl.cc: small::max_size_map -> std::map..."
   python3 -c '
+import re
+
 src = "'"${src_dir}"'/libtransmission/rpcimpl.cc"
 with open(src, "r") as f:
     content = f.read()
 
-if "Converters::ensure_default_converters" in content:
+if "small::max_size_map" not in content:
     print("  rpcimpl.cc already patched, skipping")
     exit(0)
 
-# Anchor on sessionGet() so we hit ITS accessors line, not the other callers.
-sig = "sessionGet("
-sig_idx = content.find(sig)
-assert sig_idx != -1, "rpcimpl.cc: sessionGet signature not found"
-anchor = "auto const& accessors = session_accessors();"
-idx = content.find(anchor, sig_idx)
-assert idx != -1, "rpcimpl.cc: sessionGet accessors line not found"
-eol = content.find("\n", idx)
-insert_at = eol + 1
-marker = "\n    libtransmission::serializer::Converters::ensure_default_converters();\n"
-content = content[:insert_at] + marker + content[insert_at:]
+content, n = re.subn(r"small::max_size_map<(.+?), \d+U>", r"std::map<\1>", content)
+assert n == 3, f"rpcimpl.cc: expected 3 max_size_map sites, replaced {n}"
+
+content = content.replace("#include <small/map.hpp>\n\n", "")
+assert "<small/map.hpp>" not in content, "rpcimpl.cc: small/map.hpp include not removed"
+
+anchor = "#include <iterator>\n"
+assert content.count(anchor) == 1, "rpcimpl.cc: iterator include not unique"
+content = content.replace(anchor, anchor + "#include <map>\n", 1)
 
 with open(src, "w") as f:
     f.write(content)
 print("  rpcimpl.cc patched successfully")
+'
+
+  # Patch rpc-server.cc: allow loopback (127.0.0.1 / ::1 / localhost) regardless
+  # of rpc-whitelist, mirroring the Host whitelist built-in localhost allowance
+  # (isHostnameAllowed). Needed so the phone browser / local tools reach RPC even
+  # when the whitelist is narrowed to the LAN.
+  # (FIXED + on-device verified 2026-09-05.)
+  echo "  Patching rpc-server.cc: loopback always allowed..."
+  python3 -c '
+src = "'"${src_dir}"'/libtransmission/rpc-server.cc"
+with open(src, "r") as f:
+    content = f.read()
+
+if "Loopback is always allowed" in content:
+    print("  rpc-server.cc already patched, skipping")
+    exit(0)
+
+anchor = "    auto const& src = server->whitelist_;"
+assert content.count(anchor) == 1, "rpc-server.cc: whitelist anchor not unique"
+block = """    // Loopback is always allowed — a phone browser / local tool must reach
+    // RPC even when rpc-whitelist limits the LAN. Mirrors the Host whitelist
+    // built-in localhost allowance (isHostnameAllowed).
+    auto const host = std::string_view{ addr };
+    auto const is_loopback = host == "127.0.0.1"sv || host == "::1"sv ||
+        host == "localhost"sv || host == "localhost."sv ||
+        (host.size() >= 4 && host.compare(0, 4, "127."sv) == 0);
+    if (is_loopback)
+    {
+        return true;
+    }
+
+"""
+content = content.replace(anchor, block + anchor, 1)
+
+with open(src, "w") as f:
+    f.write(content)
+print("  rpc-server.cc patched successfully")
+'
+
+  # Patch variant-json.cc: sort settings keys by tr_quark instead of
+  # std::string_view. The OH clang 15 build miscompiles std::sort over
+  # std::pair<std::string_view, ...>, corrupting the string_view pointer/len so
+  # every emitted key aliases the next entry value (tr_variant_serde::json()
+  # then prints garbage keys). tr_quark is trivially copyable, so std::sort
+  # cannot corrupt it; the string_view is materialized at write time instead.
+  # (FIXED + on-device verified 2026-09-05.)
+  echo "  Patching variant-json.cc: sort keys by tr_quark..."
+  python3 -c '
+src = "'"${src_dir}"'/libtransmission/variant-json.cc"
+with open(src, "r") as f:
+    content = f.read()
+
+if "std::pair<tr_quark, tr_variant const*>" in content:
+    print("  variant-json.cc already patched, skipping")
+    exit(0)
+
+old_entries = """    static auto constexpr N = 32U;
+    auto entries = small::vector<std::pair<std::string_view, tr_variant const*>, N>{};
+    entries.reserve(map.size());
+    for (auto const& [key, child] : map)
+    {
+        entries.emplace_back(tr_quark_get_string_view(key), &child);
+    }
+    std::sort(std::begin(entries), std::end(entries));"""
+
+new_entries = """    // Sort by tr_quark (a stable uint32 id), comparing the resolved string
+    // on the fly. We deliberately do NOT store std::string_view in the
+    // sortable container: the OH clang 15 (incomplete C++20 libc++) build
+    // miscompiles std::sort over std::pair<std::string_view, ...>, corrupting
+    // the string_view pointer/len so every key aliases the next entry value.
+    // tr_quark is trivially copyable, so std::sort cannot corrupt it. The
+    // string_view is only materialized at write time, from a stable quark.
+    auto entries = std::vector<std::pair<tr_quark, tr_variant const*>>{};
+    entries.reserve(map.size());
+    for (auto const& [key, child] : map)
+    {
+        entries.emplace_back(key, &child);
+    }
+    std::sort(std::begin(entries), std::end(entries), [](auto const& a, auto const& b)
+    {
+        auto const av = tr_quark_get_string_view(a.first);
+        auto const bv = tr_quark_get_string_view(b.first);
+        return av < bv;
+    });"""
+
+assert old_entries in content, "variant-json.cc: sorted_entries body not found"
+content = content.replace(old_entries, new_entries, 1)
+
+old_loop = """        for (auto const& [key, child] : sorted_entries(val))
+        {
+            writer.Key(std::data(key), std::size(key));"""
+
+new_loop = """        for (auto const& [quark, child] : sorted_entries(val))
+        {
+            auto const key = tr_quark_get_string_view(quark);
+            writer.Key(std::data(key), std::size(key));"""
+
+assert old_loop in content, "variant-json.cc: JsonWriter map loop not found"
+content = content.replace(old_loop, new_loop, 1)
+
+with open(src, "w") as f:
+    f.write(content)
+print("  variant-json.cc patched successfully")
 '
 
   # Replace std::ranges::* / std::views::* / std::lexicographical_compare_three_way

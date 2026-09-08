@@ -15,7 +15,7 @@ This document maps every feature of the transmissionbtm HarmonyOS BitTorrent cli
 | Dark theme (5.16) | P2 | 对齐参考实现（参考实现也没有） | Ship one intentional theme first; add dark mode post-v1.0 |
 | Russian localization (5.17) | P3 | 对齐参考实现（参考实现也只有 RU+EN） | v1.0 targets zh-CN / en-US only |
 | RSS feed (5.14) | P3 | 对齐参考实现（参考实现也是空桩） | Was an empty stub in the reference source; never implemented |
-| Alternative web UI (8.3) | P3 | **移植欠账** | Standard Transmission web UI is sufficient |
+| Alternative web UI (8.3) | P3 | **已删除** | RPC/Web 功能整体移除（2026-09-08） |
 | Storage adapter (bidirectional N-API I/O bridge) | P0 | 简化（架构决策，非欠账） | **Simplified:** v1.0 uses app sandbox + POSIX I/O directly. No FileAccessHelper bridge needed. External storage support deferred to v1.1+ |
 
 > **分类口径**：**移植欠账** = 能力上可在 HarmonyOS 上实现、但按**范围决策**延后的功能（magnet、URL 添加、HTTP 流媒体、UPnP/DLNA、监视目录）；延后是**范围决策**而非技术不可行。
@@ -156,16 +156,9 @@ This document maps every feature of the transmissionbtm HarmonyOS BitTorrent cli
 
 ---
 
-## 8. Web UI & RPC
+## 8. Web UI & RPC — ❌ removed (2026-09-08)
 
-| # | Feature | transmissionbtm | Priority | Notes |
-|---|---------|--------------|----------|-------|
-| 8.1 | Transmission RPC server | ✅ | **P0** | Local JSON-RPC (LAN + localhost). Opt-in via Settings toggle; `rpc-bind-address` editable (default 127.0.0.1). RPC server is unconditional in transmission 4.1 — no engine rebuild needed |
-| 8.2 | Web UI serving | ✅ | **P1** | Official Transmission web client bundled (`resources/rawfile/web`), extracted to `<filesDir>/public_html` + `TRANSMISSION_WEB_HOME` set before first sessionStart; served at `http://<host>:<rpcPort>/transmission/web/` |
-| 8.3 | Alternative web UI | 🚫 | ~~P3~~ | **Deferred to v1.1+.** Official client sufficient |
-| 8.4 | RPC authentication | ✅ | **P1** | On by default (`rpcAuthentication: true`, fail-safe) + HUKS-encrypted password |
-| 8.5 | RPC whitelist | ✅ | **P1** | Access control (`enableRpcWhitelist`, default 127.0.0.1) |
-| 8.6 | Web UI button in app | ❌ | **P3** | Opens browser to RPC URL — the official web client is now served, so this is just an entry-point shortcut; still out |
+The entire remote-control surface (RPC server, bundled web client, RPC auth/whitelist, Settings section) was removed — maintenance cost outweighed the feature. The app is local-only again. See `docs/STATUS.md` (2026-09-08 entry).
 
 ---
 
@@ -211,12 +204,11 @@ This document maps every feature of the transmissionbtm HarmonyOS BitTorrent cli
 
 ```
 1. Native engine (libtransmission + deps via N-API)
-2. N-API bridge (35 native methods)
+2. N-API bridge (28 native methods)
 3. Foreground service + notification
 4. Basic UI: torrent list + add torrent
 5. Preferences + session persistence
-6. RPC server + web UI
-7. Download complete → play via file URI
+6. Download complete → play via file URI
 ```
 
 ---
@@ -228,12 +220,11 @@ P0:
   ├─ libtransmission + deps (OpenSSL, curl, libevent) → N-API bridge
   ├─ Preferences persistence
   ├─ Foreground service
-  ├─ Basic UI (torrent list, add, detail)
-  └─ RPC server + web UI
+  └─ Basic UI (torrent list, add, detail)
 
 P1:
   ├─ DHT / µTP / PEX ← depends on libtransmission compile flags
-  ├─ Proxy config ← depends on RPC config
+  ├─ Proxy config ← independent of session start
   ├─ Sequential download ← depends on torrent operations
   ├─ File prioritization ← depends on add torrent flow
   ├─ Boot start ← depends on service + prefs
@@ -249,7 +240,6 @@ P2:
 P3:
   ├─ About page ← UI only
   ├─ SOCKS5 proxy ← libtransmission support (no UI)
-  ├─ Web UI button ← UI only
   └─ Root scripts ← not applicable to OH
 
 🚫 Deferred (v1.1+):

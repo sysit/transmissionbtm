@@ -25,11 +25,6 @@ export default function sessionConfigTest(): void {
     it('returns_valid_network_defaults', 0, (): void => {
       const config: SessionConfig = defaultSessionConfig();
       expect(config.peerPort).assertEqual(51413);
-      expect(config.rpcPort).assertEqual(9091);
-      expect(config.rpcWhitelist).assertEqual('127.0.0.1');
-      expect(config.rpcAuthentication).assertTrue();
-      expect(config.rpcUsername).assertEqual('');
-      expect(config.rpcPassword).assertEqual('');
       expect(config.peerLimitGlobal).assertEqual(200);
       expect(config.peerLimitPerTorrent).assertEqual(50);
     });
@@ -83,11 +78,6 @@ export default function sessionConfigTest(): void {
 
     it('returns_valid_session_critical_defaults', 0, (): void => {
       const config: SessionConfig = defaultSessionConfig();
-      // RPC listener off by default — no bundled web UI, so 9091 is an opt-in
-      // via the Settings toggle. The whitelist stays on so a future web-control
-      // opt-in binds to 127.0.0.1.
-      expect(config.enableRpc).assertFalse();
-      expect(config.enableRpcWhitelist).assertTrue();
       expect(config.settingsDir).assertEqual('/storage/transmission');
     });
 
@@ -123,11 +113,6 @@ export default function sessionConfigTest(): void {
         downloadDir: '/test/dl',
         incompleteDir: '/test/inc',
         peerPort: 6881,
-        rpcPort: 9092,
-        rpcWhitelist: '127.0.0.1',
-        rpcAuthentication: true,
-        rpcUsername: 'admin',
-        rpcPassword: '',
         speedLimitDown: 100,
         speedLimitUp: 50,
         speedLimitDownEnabled: true,
@@ -160,8 +145,6 @@ export default function sessionConfigTest(): void {
         seedRatioLimited: true,
         idleSeedingLimit: 60,
         idleSeedingLimitEnabled: true,
-        enableRpc: true,
-        enableRpcWhitelist: false,
         settingsDir: '/test/transmission',
       };
       expect(config.downloadDir).assertEqual('/test/dl');
@@ -169,8 +152,6 @@ export default function sessionConfigTest(): void {
       expect(config.seedRatioLimit).assertEqual(1.5);
       expect(config.seedRatioLimited).assertTrue();
       expect(config.idleSeedingLimit).assertEqual(60);
-      expect(config.enableRpc).assertTrue();
-      expect(config.enableRpcWhitelist).assertFalse();
       expect(config.settingsDir).assertEqual('/test/transmission');
     });
 

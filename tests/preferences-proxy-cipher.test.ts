@@ -31,7 +31,7 @@ class FakeCipher implements ProxyCipher {
 }
 
 // Non-password key used to prove the cipher is NOT invoked for ordinary values.
-const OTHER_KEY = 'rpc_username';
+const OTHER_KEY = 'settings_dir';
 
 describe('PreferencesManager proxy_password cipher interception', () => {
   let pm: PreferencesManager;

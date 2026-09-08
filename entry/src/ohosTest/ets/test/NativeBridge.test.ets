@@ -208,7 +208,7 @@ export default function nativeBridgeTest() {
       expect(true).assertTrue();
     });
 
-    it('note_no_transmissionSetRpcCallbacks', 0, () => {
+    it('note_uses_tsfn_not_java_static_callbacks', 0, () => {
       // the upstream registers callbacks via Java static Runnable fields.
       // Our bridge uses N-API ThreadSafeFunction (TSFN) instead, handled
       // internally by the bridge (no public nativeToArktsInit/Release wrappers).

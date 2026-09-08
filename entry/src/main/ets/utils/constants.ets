@@ -104,10 +104,12 @@ export class Duration {
 
 export class AppConstants {
   static readonly APP_NAME: string = 'transmissionbtm';
+  // Public target the torrent "Save to Files" action exports into (picker
+  // default); shown read-only on the Settings page.
+  static readonly SANDBOX_EXPORT_DIR: string = 'Download/com.9bt.transmissionbtm';
   static readonly APP_VERSION: string = '1.0.1';
   static readonly BUILD_DATE: string = '2026-09-05';
   static readonly BUILD_MILESTONE: string = 'Release';
-  static readonly RPC_DEFAULT_PORT: number = 9091;
   static readonly PEER_DEFAULT_PORT: number = 51413;
   static readonly ENGINE_VERSION: string = 'Transmission 4.1.0 + OpenSSL + libcurl + libevent';
   static readonly PLATFORM: string = 'HarmonyOS NEXT';

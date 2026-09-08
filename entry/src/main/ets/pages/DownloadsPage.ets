@@ -1,7 +1,7 @@
 // transmissionbtm — DownloadsPage (main torrent list with 1s polling)
 //
 // Renders the torrent list and owns the overlay navigation (add / file-tree /
-// context menu). Session side-effects (lifecycle, polling, wake lock,
+// context menu). Session side-effects (lifecycle, polling, keep-alive,
 // connectivity, torrent actions) are delegated to SessionController; this page
 // keeps only the ArkUI @State and subscribes via the controller's
 // onTorrents()/onLoading() callbacks. Sandbox path resolution and Save-to-Files
@@ -23,7 +23,7 @@ import { FileTreePage } from './FileTreePage';
 import { EmptyState } from '../components/ui/EmptyState';
 import { formatSpeed, formatSize } from '../utils/format';
 import { Colors, FontSize, Spacing, Radius } from '../utils/constants';
-import { WakeLockManager } from '../services/WakeLockManager';
+import { KeepAliveManager } from '../services/KeepAliveManager';
 import { ConnectivityMonitor } from '../services/ConnectivityMonitor';
 import { SessionController } from '../services/SessionController';
 import { NativeBridge } from '../bridge/NativeBridge';
@@ -97,13 +97,15 @@ export struct DownloadsPage {
   @State storageOrphanCount: number = 0;
   @State storageOrphanSize: number = 0;
   @State showCleanOrphansDialog: boolean = false;
-  // Owns the session lifecycle, 1s poll, D3 wake lock, D4 connectivity monitor,
-  // and torrent CRUD. Wake lock + connectivity factory are supplied here (they
-  // need device-only @kit modules); host tests omit them.
+  // Owns the session lifecycle, 1s poll, D3 keep-alive, D4 connectivity monitor,
+  // and torrent CRUD. Keep-alive + connectivity factory are supplied here (they
+  // need device-only @kit modules); host tests omit them. The context provider is
+  // resolved lazily at acquire time — getContext(this) is only valid once the
+  // page is attached.
   private controller: SessionController = new SessionController(
     // session defaults to a real TransmissionSession
     undefined,
-    new WakeLockManager(),
+    new KeepAliveManager(() => getContext(this) as common.UIAbilityContext),
     (onAvailable: () => void, onLost: () => void) =>
       new ConnectivityMonitor(onAvailable, onLost)
   );
@@ -138,7 +140,7 @@ export struct DownloadsPage {
     // B2 (codex P1): mark disposed so a still-running initSession short-circuits
     // after its next await instead of wiring a session/poll with no page left.
     this.isDisposed = true;
-    // D3/D4 (docs/11): controller.stop() releases the wake lock, unregisters the
+    // D3/D4 (docs/11): controller.stop() releases the keep-alive, unregisters the
     // connectivity monitor, stops polling, and tears the session down.
     this.controller.stop();
     // Release the TSFN event channel before teardown so late events can't fire
@@ -155,7 +157,7 @@ export struct DownloadsPage {
   private async initSession(): Promise<void> {
     try {
       // Read the persisted settings (Speed, Proxy, peer port, encryption, DHT/PEX,
-      // blocklist, RPC, seeding limits) so the Settings/Proxy pages actually drive
+      // blocklist, seeding limits) so the Settings/Proxy pages actually drive
       // the live engine. applySandboxPaths then overrides the three directory
       // fields to the app sandbox (those /storage/... defaults don't exist on device).
       const config = await PreferencesManager.getInstance().getSessionConfig();
@@ -163,8 +165,8 @@ export struct DownloadsPage {
       this.applySandboxPaths(config);
       this.sessionDownloadDir = config.downloadDir;
       // Re-wire native TSFN events → controller.reload(). MUST run before
-      // sessionStart (sessionStart wires the tr_session RPC callbacks that fire
-      // them). All four funnel to reload() (poll + invalidate), matching
+      // sessionStart (sessionStart wires the tr_session change callbacks that
+      // fire them). All four funnel to reload() (poll + invalidate), matching
 // refresh-on-event behavior, so a move/add is never dropped.
       NativeBridge.getInstance().nativeToArktsInit(
         () => this.controller.reload(),
