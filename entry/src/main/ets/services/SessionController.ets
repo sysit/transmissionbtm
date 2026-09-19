@@ -40,7 +40,8 @@ export class SessionController {
   private connectivityFactory: ((onAvailable: () => void, onLost: () => void) => ConnectivityContract) | null;
 
   private pollTimer: number = -1;
-  private keepAliveActive: boolean = false;
+  /** True while an acquire() call is in flight (acquire is async). */
+  private acquiring: boolean = false;
   private connectivity: ConnectivityContract | null = null;
   private netPaused: boolean = false;
   private _started: boolean = false;
@@ -116,7 +117,7 @@ export class SessionController {
     if (this.keepAlive !== null) {
       this.keepAlive.release();
     }
-    this.keepAliveActive = false;
+    this.acquiring = false;
     if (this.connectivity !== null) {
       this.connectivity.destroy().catch((e: Error) => {
         hilog.error(0x0001, TAG, 'connectivity destroy failed: %{private}s', String(e));
@@ -236,15 +237,30 @@ export class SessionController {
     if (this.keepAlive === null) {
       return;
     }
-    const active = this.hasDownloading();
-    if (active && !this.keepAliveActive) {
-      this.keepAliveActive = true;
-      this.keepAlive.acquire('active torrent transfer').catch((e: Error) => {
-        hilog.error(0x0001, TAG, 'keep-alive acquire failed: %{private}s', String(e));
-        this.keepAliveActive = false;
-      });
-    } else if (!active && this.keepAliveActive) {
-      this.keepAliveActive = false;
+    // netPaused counts as active: a network-loss pause stops the engine, which
+    // makes hasDownloading() false — releasing the continuous task there lets
+    // the OS freeze the process, and a frozen process can never resume when the
+    // network comes back. Hold the task for as long as the user still has
+    // transfers in flight; the OS may suspend it (logged by KeepAliveManager)
+    // but it stays recoverable.
+    const active = this.hasDownloading() || this.netPaused;
+    // Ask the manager whether it is actually holding, NOT a local mirror of it.
+    // The OS can cancel a continuous task on its own (low-speed check, system
+    // policy) and KeepAliveManager drops its flag when that happens; a mirror
+    // that never hears about it would stay true and skip every later acquire.
+    // Nothing would then re-acquire the task and the OS would freeze the
+    // process as soon as the app went to the background — downloads then ran
+    // only while the app was on screen, which is the reported bug.
+    if (active && !this.keepAlive.isHolding() && !this.acquiring) {
+      this.acquiring = true; // acquire() is async; dedupe until it settles
+      this.keepAlive.acquire('active torrent transfer')
+        .catch((e: Error) => {
+          hilog.error(0x0001, TAG, 'keep-alive acquire failed: %{private}s', String(e));
+        })
+        .finally(() => {
+          this.acquiring = false; // a failed acquire is retried on the next poll
+        });
+    } else if (!active && this.keepAlive.isHolding()) {
       this.keepAlive.release();
     }
   }

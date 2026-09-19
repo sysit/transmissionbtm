@@ -9,6 +9,7 @@ import { SessionController } from '../entry/src/main/ets/services/SessionControl
 import { TorrentInfo } from '../entry/src/main/ets/models/TorrentInfo';
 import { TransmissionSession } from '../entry/src/main/ets/models/TransmissionSession';
 import { SessionConfig } from '../entry/src/main/ets/models/SessionConfig';
+import type { KeepAliveManager } from '../entry/src/main/ets/services/KeepAliveManager';
 
 function makeTorrent(id: number): TorrentInfo {
   const t = new TorrentInfo();
@@ -49,6 +50,24 @@ class FakeSession {
     }
     return this.torrents;
   }
+}
+
+class FakeKeepAlive {
+  acquired = 0;
+  released = 0;
+  /** Mirrors KeepAliveManager.active — the source of truth for "are we holding". */
+  holding = false;
+  async acquire(_reason: string): Promise<void> {
+    this.acquired++;
+    this.holding = true;
+  }
+  release(): void {
+    this.released++;
+    this.holding = false;
+  }
+  isHolding(): boolean { return this.holding; }
+  /** Simulate the OS cancelling the task on its own (low-speed / policy). */
+  systemCancel(): void { this.holding = false; }
 }
 
 function makeController(): { ctrl: SessionController; fake: FakeSession } {
@@ -139,6 +158,72 @@ describe('SessionController', () => {
     expect(fake.calls.filter(c => c === 'suspend:true').length).toBe(1);
     ctrl.suspend(false);
     expect(fake.calls.filter(c => c === 'suspend:false').length).toBe(1);
+  });
+
+  it('holds the keep-alive while a network-loss suspend has the engine paused', () => {
+    const fake = new FakeSession();
+    const ka = new FakeKeepAlive();
+    const ctrl = new SessionController(
+      fake as unknown as TransmissionSession,
+      ka as unknown as KeepAliveManager
+    );
+
+    fake.hasDL = true;
+    ctrl.reload(); // downloading → acquire the continuous task
+    expect(ka.acquired).toBe(1);
+    expect(ka.released).toBe(0);
+
+    // Network lost: the engine is paused, so hasDownloading() goes false.
+    // Releasing the task here is the regression — the OS then freezes the
+    // process and background downloads never resume.
+    fake.hasDL = false;
+    ctrl.suspend(true);
+    ctrl.reload();
+    expect(ka.released).toBe(0);
+
+    // Network back, transfer still in flight → still held.
+    ctrl.suspend(false);
+    fake.hasDL = true;
+    ctrl.reload();
+    expect(ka.released).toBe(0);
+
+    // Transfer actually finished → release.
+    fake.hasDL = false;
+    ctrl.reload();
+    expect(ka.released).toBe(1);
+  });
+
+  it('re-acquires after the OS cancels the continuous task on its own', async () => {
+    const fake = new FakeSession();
+    const ka = new FakeKeepAlive();
+    const ctrl = new SessionController(
+      fake as unknown as TransmissionSession,
+      ka as unknown as KeepAliveManager
+    );
+
+    fake.hasDL = true;
+    ctrl.reload();
+    await new Promise((r) => setTimeout(r, 0)); // flush acquire + its .finally() — as it would be after 5s of polling
+    expect(ka.acquired).toBe(1);
+
+    // The OS cancels the dataTransfer task by itself (low-speed check or
+    // system policy) while a transfer is still running. KeepAliveManager drops
+    // its own `active` flag; the controller must notice and re-acquire, or the
+    // process has no keep-alive and the OS freezes it the moment the app is
+    // backgrounded — downloads then only run while the app is on screen.
+    ka.systemCancel();
+    ctrl.reload();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(ka.acquired).toBe(2);
+    expect(ka.isHolding()).toBe(true);
+
+    // A user-initiated cancel is respected: KeepAliveManager leaves its own
+    // `active` flag set (holding stays true) so the controller does not fight
+    // the user by immediately re-acquiring.
+    ka.released = 0;
+    fake.hasDL = false; // nothing in flight → release
+    ctrl.reload();
+    expect(ka.released).toBe(1);
   });
 
   it('keeps the last list and does not throw when getAllTorrents fails', async () => {

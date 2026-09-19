@@ -178,16 +178,18 @@ export class ConnectivityMonitor {
    * Re-evaluates whether the current network is acceptable for transfers
    * (e.g. WiFi-only mode with a switch from WiFi to cellular).
    */
-  private async handleCapabilitiesChange(data: NetCapabilitiesChangeData): Promise<void> {
+  private async handleCapabilitiesChange(_data: NetCapabilitiesChangeData): Promise<void> {
     const wifiOnly = await this.isWifiOnlyEnabled();
     if (!wifiOnly) {
       return;
     }
 
-    const bearerTypes = data.netCap?.bearerTypes ?? [];
-    const hasWifi = bearerTypes.some(
-      (t: number) => t === connection.NetBearType.BEARER_WIFI
-    );
+    // Decide from the CURRENT default network, not from the event payload: a
+    // capability event can describe a network that is being torn down (or carry
+    // no bearer info at all) while the default network is still WiFi. Suspending
+    // on that is what killed background downloads — the suspend stops the
+    // engine, which drops hasDownloading(), which releases the continuous task.
+    const hasWifi = await this.isDefaultNetworkWifi();
 
     if (!hasWifi && this.wasAvailable) {
       hilog.info(0x0001, TAG,
@@ -268,6 +270,31 @@ export class ConnectivityMonitor {
       hilog.error(0x0001, TAG,
         'isWifiNetwork failed: %{private}s', String(err));
       return false;
+    }
+  }
+
+  /**
+   * True when the current DEFAULT network carries WiFi, or when that cannot be
+   * determined. Fail-open: a transient query failure must never suspend a
+   * running transfer. False only when the default network is positively
+   * non-WiFi or absent — the case WiFi-only mode exists to block.
+   */
+  private async isDefaultNetworkWifi(): Promise<boolean> {
+    try {
+      const handle = await connection.getDefaultNet();
+      if (!handle || handle.netId === 0) {
+        return false; // no default network → nothing to transfer over
+      }
+      const caps = await connection.getNetCapabilities(handle);
+      const bearers = caps?.bearerTypes ?? [];
+      if (bearers.length === 0) {
+        return true; // unknown bearer set → fail open
+      }
+      return bearers.some((t: number) => t === connection.NetBearType.BEARER_WIFI);
+    } catch (err) {
+      hilog.warn(0x0001, TAG,
+        'default network query failed (fail-open): %{private}s', String(err));
+      return true;
     }
   }
 }
