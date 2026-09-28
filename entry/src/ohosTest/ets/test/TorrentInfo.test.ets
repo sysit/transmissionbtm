@@ -19,8 +19,8 @@
 //   arr[5] = uploadedLength  → uploadedEver
 //   arr[6] = peersUp         → peersConnected
 //   arr[7] = peersDown       → peersTotal
-//   arr[8] = speedUp         → rateUpload
-//   arr[9] = speedDown       → rateDownload
+//   arr[8] = speedUp (KB/s)  → rateUpload (× KBPS_TO_BPS → B/s)
+//   arr[9] = speedDown (KB/s)→ rateDownload (× KBPS_TO_BPS → B/s)
 //
 // Status values:
 //   STOPPED=0, CHECK=1, DOWNLOAD=2, SEED=3, ERROR=4
@@ -33,6 +33,7 @@ import {
   TorrentInfo,
   TorrentStatus,
   TorrentError,
+  KBPS_TO_BPS,
   TorrentInfoJSON,
 } from '../../../main/ets/models/TorrentInfo';
 
@@ -104,9 +105,9 @@ export default function torrentInfoTest(): void {
       expect(info.downloadedEver).assertEqual(720000);
       expect(info.peersConnected).assertEqual(8);
       expect(info.peersTotal).assertEqual(12);
-      // arr[8]=speedUp → rateUpload, arr[9]=speedDown → rateDownload
-      expect(info.rateUpload).assertEqual(50000);
-      expect(info.rateDownload).assertEqual(2000000);
+      // arr[8]=speedUp (KB/s) → rateUpload (B/s), arr[9]=speedDown → rateDownload
+      expect(info.rateUpload).assertEqual(50000 * KBPS_TO_BPS);
+      expect(info.rateDownload).assertEqual(2000000 * KBPS_TO_BPS);
       // status != ERROR → error = OK
       expect(info.error).assertEqual(TorrentError.OK);
     });
@@ -129,7 +130,7 @@ export default function torrentInfoTest(): void {
       // haveValid = totalLen - remainingLen = 5000000 - 0 = 5000000
       expect(info.haveValid).assertEqual(5000000);
       expect(info.rateDownload).assertEqual(0);
-      expect(info.rateUpload).assertEqual(100000);
+      expect(info.rateUpload).assertEqual(100000 * KBPS_TO_BPS);
       expect(info.error).assertEqual(TorrentError.OK);
     });
 
@@ -182,10 +183,10 @@ export default function torrentInfoTest(): void {
       const info: TorrentInfo = TorrentInfo.fromStatArray(
         nativeStat, 'speed.iso', 'spd01'
       );
-      // arr[8] = 300000 (speedUp) → rateUpload
-      expect(info.rateUpload).assertEqual(300000);
-      // arr[9] = 5000000 (speedDown) → rateDownload
-      expect(info.rateDownload).assertEqual(5000000);
+      // arr[8] = 300000 (speedUp, KB/s) → rateUpload (B/s)
+      expect(info.rateUpload).assertEqual(300000 * KBPS_TO_BPS);
+      // arr[9] = 5000000 (speedDown, KB/s) → rateDownload (B/s)
+      expect(info.rateDownload).assertEqual(5000000 * KBPS_TO_BPS);
     });
 
     it('fromStatArray_shortArray_usesDegradedMode', 0, (): void => {
