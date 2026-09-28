@@ -116,3 +116,27 @@ ArkTS DownloadsPage.ets
    - 若 control 也失败：核对 `module.json5` 网络权限、静态 libcurl 的编译期 CA 路径、以及模拟器当前网络/代理。
    - 若仅 tracker 失败：确认 `proxy-url` 未持久化；检查静态 libcurl 是否 IPv6-优先；必要时给 app 显式 `CURLOPT_CAINFO`（指向系统 CA）或在 buildSettings 里修正。
 3. 若排查 LPD/UPnP 相关现象（非本次卡点）时，再针对鸿蒙组播权限做专项。
+
+---
+
+## 7. 结论（2026-09-19）：卡点不在本机网络栈，在 tracker 侧
+
+本文第 3/4 节排查的 TLS / CA / IPv6 / 组播方向**全部作废** —— tracker 连接**一直是通的**。
+
+真实证据来自引擎自己每 5s 打印的 `[DBG] stat` 行（`cpp/torrent.cc:725-730`，取自 `tr_tracker_view`）。字段含义不可猜，记录如下：
+
+| 字段 | 来源 | 含义 |
+|---|---|---|
+| `peers=N` | `tv.lastAnnouncePeerCount` | **tracker 实际发给我们的** peer 数 —— 判断「tracker 给不给」只看这个 |
+| `seed=` / `leech=` | `tv.seederCount` / `tv.leecherCount` | tracker **自报的** swarm 规模，不是给我们的 |
+| `ok=` | `lastAnnounceSucceeded` | announce 在 HTTP 层是否成功 |
+| `to=` | `lastAnnounceTimedOut` | 是否超时 |
+| `res=` | `lastAnnounceResult` | tracker 返回的消息串 |
+
+（另：`act=4`=DOWNLOAD，`act=6`=SEED。）
+
+**判读要点：`priv=1` 会强制 `tdht=0 tpex=0`**（私有种子正确地关掉 DHT/PEX），所以 PT 种子下 tracker 是**唯一** peer 来源。于是 `ok=1 res='Success'` + `peers=0 seed=355` 这个组合没有歧义：**引擎健康，tracker 拒绝发 peer**。这不该再去 N-API 桥里找问题。
+
+**实证（6.2 GB 种子）：** 6 分钟内 84 个连续采样（每 5s 一个）全部 `peers=0`，`ok=1 to=0`，无 >8s 断点。把同一 `.torrent` 拿到 Mac 上直接 announce，得到原文：`failure reason: 'You already are downloading the same torrent. You may only leech from one location at a time.'` —— **NexusPHP 的单点下载限制**，而「location」部分由 announce 的 `key` 参数决定，新 app 会话会换新 key。属 tracker 侧规则，非本 app 缺陷。
+
+**操作铁律 —— 永远不要用自己的 announce 去探 PT tracker。** 本次诊断中直接向 `tracker.m-team.cc` 发了约 10 次带随机 `key` 的测试 announce；私有 tracker 会监控 announce 速率，**罚的是用户账号**。引擎自己的 `[DBG] stat` 行已经含全部所需数据且零成本 —— 先用它；确有必须的带外探测时先问用户。

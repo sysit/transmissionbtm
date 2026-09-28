@@ -4,8 +4,27 @@
 >
 > **Test-count reconcile note:** the numbers below are historical records and drift across snapshots — they were logged as each milestone closed, not re-run as a suite:
 > - **On-device ohosTest**: unit-only `222/222` (M7 unit), then `231/231` total once 8 in-process E2E landed (M7 E2E). Note `222 + 8 = 230`, not 231 — the doc itself is off by one at that boundary; both figures are recorded verbatim below and were never re-reconciled. The stale `232/232` on the CLAUDE.md build line predates the E2E numbering.
-> - **Host vitest** (Node-only, no device): `76/76` (R8) → `93/93` (proxy-cipher) → `80/80` (R9) → **`95/95` (2026-09-08, RPC removal; latest)**. Each supersedes the prior; the last is current.
+> - **Host vitest** (Node-only, no device): `76/76` (R8) → `93/93` (proxy-cipher) → `80/80` (R9) → `95/95` (2026-09-08, RPC removal) → **`97/97` (2026-09-19, keep-alive fix; latest)**. Each supersedes the prior; the last is current.
 > - The current `aa test` path on this box SIGABRTs in the harness (`JsTestRunner`), so on-device runs go through `assembleHap -p module=entry@ohosTest` + `hdc install` + `aa test`.
+
+---
+
+## 2026-09-19 — background downloads stalled: the continuous task was being lost
+
+**Symptom (user):** transfers only ran while the app was on screen; backgrounding stopped them immediately.
+
+**Root cause, measured.** Releasing the continuous task is followed by the OS freezing the process **~5 s** later — on a Pura 80: release `09:31:17.509`, last engine line `09:31:22.507`, next `09:31:58.752`. That 36 s hole sits in a log that prints every 5 s, and a frozen process cannot run JS timers — so the only thing that re-acquires the task, `SessionController`'s 5 s poll, can never fire again. Losing the task is terminal. Two defects made it happen:
+
+- **Stale mirror.** `SessionController` kept `keepAliveActive`, its own copy of the manager's state. The OS cancels a `dataTransfer` task on its own (`SYSTEM_CANCEL`, low-speed check, policy) and only `KeepAliveManager` hears about it, so the mirror stayed `true` and every later `acquire()` was skipped. Nothing re-acquired the task and the OS froze the app the moment it went to the background — which is why foregrounding "fixed" it.
+- **Poll-vs-freeze race.** Even with the mirror fixed, a poll-driven re-acquire races the freeze (~5 s vs ~5 s) — a coin flip, and losing has no recovery.
+
+**Fix.** Consult `KeepAliveManager.isHolding()` (the source of truth) instead of mirroring it, and re-acquire from inside the system-cancel callback with a **10 s backoff** so the low-speed policy can't be fought in a hot loop; a *user*-initiated cancel (swiped notification) is intent and is still respected. `ConnectivityMonitor` no longer derives WiFi-vs-cellular from the event payload — a capability event can describe a network being torn down and carry no bearer info; a false suspend stops the engine, drops `hasDownloading()`, and released this same task. It now queries the current default network and fails open.
+
+**Tests.** `tests/session-controller.test.ts` +2 (re-acquire after an OS cancel; network-loss suspend holds the task). Host vitest **97/97**.
+
+**Verified on device (Pura 80 `4VM0125513000074`).** 84 consecutive 5 s engine samples across 6 minutes with the app backgrounded and a reader app in the foreground — zero gaps > 8 s; a separate run downloaded 276 MB to completion with the screen **off and locked**; an add-then-immediately-Home run finished with zero `CANCELLED`/`SUSPEND` events. **Caveat:** the OS's own cancel cannot be forced in the lab, so the mirror defect rests on code reading + the host regression test, while the freeze-after-release mechanism rests on the log gap above.
+
+**Tooling (same batch).** `scripts/signing/use.sh debug|release` copies the matching variant over the live (gitignored) `build-profile.json5` — hvigor has no CLI override for the product `signingConfig`, and the variants differ by that one line. The variants hold the real cert/key passwords and stay gitignored.
 
 ---
 
