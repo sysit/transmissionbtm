@@ -3,9 +3,22 @@
 > Change history for **transmissionbtm**. `CLAUDE.md` keeps only live engineering guidance; this file holds the full narrative. Newest first. Dates are when the work landed, not when it was planned.
 >
 > **Test-count reconcile note:** the numbers below are historical records and drift across snapshots — they were logged as each milestone closed, not re-run as a suite:
-> - **On-device ohosTest**: unit-only `222/222` (M7 unit), then `231/231` total once 8 in-process E2E landed (M7 E2E). Note `222 + 8 = 230`, not 231 — the doc itself is off by one at that boundary; both figures are recorded verbatim below and were never re-reconciled. The stale `232/232` on the CLAUDE.md build line predates the E2E numbering.
+> - **On-device ohosTest**: unit-only `222/222` (M7 unit), then `231/231` total once 8 in-process E2E landed (M7 E2E). Note `222 + 8 = 230`, not 231 — the doc itself is off by one at that boundary; both figures are recorded verbatim below and were never re-reconciled. The stale `232/232` on the CLAUDE.md build line predates the E2E numbering. **`225/225` (2026-09-28, emulator — current)** after the ohosTest native-packaging fix; the suite had silently not run between the RPC removal and that date.
 > - **Host vitest** (Node-only, no device): `76/76` (R8) → `93/93` (proxy-cipher) → `80/80` (R9) → `95/95` (2026-09-08, RPC removal) → **`97/97` (2026-09-19, keep-alive fix; latest)**. Each supersedes the prior; the last is current.
 > - The current `aa test` path on this box SIGABRTs in the harness (`JsTestRunner`), so on-device runs go through `assembleHap -p module=entry@ohosTest` + `hdc install` + `aa test`.
+
+---
+
+## 2026-09-28 — v1.0.2 release prep: the on-device suite was secretly broken
+
+Pre-release audit for 1.0.2 (versionCode 5) found the ohosTest suite in a state that looked green in the docs but had never run since the RPC removal. Fresh emulator run: **225 tests, 211 pass, 14 fail** — two unrelated root causes, both fixed:
+
+- **The ohosTest hap shipped zero native libraries.** `externalNativeOptions` lived only in the `buildOptionSet` debug/release variants, which do not apply to the `ohosTest` target — so `libtransmissionbtm_napi.so` was never packaged into the test hap and all 12 engine E2E tests (7_x) died at launch with `Cannot read property getVersion of undefined`, while the main app was unaffected. Fix: add module-level `buildOption.externalNativeOptions` in `entry/build-profile.json5` (applies to every target; hvigor 6.24.3's schema **rejects** `buildOption` inside `targets[]` — only `name/config/source/resource/runtimeOS/output` are allowed there). Verify with `unzip -l …ohosTest-signed.hap | grep .so`.
+- **Four stale assertions.** Three `TorrentInfo.fromStatArray` rate expectations predated the KB/s→B/s model fix (native speeds are KB/s; the model multiplies by `KBPS_TO_BPS=1000` at the boundary) — updated to the converted values. The fourth, `NativeProbe`, still asserted native `getVersion() == '0.1.1'` while the C++ string had been bumped twice without it; the probe now moves in lockstep with every release bump.
+
+Also fixed the release flow itself: installing the ohosTest hap over an installed app fails with `9568284 install version not compatible` — `uninstall` first. Emulator clock runs ~35 min behind the Mac; don't use device log timestamps to reason about wall-clock ordering.
+
+**Verified:** ohosTest **225/225** on the Pura 90 API24 emulator (2026-09-28); host vitest 97/97. Release `.app` built with the release cert chain (`scripts/signing/use.sh release` → `assembleApp`), hap-sign-tool `Verify success`, chain contains leaf `CN=陈锡金…,Release`; pack.info = code 5 / 1.0.2; the packaged `.so` strings out as `1.0.2`. Debug signing restored afterwards; debug HAP installed and launched on the emulator (`NativeBridge v1.0.2 initialized`, engine session started).
 
 ---
 
