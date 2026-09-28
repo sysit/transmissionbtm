@@ -16,9 +16,10 @@ export default function nativeProbeTest() {
   describe('NativeProbe', () => {
     it('native_so_loads_and_getVersion_returns_real_value', 0, () => {
       const version: string = NativeBridge.getInstance().getVersion();
-      // Real native value — the C++ side returns '0.1.1'.
+      // Real native value — the C++ side returns the release version string
+      // (napi_init.cpp GetVersion), bumped with every release commit.
       // An unavailable .so throws here and fails this test.
-      expect(version === '0.1.1').assertTrue();
+      expect(version === '1.0.2').assertTrue();
     });
   });
 }
