@@ -20,7 +20,7 @@ Also fixed the release flow itself: installing the ohosTest hap over an installe
 
 **Verified:** ohosTest **225/225** on the Pura 90 API24 emulator (2026-09-28); host vitest 97/97. Release `.app` built with the release cert chain (`scripts/signing/use.sh release` → `assembleApp`), hap-sign-tool `Verify success`, chain contains leaf `CN=陈锡金…,Release`; pack.info = code 5 / 1.0.2; the packaged `.so` strings out as `1.0.2`. Debug signing restored afterwards; debug HAP installed and launched on the emulator (`NativeBridge v1.0.2 initialized`, engine session started).
 
-**AGC submission (2026-09-29 ~00:10, via browser automation):** uploaded the release `.app` (软件包管理), attached it via 版本选取 + 软件包加密=加密（推荐）, replaced 新版本特性 with a background-download-only note (no RPC mention, per user), first submit was rejected by form validation (`请选择软件包是否加密` — the field only appears after a package is attached), resubmitted clean. **预审 passed ~45 min later → 正在等待审核** (Huawei human review; on approval it auto-publishes per the 审核通过立即上架 setting).
+**AGC submission (2026-09-29 ~00:10, via browser automation):** uploaded the release `.app` (软件包管理), attached it via 版本选取 + 软件包加密=加密（推荐）, replaced 新版本特性 with a background-download-only note (no RPC mention, per user), first submit was rejected by form validation (`请选择软件包是否加密` — the field only appears after a package is attached), resubmitted clean. **预审 passed ~45 min later → 正在等待审核** (Huawei human review; on approval it auto-publishes per the 审核通过立即上架 setting). **Review APPROVED (2026-09-29, user-confirmed) — 1.0.2 live on AppGallery.**
 
 ---
 
