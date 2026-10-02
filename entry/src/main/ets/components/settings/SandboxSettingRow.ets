@@ -10,20 +10,21 @@ export struct SandboxSettingRow {
   @Prop value: string = '';
 
   build() {
-    Row() {
+    // Value on its own line, not beside the label: a sandbox path is longer
+    // than the space left of a right-aligned label, so side-by-side either
+    // truncates (ellipsis) or wraps mid-path. Stacked, it fits on one line.
+    Column() {
       Text(this.label)
         .fontSize(FontSize.BODY)
-        .fontColor(Colors.TEXT)
-        .layoutWeight(1);
+        .fontColor(Colors.TEXT);
 
+      // No maxLines/ellipsis anywhere — wrap is the fallback, never a cut.
       Text(this.value)
         .fontSize(FontSize.CAPTION)
         .fontColor(Colors.TEXT_SECONDARY)
-        .maxLines(1)
-        .textOverflow({ overflow: TextOverflow.Ellipsis })
-        .constraintSize({ maxWidth: '55%' })
-        .margin({ right: Spacing.SM });
+        .margin({ top: Spacing.XS });
     }
+    .alignItems(HorizontalAlign.Start)
     .width('100%')
     .padding({ left: Spacing.LG, right: Spacing.LG, top: Spacing.MD, bottom: Spacing.MD });
   }
