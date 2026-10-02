@@ -13,9 +13,6 @@
 #include <hilog/log.h>
 #include <cstdlib>
 #include <cstring>
-#include <fcntl.h>
-#include <unistd.h>
-#include <sys/stat.h>
 #include <mutex>
 #include <libtransmission/transmission.h>
 #include <libtransmission/file.h>
@@ -203,40 +200,11 @@ static napi_value NativeToArktsRelease(napi_env env, napi_callback_info info) {
   return result;
 }
 
-// ── POSIX file hooks (replaces tr_android_file_* StorageAccess) ─────
-// v1.0: OH supports POSIX I/O on the app sandbox filesystem.
-// These are registered with libtransmission via tr_sessionSet*.
-
-extern "C" {
-
-tr_sys_file_t tr_android_file_open(char const *path, int flags) {
-  int posixFlags = O_RDONLY;
-  if (flags & TR_SYS_FILE_WRITE) posixFlags = O_RDWR;
-  if (flags & TR_SYS_FILE_CREATE) posixFlags |= O_CREAT;
-  // 4.0.6: TR_SYS_FILE_CREATE_NEW removed — O_EXCL applied with TR_SYS_FILE_CREATE
-  if (flags & TR_SYS_FILE_TRUNCATE) posixFlags |= O_TRUNC;
-
-  int fd = open(path, posixFlags, 0666);
-  return (fd == -1) ? TR_BAD_SYS_FILE : fd;
-}
-
-bool tr_android_file_close(tr_sys_file_t handle) {
-  return close(handle) == 0;
-}
-
-bool tr_android_path_rename(char const *src_path, char const *dst_path) {
-  return rename(src_path, dst_path) == 0;
-}
-
-bool tr_android_path_remove(char const *path) {
-  return remove(path) == 0;
-}
-
-bool tr_android_dir_create(char const *path) {
-  return mkdir(path, 0755) == 0;
-}
-
-} // extern "C"
+// (removed: six tr_android_* POSIX shims — zero callers. Their comment claimed
+// they were "registered with libtransmission via tr_sessionSet*", but no such
+// registration ever existed and `nm -u` over the 20 engine archives shows the
+// engine does not reference them either: the sandbox paths go straight through
+// libtransmission's own POSIX file layer.)
 
 // ── Module registration ─────────────────────────────────────────────
 extern "C" void RegisterNativeToArkts(napi_env env, napi_value exports) {

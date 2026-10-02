@@ -19,10 +19,8 @@
 #include <cstring>
 #include <cstdlib>
 #include <vector>
-#include <thread>
 #include <fcntl.h>
 #include <unistd.h>
-#include <curl/curl.h>
 
 #undef LOG_DOMAIN
 #undef LOG_TAG
@@ -189,10 +187,7 @@ static napi_value TorrentAdd(napi_env env, napi_callback_info info) {
   napi_value args[8];
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
 
-  if (argc < 2) {
-    napi_throw_error(env, nullptr, "Expected at least 2 arguments: session, torrent path/uri");
-    return nullptr;
-  }
+  if (!requireArgs(env, argc, 7, "torrentAdd")) return nullptr;
 
   // D1 (docs/11): build a magnet ctor when the input is a magnet URI or a
   // bare 40-hex info-hash; otherwise fall through to the file-based path.
@@ -313,6 +308,7 @@ static void *torrentRemoveFunc(tr_session *s, void *d, Err *err) {
 static napi_value TorrentRemove(napi_env env, napi_callback_info info) {
   size_t argc = 3; napi_value args[3];
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+  if (!requireArgs(env, argc, 3, "torrentRemove")) return nullptr;
   TorrentRemoveData d = {getInt32Napi(env, args[1]), getBoolNapi(env, args[2])};
   runInTransmissionThread(__FILE__, __LINE__, env, args[0], torrentRemoveFunc, &d);
   napi_value r; napi_get_undefined(env, &r); return r;
@@ -331,6 +327,7 @@ static napi_value TorrentRemove(napi_env env, napi_callback_info info) {
   static napi_value name(napi_env env, napi_callback_info info) { \
     size_t argc = 2; napi_value args[2]; \
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr); \
+    if (!requireArgs(env, argc, 2, #name)) return nullptr; \
     int32_t id = getInt32Napi(env, args[1]); \
     runInTransmissionThread(__FILE__, __LINE__, env, args[0], \
         name##Func, (void *)(intptr_t)id); \
@@ -358,6 +355,7 @@ static void *TorrentStartFunc(tr_session *s, void *d, Err *err) {
 static napi_value TorrentStart(napi_env env, napi_callback_info info) {
   size_t argc = 2; napi_value args[2];
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+  if (!requireArgs(env, argc, 2, "torrentStart")) return nullptr;
   int32_t id = getInt32Napi(env, args[1]);
   runInTransmissionThread(__FILE__, __LINE__, env, args[0],
       TorrentStartFunc, (void *)(intptr_t)id);
@@ -370,6 +368,7 @@ DEF_TORRENT_OP(TorrentVerify, tr_torrentVerify)
 static napi_value TorrentListFilesFromFile(napi_env env, napi_callback_info info) {
   size_t argc = 1; napi_value args[1];
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+  if (!requireArgs(env, argc, 1, "torrentListFilesFromFile")) return nullptr;
 
   char *path = getStringUtf8(env, args[0]);
   if (path == nullptr) return nullptr;
@@ -420,6 +419,7 @@ static void *torrentListFilesFunc(tr_session *s, void *d, Err *err) {
 static napi_value TorrentListFiles(napi_env env, napi_callback_info info) {
   size_t argc = 2; napi_value args[2];
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+  if (!requireArgs(env, argc, 2, "torrentListFiles")) return nullptr;
   ListFilesData d = {getInt32Napi(env, args[1]), 0, nullptr};
   runInTransmissionThread(__FILE__, __LINE__, env, args[0], torrentListFilesFunc, &d);
   if (!d.count) { napi_value r; napi_get_null(env, &r); return r; }
@@ -441,6 +441,7 @@ static void *torrentFindByHashFunc(tr_session *s, void *d, Err *err) {
 static napi_value TorrentFindByHash(napi_env env, napi_callback_info info) {
   size_t argc = 2; napi_value args[2];
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+  if (!requireArgs(env, argc, 2, "torrentFindByHash")) return nullptr;
   FindByHashData d;
   void *data = nullptr; size_t len = 0;
   napi_status status = napi_get_arraybuffer_info(env, args[1], &data, &len);
@@ -461,6 +462,7 @@ static void *torrentGetNameFunc(tr_session *s, void *d, Err *err) {
 static napi_value TorrentGetName(napi_env env, napi_callback_info info) {
   size_t argc = 2; napi_value args[2];
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+  if (!requireArgs(env, argc, 2, "torrentGetName")) return nullptr;
   int32_t tid = getInt32Napi(env, args[1]);
   char *name = (char *) runInTransmissionThread(__FILE__, __LINE__, env, args[0],
       torrentGetNameFunc, (void *)(intptr_t)tid);
@@ -483,6 +485,7 @@ static void *torrentGetHashFunc(tr_session *s, void *d, Err *err) {
 static napi_value TorrentGetHash(napi_env env, napi_callback_info info) {
   size_t argc = 3; napi_value args[3];
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+  if (!requireArgs(env, argc, 3, "torrentGetHash")) return nullptr;
   void *hashBuf = nullptr; size_t hashBufLen = 0;
   napi_status status = napi_get_arraybuffer_info(env, args[2], &hashBuf, &hashBufLen);
   if (status != napi_ok || hashBuf == nullptr || hashBufLen < SHA_DIGEST_LENGTH) {
@@ -507,6 +510,7 @@ static void *torrentGetFileNameFunc(tr_session *s, void *d, Err *err) {
 static napi_value TorrentGetFileName(napi_env env, napi_callback_info info) {
   size_t argc = 3; napi_value args[3];
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+  if (!requireArgs(env, argc, 3, "torrentGetFileName")) return nullptr;
   FileData d = {getInt32Napi(env, args[1]), getInt32Napi(env, args[2])};
   char *name = (char *) runInTransmissionThread(__FILE__, __LINE__, env, args[0],
       torrentGetFileNameFunc, &d);
@@ -575,6 +579,7 @@ static void *torrentGetFileStatFunc(tr_session *s, void *d, Err *err) {
 static napi_value TorrentGetFileStat(napi_env env, napi_callback_info info) {
   size_t argc = 4; napi_value args[4];
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+  if (!requireArgs(env, argc, 3, "torrentGetFileStat")) return nullptr;
   FileStatData d = {getInt32Napi(env, args[1]), getInt32Napi(env, args[2]), 0, nullptr, false};
   runInTransmissionThread(__FILE__, __LINE__, env, args[0], torrentGetFileStatFunc, &d);
   // C5 (codex): runInTransmissionThread may have thrown (e.g. invalid file
@@ -598,57 +603,9 @@ static napi_value TorrentGetFileStat(napi_env env, napi_callback_info info) {
 
 // ── torrentStatBrief (10 int64 per torrent) ─────────────────────────
 typedef struct { int64_t *stat; int32_t statLen; bool alloc; } StatBriefData;
-// [PROBE] One-shot HTTP reachability check using the app's own libcurl,
-// run on the first poll. Distinguishes "app can't reach anything (INTERNET
-// permission / sandbox / CA bundle)" from "tracker-specific failure".
-// No passkey is used — the tracker probe hits only the bare https://host/.
-static size_t HttpProbeDiscard(void *, size_t sz, size_t nm, void *) { return sz * nm; }
-
-static void HttpProbeFetch(const char *label, const char *url) {
-  // C7 (codex): ensure libcurl is globally initialized before the first
-  // curl_easy_init on this detached probe thread.
-  ensureCurlGlobalInit();
-  CURL *c = curl_easy_init();
-  if (!c) {
-    OH_LOG_Print(LOG_APP, LOG_WARN, LOG_DOMAIN, LOG_TAG,
-                 "[PROBE] %{public}s curl_easy_init FAILED", label);
-    return;
-  }
-  char errbuf[CURL_ERROR_SIZE] = {0};
-  char effip[64] = {0};
-  double ct = 0;
-  curl_easy_setopt(c, CURLOPT_URL, url);
-  curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, HttpProbeDiscard);
-  curl_easy_setopt(c, CURLOPT_ERRORBUFFER, errbuf);
-  curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT, 5L);
-  curl_easy_setopt(c, CURLOPT_TIMEOUT, 8L);
-  curl_easy_setopt(c, CURLOPT_SSL_VERIFYPEER, 1L);
-  curl_easy_setopt(c, CURLOPT_USERAGENT, "transmissionbtm-probe");
-  CURLcode rc = curl_easy_perform(c);
-  curl_easy_getinfo(c, CURLINFO_PRIMARY_IP, effip);
-  curl_easy_getinfo(c, CURLINFO_CONNECT_TIME, &ct);
-  OH_LOG_Print(LOG_APP, rc == CURLE_OK ? LOG_INFO : LOG_WARN, LOG_DOMAIN, LOG_TAG,
-               "[PROBE] %{public}s url=%{public}s rc=%{public}d ip=%{public}s connect=%.3fs err='%{public}s'",
-               label, url, (int)rc, effip, ct, errbuf);
-  curl_easy_cleanup(c);
-}
-
-static void HttpProbeOnce() {
-  HttpProbeFetch("control", "https://example.com/");
-  HttpProbeFetch("tracker", "https://tracker.m-team.cc/");
-}
 
 static void *torrentStatBriefFunc(tr_session *s, void *d, Err *err) {
   (void)err;
-  static bool s_probe_done = false;
-  if (!s_probe_done) {
-    s_probe_done = true;
-    // C1 (codex P1): the two synchronous curl probes block the session event
-    // thread for up to ~16s on the first stats poll, stalling torrent ops and
-    // the first UI refresh. Fire them on a detached thread; the first poll now
-    // returns immediately. Probes are diagnostic-only (logged, never fatal).
-    std::thread(HttpProbeOnce).detach();
-  }
   auto *sb = (StatBriefData *) d;
   int n = (int)s->torrents().size();
   int sl = n * 10;
@@ -738,7 +695,10 @@ static void *torrentStatBriefFunc(tr_session *s, void *d, Err *err) {
                    "dht=%{public}d pex=%{public}d utp=%{public}d tcp=%{public}d pfw=%{public}d "
                    "encr=%{public}d dllim=%{public}d dllimKB=%{public}lld ullim=%{public}d ullimKB=%{public}lld "
                    "priv=%{public}d tdht=%{public}d tpex=%{public}d trk=%{public}lld "
-                   "trkdbg='%{public}s' localerr=%{public}d err='%{public}s'",
+                   // errmsg can embed the user's own file paths (e.g. a missing
+                   // download target) — %{private} keeps it out of public logs.
+                   // trkdbg is tracker-supplied host/result only (no passkey).
+                   "trkdbg='%{public}s' localerr=%{public}d err='%{private}s'",
                    tr_torrentId(tor), (int)st, tor->is_running()?1:0, tor->is_queued(dirq)?1:0,
                    (long long)tor->size_when_done(), haveValid,
                    (long long)tor->left_until_done(),
@@ -762,6 +722,7 @@ static void *torrentStatBriefFunc(tr_session *s, void *d, Err *err) {
 static napi_value TorrentStatBrief(napi_env env, napi_callback_info info) {
   size_t argc = 2; napi_value args[2];
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+  if (!requireArgs(env, argc, 1, "torrentStatBrief")) return nullptr;
   StatBriefData d = {nullptr, 0, false};
   runInTransmissionThread(__FILE__, __LINE__, env, args[0], torrentStatBriefFunc, &d);
   // Empty session (0 torrents) and allocation-failure both end with statLen==0 /
@@ -792,6 +753,7 @@ static void *torrentGetErrorFunc(tr_session *s, void *d, Err *err) {
 static napi_value TorrentGetError(napi_env env, napi_callback_info info) {
   size_t argc = 2; napi_value args[2];
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+  if (!requireArgs(env, argc, 2, "torrentGetError")) return nullptr;
   int32_t tid = getInt32Napi(env, args[1]);
   char *errStr = (char *) runInTransmissionThread(__FILE__, __LINE__, env, args[0],
       torrentGetErrorFunc, (void *)(intptr_t)tid);
@@ -816,6 +778,7 @@ static void *torrentStateFunc(tr_session *s, void *d, Err *err) {
 static napi_value TorrentState(napi_env env, napi_callback_info info) {
   size_t argc = 2; napi_value args[2];
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+  if (!requireArgs(env, argc, 2, "torrentState")) return nullptr;
   int32_t tid = getInt32Napi(env, args[1]);
   char *state = (char *) runInTransmissionThread(__FILE__, __LINE__, env, args[0],
       torrentStateFunc, (void *)(intptr_t)tid);
@@ -836,6 +799,7 @@ static void *torrentSetDndFunc(tr_session *s, void *d, Err *err) {
 static napi_value TorrentSetDnd(napi_env env, napi_callback_info info) {
   size_t argc = 4; napi_value args[4];
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+  if (!requireArgs(env, argc, 4, "torrentSetDnd")) return nullptr;
   SetDndData d;
   d.id = getInt32Napi(env, args[1]);
   d.dnd = getBoolNapi(env, args[3]);
@@ -871,6 +835,7 @@ static void *torrentSetLocationFunc(tr_session *s, void *d, Err *err) {
 static napi_value TorrentSetLocation(napi_env env, napi_callback_info info) {
   size_t argc = 3; napi_value args[3];
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+  if (!requireArgs(env, argc, 3, "torrentSetLocation")) return nullptr;
   char *path = getStringUtf8(env, args[2]);
   if (path == nullptr) {
     napi_throw_error(env, nullptr, "Destination path must be a non-empty string");
@@ -900,6 +865,7 @@ static void *torrentReannounceFunc(tr_session *s, void *d, Err *err) {
 static napi_value TorrentReannounce(napi_env env, napi_callback_info info) {
   size_t argc = 2; napi_value args[2];
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+  if (!requireArgs(env, argc, 2, "torrentReannounce")) return nullptr;
   ReannounceData d = {getInt32Napi(env, args[1])};
   runInTransmissionThread(__FILE__, __LINE__, env, args[0], torrentReannounceFunc, &d);
   napi_value r; napi_get_undefined(env, &r); return r;

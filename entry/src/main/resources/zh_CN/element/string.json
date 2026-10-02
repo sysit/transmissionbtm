@@ -50,6 +50,7 @@
     { "name": "settings_alt_days", "value": "日期（位掩码）" },
     { "name": "settings_alt_days_hint", "value": "127 = 每天" },
     { "name": "settings_peer_port", "value": "对等连接端口" },
+    { "name": "settings_invalid_number", "value": "请输入有效数字" },
     { "name": "settings_global_peer_limit", "value": "全局对等连接数限制" },
     { "name": "settings_peers_per_torrent", "value": "每个种子的对等连接数" },
     { "name": "settings_encryption", "value": "加密" },

@@ -1,9 +1,9 @@
 // transmissionbtm — N-API module registration
-// M0: skeleton with getVersion(). M1: full 40-method bridge.
 //
-// All 9 Register* functions are declared here and called from Init().
-// When a submodule's source file is omitted from CMakeLists.txt (M0),
-// its Register* function is replaced with a no-op stub below.
+// 28 methods reach ArkTS: getVersion() registered in Init() below, plus the
+// five submodules declared here (curl, nativeToArkts, commons, transmission,
+// torrent) = 27 entries in their descriptor arrays. RegisterCommons exports
+// nothing today; it is kept so every submodule initializes the same way.
 
 #include <napi/native_api.h>
 #include <hilog/log.h>

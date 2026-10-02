@@ -51,6 +51,12 @@ function concurrentTorrentAdd(ptr: BigInt, path: string, downloadDir: string,
 export struct AddTorrentPage {
   @Prop sessionId: number = 0;
   @Prop downloadDir: string = '/storage/downloads';
+  /**
+   * Pre-fill source for an externally-delivered link (a magnet tapped in
+   * another app, or an http(s) .torrent). Empty — the default — leaves this
+   * page byte-identical to a manually-opened one.
+   */
+  @Prop initialUri: string = '';
   @State currentTab: AddTab = AddTab.FILE;
   @State filePath: string = '';
   @State magnetUri: string = '';
@@ -64,6 +70,21 @@ export struct AddTorrentPage {
   // D1 (codex P2): the 600ms success-to-navigation timer must be cleared if the
   // page is torn down before it fires, else it navigates a detached page.
   private addSuccessTimer: number = -1;
+
+  aboutToAppear(): void {
+    // Only magnet: and http(s): are routed — a content://file URI from a
+    // file-manager intent has no tab that can open it (the URL tab hands off
+    // to curlDownload, which rejects non-http schemes), so it is left alone
+    // rather than dropped into a tab that would fail.
+    const uri = this.initialUri;
+    if (uri.startsWith('magnet:')) {
+      this.currentTab = AddTab.MAGNET;
+      this.magnetUri = uri;
+    } else if (uri.startsWith('http://') || uri.startsWith('https://')) {
+      this.currentTab = AddTab.URL;
+      this.urlInput = uri;
+    }
+  }
 
   aboutToDisappear(): void {
     if (this.addSuccessTimer >= 0) {
@@ -424,6 +445,9 @@ export struct AddTorrentPage {
    * the native side can read it.
    */
   private copyPickerUriToCache(uri: string): string {
+    // -1 = no fd acquired yet, so the finally block can tell "never opened"
+    // from "opened, must close".
+    let fd: number = -1;
     try {
       let baseName = this.extractFileName(uri);
       if (baseName.length === 0) {
@@ -441,24 +465,34 @@ export struct AddTorrentPage {
       // understand that scheme (it only takes a real path or an fd), so open
       // the URI first to get a readable fd, then copy fd -> cache path.
       const srcFile = fs.openSync(uri, fs.OpenMode.READ_ONLY);
-      fs.copyFileSync(srcFile.fd, destPath);
-      fs.closeSync(srcFile.fd);
+      fd = srcFile.fd;
+      fs.copyFileSync(fd, destPath);
       hilog.info(0x0001, TAG, 'Picked torrent copied to %{private}s', destPath);
       return destPath;
     } catch (err) {
-      // Log the raw URI + real error at %{public}s so the add-torrent "could not
-      // access the selected file" regression is diagnosable in hilog (the
-      // previous %{private}s hid both). Distinguish a remote/cloud URI (which a
-      // consumer app can't open as a local file — tell the user to save it to
-      // local Download first) from a local file whose open failed for another
-      // reason (surface the real error).
+      // The URI and the raw fs error are both the user's own data (a chosen
+      // path, possibly with a file name) — they reach the user through the
+      // toast below and go to hilog as %{private}. Distinguish a remote/cloud
+      // URI (which a consumer app can't open as a local file — tell the user
+      // to save it to local Download first) from a local file whose open
+      // failed for another reason (surface the real error).
       const eStr = String(err);
-      hilog.error(0x0001, TAG, 'copyPickerUriToCache FAILED uri=%{public}s err=%{public}s',
+      hilog.error(0x0001, TAG, 'copyPickerUriToCache FAILED uri=%{private}s err=%{private}s',
         uri, eStr);
       this.showError(uri.startsWith('file://')
         ? $r('app.string.addtorrent_error_access', eStr)
         : $r('app.string.addtorrent_error_remote'));
       return '';
+    } finally {
+      // Close on every path: a throw from copyFileSync (ENAMETOOLONG is a
+      // known trigger) would otherwise leak the fd on each retry.
+      if (fd >= 0) {
+        try {
+          fs.closeSync(fd);
+        } catch (e) {
+          // Already closed or never valid — nothing left to release.
+        }
+      }
     }
   }
 

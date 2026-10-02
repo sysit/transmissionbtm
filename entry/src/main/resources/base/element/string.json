@@ -50,6 +50,7 @@
     { "name": "settings_alt_days", "value": "Days (bitmask)" },
     { "name": "settings_alt_days_hint", "value": "127 = every day" },
     { "name": "settings_peer_port", "value": "Peer port" },
+    { "name": "settings_invalid_number", "value": "Enter a valid number" },
     { "name": "settings_global_peer_limit", "value": "Global peer limit" },
     { "name": "settings_peers_per_torrent", "value": "Peers per torrent" },
     { "name": "settings_encryption", "value": "Encryption" },

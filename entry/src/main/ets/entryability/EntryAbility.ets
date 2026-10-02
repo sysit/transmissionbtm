@@ -19,10 +19,17 @@ export interface TorrentIntent {
   uri: string;
 }
 
-export default class EntryAbility extends UIAbility {
-  /** Pending intent parsed during cold-start, consumed by Index page. */
-  private pendingTorrentIntent: TorrentIntent | null = null;
+/**
+ * AppStorage key carrying an external magnet/http(s) link to the UI.
+ *
+ * AppStorage is the only channel here: an ability has no handle on the page
+ * tree, and a page has no handle on the ability instance (`this.context` yields
+ * the ability *context*, not the ability object), so a plain field would never
+ * be readable from DownloadsPage.
+ */
+export const PENDING_TORRENT_URI_KEY = 'pendingTorrentUri';
 
+export default class EntryAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     hilog.info(0x0001, TAG, 'EntryAbility onCreate');
 
@@ -42,7 +49,7 @@ export default class EntryAbility extends UIAbility {
     this.setupProxyCipher();
 
     // Parse external intent if launched via magnet/file URI
-    this.pendingTorrentIntent = this.parseIntent(want);
+    this.publishIntent(this.parseIntent(want));
   }
 
   /**
@@ -69,18 +76,24 @@ export default class EntryAbility extends UIAbility {
    */
   onNewWant(want: Want, _launchParam: AbilityConstant.LaunchParam): void {
     hilog.info(0x0001, TAG, 'EntryAbility onNewWant');
-
-    const intent = this.parseIntent(want);
-    if (intent.kind !== 'unknown') {
-      this.pendingTorrentIntent = intent;
-    }
+    this.publishIntent(this.parseIntent(want));
   }
 
-  /** Consume and clear the pending torrent intent. Called by Index page. */
-  consumePendingIntent(): TorrentIntent | null {
-    const intent = this.pendingTorrentIntent;
-    this.pendingTorrentIntent = null;
-    return intent;
+  /**
+   * Hand a parsed intent to the UI. Only magnet: and http(s): URIs are
+   * published — the two schemes the add-torrent page can actually consume.
+   * A `file`/content:// URI (a .torrent tapped in Files) is deliberately left
+   * unpublished: no tab can open it, so publishing would raise the add sheet on
+   * a tab that immediately fails, which is worse than today's silence. Any
+   * non-matching intent leaves AppStorage untouched.
+   */
+  private publishIntent(intent: TorrentIntent): void {
+    const uri = intent.uri;
+    const isHttp = uri.startsWith('http://') || uri.startsWith('https://');
+    if (intent.kind === 'magnet' || isHttp) {
+      AppStorage.setOrCreate<string>(PENDING_TORRENT_URI_KEY, uri);
+      hilog.info(0x0001, TAG, 'Queued torrent intent: %{public}s', intent.kind);
+    }
   }
 
   /**

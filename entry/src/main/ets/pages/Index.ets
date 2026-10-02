@@ -25,6 +25,12 @@ struct Index {
   @Provide('navPathStack') navPathStack: NavPathStack = new NavPathStack();
   @State currentTab: number = 0;
   @State showPrivacyDialog: boolean = false;
+  // Consent gate for the ENGINE, not just for the overlay. The session may not
+  // be started (nor its DHT/tracker traffic sent) until the user agrees, so the
+  // whole main UI — and with it DownloadsPage.aboutToAppear → initSession() —
+  // is withheld until this flips true. Before this, the dialog was a purely
+  // visual overlay drawn on top of an already-started engine.
+  @State privacyAccepted: boolean = false;
 
   async aboutToAppear(): Promise<void> {
     // Wait for the preferences store (init is fire-and-forget in EntryAbility).
@@ -43,11 +49,31 @@ struct Index {
     }
     // Show the privacy gate only on first launch (until the user accepts).
     this.showPrivacyDialog = !accepted;
+    // Only an accepted user gets the main UI (and therefore a running engine).
+    this.privacyAccepted = accepted;
   }
 
   build() {
     Stack() {
-      Navigation(this.navPathStack) {
+      // Withhold the entire main UI until consent is on record. DownloadsPage
+      // is constructed (and its aboutToAppear runs initSession) as soon as it
+      // is built, so rendering it behind the dialog would start the engine —
+      // and its DHT bootstrap / tracker announces — before the user agreed.
+      if (this.privacyAccepted) {
+        this.MainShell();
+      }
+
+      if (this.showPrivacyDialog) {
+        PrivacyDialog({ show: $showPrivacyDialog, accepted: $privacyAccepted })
+      }
+    }
+    .width('100%')
+    .height('100%')
+  }
+
+  @Builder
+  MainShell() {
+    Navigation(this.navPathStack) {
       Column() {
         Tabs({ index: this.currentTab }) {
           TabContent() {
@@ -87,13 +113,6 @@ struct Index {
     .hideTitleBar(true)
     .mode(NavigationMode.Stack)
     .backgroundColor(Colors.BG);
-
-      if (this.showPrivacyDialog) {
-        PrivacyDialog({ show: $showPrivacyDialog })
-      }
-    }
-    .width('100%')
-    .height('100%')
   }
 
   // ═══════════════════════════════════════════════════════════════

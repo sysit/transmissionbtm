@@ -34,11 +34,6 @@ export struct TorrentContextMenu {
   @Link isVisible: boolean;
   onAction?: TorrentActionCallback;
 
-  /** Show the context menu programmatically. */
-  show(): void {
-    this.isVisible = true;
-  }
-
   /** Hide the context menu programmatically. */
   hide(): void {
     this.isVisible = false;

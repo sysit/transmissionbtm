@@ -11,7 +11,7 @@ const TAG = 'AboutPage';
 
 @Component
 export struct AboutPage {
-  @State version: string = AppConstants.APP_VERSION;
+  @State version: string = '';
   @State isLoadingVersion: boolean = true;
   @State versionError: ResourceStr = '';
 
@@ -117,11 +117,10 @@ export struct AboutPage {
         }
         .margin({ bottom: Spacing.SM });
       } else if (this.versionError) {
-        Text($r('app.string.about_version_fallback', this.version))
-          .fontSize(FontSize.MD)
-          .fontColor(Colors.TEXT_SECONDARY)
-          .fontFamily('JetBrains Mono')
-          .margin({ bottom: Spacing.SM });
+        // No version number is shown here on purpose: the only copy in the
+        // ArkTS layer would be a hardcoded string that drifts every release
+        // (it read '1.0.1' while the shipped build was 1.0.2). The native
+        // bridge owns the version; if it can't be read, say so.
         Text(this.versionError)
           .fontSize(FontSize.SMALL)
           .fontColor(Colors.ERROR)

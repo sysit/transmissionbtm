@@ -162,7 +162,19 @@ static napi_value SessionStart(napi_env env, napi_callback_info info) {
           for (auto &kv : *parsedMap) {
             map[kv.first] = std::move(kv.second);
           }
+        } else {
+          // Valid JSON, wrong shape (array/scalar): no setting is applied and
+          // the session silently comes up on defaults.
+          OH_LOG_Print(LOG_APP, LOG_ERROR, LOG_DOMAIN, LOG_TAG,
+                       "settingsJson parsed but is not an object — ignored");
         }
+      } else {
+        // Malformed JSON used to fall through with no diagnostic at all, so a
+        // truncated/garbled preferences blob looked identical to "no settings
+        // supplied". Log the size only — the payload can embed user paths.
+        OH_LOG_Print(LOG_APP, LOG_ERROR, LOG_DOMAIN, LOG_TAG,
+                     "settingsJson failed to parse (%{public}zu bytes) — using defaults",
+                     strlen(settingsJson));
       }
     }
     // M4 (review): settingsJson was only freed on the non-empty branch — an
@@ -465,6 +477,8 @@ static napi_value ListTorrentNames(napi_env env, napi_callback_info info) {
   size_t argc = 1;
   napi_value args[1];
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+  if (!requireArgs(env, argc, 1, "listTorrentNames")) return nullptr;
 
   tr_session *session = getSession(env, args[0]);
   if (session == nullptr) {

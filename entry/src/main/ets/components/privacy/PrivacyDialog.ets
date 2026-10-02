@@ -20,21 +20,30 @@ const PRIVACY_URL = 'https://sysit.github.io/transmissionbtm/privacy-policy.html
 export struct PrivacyDialog {
   /** Parent controls visibility; this component sets it false on accept. */
   @Link show: boolean;
+  /**
+   * Consent state, owned by Index. Index withholds the whole main UI (and
+   * with it the engine start) until this is true, so setting it is what
+   * actually lets the app run.
+   */
+  @Link accepted: boolean;
   /** Whether the checkbox is checked; gates the "同意" button. */
   @State agreed: boolean = false;
 
   /**
-   * Persist consent and dismiss. Consent persists in preferences so the gate
-   * shows only once. Failure to persist is non-fatal (default is not-accepted
-   * on next launch, which is the safe direction).
+   * Record consent, release the UI gate, and dismiss. Consent persists in
+   * preferences so the gate shows only once. Failure to persist is non-fatal
+   * (default is not-accepted on next launch, which is the safe direction).
    */
   private async onAgree(): Promise<void> {
+    // Release the gate first: the user has agreed, so the engine may start.
+    // Persistence is the durable copy, not the gate.
+    this.accepted = true;
+    this.show = false;
     try {
       await PreferencesManager.getInstance().setBoolean(PrefKeys.PRIVACY_ACCEPTED, true);
     } catch (err) {
       // Non-fatal: leave flag unset so the gate reappears next launch.
     }
-    this.show = false;
   }
 
   /** Decline = exit the app. A declined app must not run/collect anything. */

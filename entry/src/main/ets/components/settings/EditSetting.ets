@@ -3,6 +3,7 @@
 // Tappable row showing label + current value. On tap, opens a dialog
 // with a TextInput for editing. Persists via PreferencesManager.
 
+import { promptAction } from '@kit.ArkUI';
 import { Colors, FontSize, Spacing } from '../../utils/constants';
 import { PreferencesManager } from '../../models/Preferences';
 
@@ -34,21 +35,34 @@ export struct EditSetting {
         inputType: this.inputType,
         initialValue: this.value,
         onSave: (text: string) => {
-          this.value = text;
           if (this.prefKey) {
             if (this.valueType === 'number' || this.valueType === 'float') {
-              const numVal = parseFloat(text);
-              if (!isNaN(numVal)) {
-                if (this.valueType === 'float') {
-                  PreferencesManager.getInstance().setFloat(this.prefKey, numVal);
-                } else {
-                  PreferencesManager.getInstance().setInt(this.prefKey, numVal);
-                }
+              // Number(), not parseFloat: parseFloat('8080abc') is 8080, which
+              // would persist 8080 while the row then displays '8080abc'. Empty
+              // is explicitly NaN because Number('') is 0.
+              const trimmed = text.trim();
+              const numVal = trimmed === '' ? NaN : Number(trimmed);
+              // Integer keys (ports, peer/speed limits) take no fraction either.
+              const bad = this.valueType === 'float'
+                ? !isFinite(numVal)
+                : (numVal % 1) !== 0;
+              if (bad) {
+                // Reject rather than silently keeping the old value; the dialog
+                // stays open so the row can never show text that wasn't stored.
+                promptAction.showToast({ message: $r('app.string.settings_invalid_number') });
+                return;
+              }
+              if (this.valueType === 'float') {
+                PreferencesManager.getInstance().setFloat(this.prefKey, numVal);
+              } else {
+                PreferencesManager.getInstance().setInt(this.prefKey, numVal);
               }
             } else {
               PreferencesManager.getInstance().setString(this.prefKey, text);
             }
           }
+          // Assign the displayed value only after the persist above succeeded.
+          this.value = text;
           this.dialogController?.close();
         },
       }),

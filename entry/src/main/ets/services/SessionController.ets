@@ -42,6 +42,14 @@ export class SessionController {
   private pollTimer: number = -1;
   /** True while an acquire() call is in flight (acquire is async). */
   private acquiring: boolean = false;
+  /** The in-flight acquire() promise, so stop() can undo a late completion. */
+  private inflightAcquire: Promise<void> | null = null;
+  /**
+   * Bumped by stop(). start() captures it before its await and bails out if it
+   * changed, so a start() that outlives a stop() can't wire listeners/poll onto
+   * a closed session.
+   */
+  private epoch: number = 0;
   private connectivity: ConnectivityContract | null = null;
   private netPaused: boolean = false;
   private _started: boolean = false;
@@ -82,9 +90,21 @@ export class SessionController {
     if (this._started) {
       return;
     }
+    // Snapshot the stop-generation: if stop() runs while session.start() is in
+    // flight, the session below is already torn down and installing the
+    // settings listener + 5s poll here would leave both running with no page
+    // left to stop them.
+    const epoch = this.epoch;
     this.onLoading(true);
     try {
       await this.session.start(config);
+      if (epoch !== this.epoch) {
+        hilog.info(0x0001, TAG, 'start superseded by stop() — discarding');
+        // stop() already reset _started and closed the session; a session.start()
+        // that landed after that is re-closed here (session.stop is idempotent).
+        this.session.stop();
+        return;
+      }
       hilog.info(0x0001, TAG, 'Session started, id=%{public}d', this.session.sessionId);
       this._started = true;
       this.unregisterSettingsListener = PreferencesManager.getInstance()
@@ -107,6 +127,9 @@ export class SessionController {
 
   /** Tear down the poll, keep-alive, connectivity monitor, and session. */
   stop(): void {
+    // Supersede any in-flight start(): it captured the old epoch and will tear
+    // itself down instead of installing a listener/poll on the closed session.
+    this.epoch++;
     // Unsub from the settings change-notifier first so a concurrent settings
     // edit can't re-apply to a session we're about to close.
     if (this.unregisterSettingsListener !== null) {
@@ -114,10 +137,6 @@ export class SessionController {
       this.unregisterSettingsListener = null;
     }
     this.stopPolling();
-    if (this.keepAlive !== null) {
-      this.keepAlive.release();
-    }
-    this.acquiring = false;
     if (this.connectivity !== null) {
       this.connectivity.destroy().catch((e: Error) => {
         hilog.error(0x0001, TAG, 'connectivity destroy failed: %{private}s', String(e));
@@ -132,6 +151,23 @@ export class SessionController {
       hilog.error(0x0001, TAG, 'Session stop failed: %{private}s', String(e));
     }
     this._started = false;
+    // Release the continuous task LAST: sessionClose can block for tens of
+    // seconds (waitSessionIdle + tr_sessionClose, 15s each), and the OS freezes
+    // a backgrounded process ~5s after the task is gone — releasing first would
+    // freeze us mid-close, possibly before resume data is flushed to disk.
+    if (this.keepAlive !== null) {
+      this.keepAlive.release();
+      const inflight = this.inflightAcquire;
+      if (inflight !== null) {
+        // An acquire() still in flight when we got here can complete AFTER the
+        // release above and re-hold the task, with the poll stopped and nobody
+        // left to release it. Undo it on completion. (KeepAliveManager.release
+        // is a no-op when it isn't holding.)
+        inflight.then(() => { this.keepAlive?.release(); })
+                .catch(() => { /* acquire failure already logged */ });
+      }
+    }
+    this.acquiring = false;
   }
 
   /** Suspend (paused=true) or resume the session after a network transition. */
@@ -253,13 +289,14 @@ export class SessionController {
     // only while the app was on screen, which is the reported bug.
     if (active && !this.keepAlive.isHolding() && !this.acquiring) {
       this.acquiring = true; // acquire() is async; dedupe until it settles
-      this.keepAlive.acquire('active torrent transfer')
-        .catch((e: Error) => {
-          hilog.error(0x0001, TAG, 'keep-alive acquire failed: %{private}s', String(e));
-        })
-        .finally(() => {
-          this.acquiring = false; // a failed acquire is retried on the next poll
-        });
+      const p = this.keepAlive.acquire('active torrent transfer');
+      this.inflightAcquire = p;
+      p.catch((e: Error) => {
+        hilog.error(0x0001, TAG, 'keep-alive acquire failed: %{private}s', String(e));
+      }).finally(() => {
+        this.acquiring = false; // a failed acquire is retried on the next poll
+        this.inflightAcquire = null;
+      });
     } else if (!active && this.keepAlive.isHolding()) {
       this.keepAlive.release();
     }

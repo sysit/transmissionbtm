@@ -27,6 +27,7 @@ import { KeepAliveManager } from '../services/KeepAliveManager';
 import { ConnectivityMonitor } from '../services/ConnectivityMonitor';
 import { SessionController } from '../services/SessionController';
 import { NativeBridge } from '../bridge/NativeBridge';
+import BuildProfile from 'BuildProfile';
 
 const TAG = 'DownloadsPage';
 
@@ -123,6 +124,15 @@ export struct DownloadsPage {
   // initSession, so an async start that outlives page teardown can't wire the
   // native session + 5s poll with no page left to stop it.
   private isDisposed: boolean = false;
+  // Externally-delivered magnet/http(s) link (a link tapped in another app).
+  // EntryAbility writes this AppStorage key in publishIntent(); the literal is
+  // duplicated there because @StorageLink's argument must be a string literal.
+  // @Watch fires only on a CHANGE — the cold-start case (key already set when
+  // this page first attaches) is drained explicitly in aboutToAppear.
+  @StorageLink('pendingTorrentUri') @Watch('onPendingIntentChange')
+  pendingTorrentUri: string = '';
+  /** Link handed to the add sheet being opened; '' for a manual "+" open. */
+  @State externalUri: string = '';
 
   aboutToAppear(): void {
     hilog.info(0x0001, TAG, 'DownloadsPage aboutToAppear');
@@ -134,6 +144,26 @@ export struct DownloadsPage {
     };
     this.controller.onLoading = (loading: boolean) => { this.isLoading = loading; };
     this.initSession();
+    this.pickUpPendingIntent();
+  }
+
+  /** @Watch handler: a link arrived while this page was already open. */
+  private onPendingIntentChange(): void {
+    this.pickUpPendingIntent();
+  }
+
+  /**
+   * Drain an externally-delivered link: stash it for the add sheet and clear the
+   * slot so a later rebuild can't replay it. Assigning through @StorageLink
+   * writes back to AppStorage, which re-enters @Watch once with '' — the guard
+   * makes that second pass a no-op.
+   */
+  private pickUpPendingIntent(): void {
+    if (!this.pendingTorrentUri) { return; }
+    const uri = this.pendingTorrentUri;
+    this.pendingTorrentUri = '';
+    this.externalUri = uri;
+    this.showAddPage = true;
   }
 
   aboutToDisappear(): void {
@@ -361,7 +391,11 @@ export struct DownloadsPage {
       if (!fs.accessSync(path)) {
         return;
       }
-      const st = fs.statSync(path);
+      // lstat, NOT stat: stat follows symlinks, so a link to a directory would
+      // report isDirectory() and be recursed into — deleting the TARGET's
+      // contents instead of the link. lstat reports the link itself, so the
+      // isSymbolicLink() branch below actually fires and unlinks the link only.
+      const st = fs.lstatSync(path);
       if (st.isFile() || st.isSymbolicLink()) {
         fs.unlinkSync(path);
         return;
@@ -407,10 +441,25 @@ export struct DownloadsPage {
 
   /** Delete the confirmed orphans, refresh the chip, and toast the result. */
   private doCleanOrphans(): void {
-    const count: number = this.pendingOrphans.length;
+    // Re-verify at delete time instead of trusting the list the dialog was
+    // opened with: the confirm overlay can sit on screen for minutes, and a
+    // torrent added meanwhile has its data on disk but no entry in the
+    // referenced set the original scan was built from — deleting it would
+    // throw away a live download. reload() refreshes this.torrents
+    // synchronously, then the intersection keeps only paths that are STILL
+    // orphans.
+    this.controller.reload();
+    const fresh: string[] = this.scanOrphanPaths();
+    const stillOrphans: Set<string> = new Set();
+    for (let i = 0; i < fresh.length; i++) {
+      stillOrphans.add(fresh[i]);
+    }
+    const doomed: string[] = this.pendingOrphans.filter(
+      (p: string) => stillOrphans.has(p));
+    const count: number = doomed.length;
     let freed = 0;
     for (let i = 0; i < count; i++) {
-      const p: string = this.pendingOrphans[i];
+      const p: string = doomed[i];
       freed += this.dirSize(p);
       this.deleteRecursive(p);
     }
@@ -478,8 +527,13 @@ export struct DownloadsPage {
    * hilog (domain 0x0001, tag DownloadsPage) does not reliably surface in
    * `hilog -d` on-device, so a file is the deterministic way to trace the export
    * path. Diagnostics are best-effort and must never break the export.
+   *
+   * DEBUG-only: this was written on every save in release builds too, leaving a
+   * dev trace artifact in the sandbox of a shipped app. The export bugs it was
+   * added to chase are fixed, so it stays available for debugging, not for users.
    */
   private diag(msg: string): void {
+    if (!BuildProfile.DEBUG) { return; }
     try {
       const p = `${getContext(this).filesDir}/export-diag.txt`;
       const file = fs.openSync(p, fs.OpenMode.APPEND | fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY);
@@ -492,6 +546,7 @@ export struct DownloadsPage {
 
   /** Reset the sandboxed export diag file at the start of a save attempt. */
   private diagReset(): void {
+    if (!BuildProfile.DEBUG) { return; }
     try {
       const p = `${getContext(this).filesDir}/export-diag.txt`;
       const file = fs.openSync(p, fs.OpenMode.CREATE | fs.OpenMode.TRUNC | fs.OpenMode.WRITE_ONLY);
@@ -756,8 +811,14 @@ export struct DownloadsPage {
   }
 
   private onTorrentAdded(): void {
-    this.showAddPage = false;
+    this.closeAddPage();
     this.controller.reload();
+  }
+
+  /** Close the add sheet and forget any pre-filled external link. */
+  private closeAddPage(): void {
+    this.showAddPage = false;
+    this.externalUri = '';
   }
 
   /**
@@ -997,8 +1058,9 @@ export struct DownloadsPage {
     AddTorrentPage({
       sessionId: this.controller.sessionId,
       downloadDir: this.getDefaultDownloadDir(),
+      initialUri: this.externalUri,
       onTorrentAdded: () => { this.onTorrentAdded(); },
-      onCancel: () => { this.showAddPage = false; },
+      onCancel: () => { this.closeAddPage(); },
     });
   }
 

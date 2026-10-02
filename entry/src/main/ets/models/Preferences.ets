@@ -536,11 +536,30 @@ export class PreferencesManager {
 
   /**
    * Reset all preferences to factory defaults.
+   *
+   * Two keys are deliberately preserved, neither of them session-config keys:
+   *   - `privacy_accepted` — factory default is false, which would re-show the
+   *     first-launch consent gate to a user who already agreed (an AppGallery
+   *     compliance regression, not a settings change).
+   *   - `app_language` — an explicit UI choice; resetting it silently switches
+   *     the whole app back to the system locale.
+   *
+   * Notifies listeners afterwards so the RUNNING engine picks up the new
+   * defaults immediately instead of the UI showing new values over a session
+   * still running the old ones until restart.
    */
   async resetToDefaults(): Promise<void> {
     try {
+      const preservePrivacy: boolean =
+        await this.getBoolean(PrefKeys.PRIVACY_ACCEPTED, false);
+      const preserveLanguage: string =
+        await this.getString(PrefKeys.APP_LANGUAGE, 'system');
       await this.guard().clear();
       await this.applyDefaults();
+      await this.guard().put(PrefKeys.PRIVACY_ACCEPTED, preservePrivacy);
+      await this.guard().put(PrefKeys.APP_LANGUAGE, preserveLanguage);
+      await this.guard().flush();
+      await this.notifySettingsChanged();
       hilog.info(0x0001, TAG, 'Preferences reset to defaults');
     } catch (err) {
       hilog.error(0x0001, TAG,

@@ -72,7 +72,6 @@ extern "C" napi_value throwNapiException(const char *file, int line, napi_env en
                                          const char *code, const char *format, ...);
 
 // ── File utilities ───────────────────────────────────────────────
-extern "C" size_t cp(napi_env env, const char *fromPath, const char *toPath);
 
 #define ctorFromFileEx(env, jsession, jpath) \
   ctorFromFile(env, jsession, jpath, true); \
@@ -116,8 +115,8 @@ void *runInTransmissionThread(const char *file, int line, napi_env env,
                               void *userData);
 
 // C7 (codex): libcurl needs a one-time curl_global_init before any
-// curl_easy_init. The app inits libcurl from two threads (the ArkTS download
-// path and the detached tracker probe), so this is idempotent + thread-safe.
+// curl_easy_init. Idempotent + thread-safe: the ArkTS download path and the
+// N-API torrent-stat path can both reach it.
 void ensureCurlGlobalInit();
 
 // ── N-API type helpers ──────────────────────────────────────────
@@ -125,6 +124,26 @@ inline bool isNapiNull(napi_env env, napi_value val) {
   napi_valuetype type;
   napi_typeof(env, val, &type);
   return type == napi_null || type == napi_undefined;
+}
+
+// ── N-API argument guard ────────────────────────────────────────
+// Every N-API entry point must call this right after napi_get_cb_info and
+// before reading any args[i]. napi_get_cb_info writes only the slots the JS
+// caller actually supplied, so the rest of the local `args[]` array stays
+// UNINITIALIZED — and every getter below (getStringUtf8, getSession,
+// getInt32Napi, napi_get_arraybuffer_info) dereferences the handle it is
+// handed. A short call therefore reads a garbage napi_value: undefined
+// behaviour, in practice a crash. Returns false with a pending exception.
+static inline bool requireArgs(napi_env env, size_t argc, size_t min,
+                               const char *fn) {
+  if (argc >= min) {
+    return true;
+  }
+  char msg[160];
+  snprintf(msg, sizeof(msg), "%s: expected at least %zu argument(s), got %zu",
+           fn, min, argc);
+  napi_throw_error(env, nullptr, msg);
+  return false;
 }
 
 // ── N-API string helpers ─────────────────────────────────────────
@@ -155,11 +174,8 @@ void releaseSessionDispatch(tr_session *session);
 // `session` to drain before the caller proceeds to tr_sessionClose.
 void waitSessionIdle(tr_session *session);
 
-// ── Hex conversion (4.0.6: tr_binary_to_hex / tr_hex_to_binary removed) ─
+// ── Hex conversion (4.0.6: tr_binary_to_hex removed from the public API) ─
 void tr_binary_to_hex(void const *input, char *output, size_t byte_length);
-// P0/P1 fix (codex review): returns false (and zero-fills output) when the
-// input string is shorter than 2*byte_length, preventing an OOB heap read.
-bool tr_hex_to_binary(char const *input, void *output, size_t byte_length);
 
 
 #endif // TRANSMISSIONHM_COMMONS_H

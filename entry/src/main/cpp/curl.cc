@@ -89,26 +89,36 @@ static napi_value CurlDownload(napi_env env, napi_callback_info info) {
 
   CURL *curl = curl_easy_init();
   if (curl) {
-    char err[CURL_ERROR_SIZE];
+    // Zeroed, not bare: libcurl only writes the error buffer once it has a
+    // message to put there, so a failure raised before the transfer (bad
+    // protocol, resolve error) leaves it untouched — and we formatted it with
+    // %s, reading uninitialized stack.
+    char err[CURL_ERROR_SIZE] = {0};
     curl_easy_setopt(curl, CURLOPT_URL, url);
     curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, err);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, nullptr);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, file);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "Transmission/" SHORT_VERSION_STRING);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, (long) timeout);
+    // Without this, a 404/500 body is written to dstPath and only blows up
+    // much later as an inscrutable "Failed to parse torrent file".
+    curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
 
 #ifndef NDEBUG
     curl_easy_setopt(curl, CURLOPT_VERBOSE, 1);
 #endif
 
     CURLcode res = curl_easy_perform(curl);
+    long httpCode = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &httpCode);
     curl_easy_cleanup(curl);
 
     if (res != CURLE_OK) {
       fclose(file);
       free(url);
       free(dst);
-      throwCurlEX(env, ERR_IO, "%s", err);
+      throwCurlEX(env, ERR_IO, "%s (HTTP %ld)",
+                  err[0] != '\0' ? err : curl_easy_strerror(res), httpCode);
     }
   } else {
     fclose(file);

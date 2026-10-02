@@ -41,38 +41,6 @@ extern "C" napi_value throwNapiException(const char *file, int line, napi_env en
   return nullptr;
 }
 
-// ── File copy ───────────────────────────────────────────────────────
-extern "C" size_t cp(napi_env env, const char *fromPath, const char *toPath) {
-  FILE *from = nullptr, *to = nullptr;
-  size_t count = 0;
-
-  if ((from = fopen(fromPath, "rb")) == nullptr) {
-    throwIOEX(env, "Failed to open source file %s", fromPath);
-  }
-
-  if ((to = fopen(toPath, "wb")) == nullptr) {
-    fclose(from);
-    from = nullptr;  // prevent double-close in CATCH block
-    throwIOEX(env, "Failed to open destination file %s", toPath);
-  }
-
-  size_t n;
-  char buffer[BUFSIZ];
-
-  while ((n = fread(buffer, sizeof(char), sizeof(buffer), from)) > 0) {
-    if (fwrite(buffer, sizeof(char), n, to) != n) {
-      throwIOEX(env, "Error writing to destination file %s", toPath);
-    } else {
-      count += n;
-    }
-  }
-
-  CATCH:
-  if (from != nullptr) fclose(from);
-  if (to != nullptr) fclose(to);
-  return count;
-}
-
 // ── Torrent constructor from file ───────────────────────────────────
 tr_ctor *ctorFromFile(napi_env env, napi_value jsession, napi_value jpath, bool throwErr) {
   tr_session *session = (jsession != nullptr) ? getSession(env, jsession) : nullptr;
@@ -393,23 +361,6 @@ void tr_binary_to_hex(void const *input, char *output, size_t byte_length) {
   output[byte_length * 2] = '\0';
 }
 
-bool tr_hex_to_binary(char const *input, void *output, size_t byte_length) {
-  auto *out = static_cast<uint8_t *>(output);
-  if (output == nullptr || byte_length == 0) {
-    return true;  // Nothing to do
-  }
-  if (input == nullptr || strlen(input) < 2 * byte_length) {
-    // P0/P1 fix (codex review): short input would have caused an out-of-bounds
-    // heap read. Zero-fill the output and report failure to the caller.
-    memset(out, 0, byte_length);
-    return false;
-  }
-  for (size_t i = 0; i < byte_length; ++i) {
-    auto high = input[i * 2];
-    auto low = input[i * 2 + 1];
-    out[i] = static_cast<uint8_t>(
-      ((high >= 'a' ? high - 'a' + 10 : high >= 'A' ? high - 'A' + 10 : high - '0') << 4) |
-       (low >= 'a' ? low - 'a' + 10 : low >= 'A' ? low - 'A' + 10 : low - '0'));
-  }
-  return true;
-}
+// (removed: tr_hex_to_binary() — zero callers. It also mapped any non-hex
+// character to a garbage nibble without complaining, so keeping a hardened
+// version would have meant auditing a path nothing uses.)
