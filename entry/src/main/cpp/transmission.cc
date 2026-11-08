@@ -23,6 +23,7 @@
 #include <libtransmission/utils.h>
 #include <cstring>
 #include <cstdlib>
+#include <string>
 #include <cstdarg>
 
 #undef LOG_DOMAIN
@@ -48,6 +49,26 @@
 static void StripCredentialsFromSettings(tr_variant &settings) {
   if (auto *map = settings.get_if<tr_variant::Map>()) {
     map->erase(TR_KEY_proxy_url);
+  }
+}
+
+// tr_sessionSaveSettings merges the LIVE session settings LAST (session.cc:
+// defaults → file → client snapshot → tr_sessionGetSettings(session)), so
+// stripping proxy-url from the client snapshot is undone and the inline
+// user:pass@ is written to settings.json in plaintext anyway. This bridge is
+// the engine's only caller of the save (tr_sessionClose does not save), so
+// scrub the credential from the file itself after the write.
+static void ScrubProxyUrlFromSettingsFile(const char *configDir) {
+  if (configDir == nullptr || configDir[0] == '\0') { return; }
+  const std::string filename = std::string(configDir) + "/settings.json";
+  auto serde = tr_variant_serde::json();
+  auto parsed = serde.parse_file(filename);
+  if (!parsed) { return; }
+  auto *map = parsed->get_if<tr_variant::Map>();
+  if (map == nullptr || map->erase(TR_KEY_proxy_url) == 0U) { return; }
+  if (!serde.to_file(*parsed, filename)) {
+    OH_LOG_Print(LOG_APP, LOG_ERROR, LOG_DOMAIN, LOG_TAG,
+                 "Failed to rewrite settings.json without proxy credentials");
   }
 }
 
@@ -218,6 +239,7 @@ static napi_value SessionStart(napi_env env, napi_callback_info info) {
   // only the on-disk settings.json drops the inline user:pass@.
   StripCredentialsFromSettings(settings);
   tr_sessionSaveSettings(session, configDir, settings);
+  ScrubProxyUrlFromSettingsFile(configDir);
   registerSessionHandle(session);
 
   free(configDir);
@@ -260,6 +282,13 @@ static napi_value SessionStop(napi_env env, napi_callback_info info) {
     napi_throw_error(env, nullptr, "Invalid session handle");
     return nullptr;
   }
+  // A non-string configDir makes getStringUtf8 return nullptr; the engine then
+  // saves to the literal path "/settings.json" (root, unwritable) and the
+  // session is closed anyway, silently dropping this run's settings.
+  if (configDir == nullptr) {
+    napi_throw_error(env, nullptr, "Expected a settings directory string");
+    return nullptr;
+  }
 
   // P1 fix (codex review): double-stop guard. tr_sessionClose frees the
   // session; a second stop with the same handle is a use-after-free. The
@@ -279,11 +308,21 @@ static napi_value SessionStop(napi_env env, napi_callback_info info) {
   // persisting (the session may still hold proxy-url internalized from init).
   StripCredentialsFromSettings(settings);
   tr_sessionSaveSettings(session, configDir, settings);
+  ScrubProxyUrlFromSettingsFile(configDir);
   // B1 (codex P1 UAF fix): after unregister, new dispatches fail at
   // retainSessionForDispatch; wait for any *already-in-flight* dispatches
   // (e.g. a taskpool relocate/add) to drain before freeing the session. Without
   // this, tr_sessionClose can free a tr_session* a worker is still using.
-  waitSessionIdle(session);
+  // If the bound expires, closing would free the session under that worker —
+  // keep it alive and report. The handle is re-registered so a later stop()
+  // can retry; leaking one session is strictly better than a UAF.
+  if (!waitSessionIdle(session)) {
+    registerSessionHandle(session);
+    free(configDir);
+    napi_throw_error(env, nullptr,
+                     "Session still busy after 15s — stop deferred, retry");
+    return nullptr;
+  }
   tr_sessionClose(session, 15.0);
   free(configDir);
 

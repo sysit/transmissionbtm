@@ -125,6 +125,7 @@
     { "name": "downloads_relocate_move", "value": "移动" },
     { "name": "downloads_storage_usage", "value": "下载占用" },
     { "name": "downloads_storage_clean", "value": "清理孤儿" },
+    { "name": "downloads_storage_session_not_ready", "value": "会话未就绪 — 请先开始一个下载" },
     { "name": "downloads_storage_no_orphans", "value": "没有可清理的孤儿文件" },
     { "name": "downloads_storage_clean_confirm_title", "value": "清理孤儿数据？" },
     { "name": "downloads_storage_clean_confirm_msg", "value": "移除 %d 个未被任何种子引用的文件/文件夹(释放 %s)？" },

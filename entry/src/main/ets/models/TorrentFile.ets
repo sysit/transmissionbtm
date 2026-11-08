@@ -64,7 +64,10 @@ export class TorrentFile {
    *   [4]=lastPiece, [5]=status(0=normal,1=complete,2=dnd), [6+]=piece bitmap
    */
   applyFileStat(buf: ArrayBuffer): void {
-    if (!buf || buf.byteLength < 48) {
+    // Length AND alignment: BigInt64Array's constructor throws when byteLength
+    // is not a multiple of 8, so an incomplete guard threw out of a pure model
+    // method instead of leaving the file's stats untouched.
+    if (!buf || buf.byteLength < 48 || buf.byteLength % 8 !== 0) {
       return;
     }
     const view = new BigInt64Array(buf);

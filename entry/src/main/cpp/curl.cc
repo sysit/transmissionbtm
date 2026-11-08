@@ -30,13 +30,15 @@ void ensureCurlGlobalInit() {
 }
 
 static napi_value CurlDownload(napi_env env, napi_callback_info info) {
-  size_t argc = 3;
-  napi_value args[3];
+  size_t argc = 4;
+  // Zeroed, not bare: napi_get_cb_info only writes the slots the JS caller
+  // supplied, so an unset slot would otherwise hold uninitialized stack.
+  napi_value args[4] = {nullptr, nullptr, nullptr, nullptr};
   napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
 
   // Validate args
   if (argc < 2) {
-    napi_throw_error(env, nullptr, "Expected arguments: url, dstPath [, timeout]");
+    napi_throw_error(env, nullptr, "Expected arguments: url, dstPath [, timeout] [, caBundle]");
     return nullptr;
   }
   ensureCurlGlobalInit();
@@ -67,12 +69,19 @@ static napi_value CurlDownload(napi_env env, napi_callback_info info) {
     timeout = 30;  // C4 (codex): a bad-type timeout never silently corrupts the value
   }
 
+  // Optional CA bundle (PEM). The bundled libcurl has no usable default CAINFO
+  // path on HarmonyOS, so without this every HTTPS fetch fails verification
+  // with "unable to get local issuer certificate". The caller passes the
+  // in-HAP rawfile/cacert.pem path. Read last so the throws above never own it.
+  char *caBundle = argc >= 4 ? getStringUtf8(env, args[3]) : nullptr;
+
   // C8 (codex P2): validate the destination path before fopen. The app's own
   // sandbox/cache paths are absolute with no traversal; a user-supplied path
   // could otherwise write an arbitrary file (or escape via "..").
   if (dst[0] != '/' || strstr(dst, "..") != nullptr) {
     free(url);
     free(dst);
+    free(caBundle); // read above; every other exit path frees it
     napi_throw_error(env, ERR_IO, "Destination path must be absolute, no traversal");
     return nullptr;
   }
@@ -83,6 +92,7 @@ static napi_value CurlDownload(napi_env env, napi_callback_info info) {
     snprintf(_msg, sizeof(_msg), "Failed to open file %s: %s", dst, strerror(errno));
     free(url);
     free(dst);
+    free(caBundle);
     napi_throw_error(env, ERR_IO, _msg);
     return nullptr;
   }
@@ -100,6 +110,9 @@ static napi_value CurlDownload(napi_env env, napi_callback_info info) {
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, file);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "Transmission/" SHORT_VERSION_STRING);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, (long) timeout);
+    if (caBundle != nullptr && caBundle[0] != '\0') {
+      curl_easy_setopt(curl, CURLOPT_CAINFO, caBundle);
+    }
     // Without this, a 404/500 body is written to dstPath and only blows up
     // much later as an inscrutable "Failed to parse torrent file".
     curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
@@ -117,6 +130,7 @@ static napi_value CurlDownload(napi_env env, napi_callback_info info) {
       fclose(file);
       free(url);
       free(dst);
+      free(caBundle);
       throwCurlEX(env, ERR_IO, "%s (HTTP %ld)",
                   err[0] != '\0' ? err : curl_easy_strerror(res), httpCode);
     }
@@ -124,12 +138,14 @@ static napi_value CurlDownload(napi_env env, napi_callback_info info) {
     fclose(file);
     free(url);
     free(dst);
+    free(caBundle);
     throwCurlEX(env, ERR_IO, "Failed to initialize curl");
   }
 
   fclose(file);
   free(url);
   free(dst);
+  free(caBundle);
 
   napi_value result;
   napi_get_undefined(env, &result);

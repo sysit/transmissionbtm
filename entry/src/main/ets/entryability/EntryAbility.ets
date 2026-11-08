@@ -4,6 +4,7 @@
 // (HarmonyOS NEXT service = system-app-only) — the session runs in-process.
 
 import { UIAbility, Want, AbilityConstant } from '@kit.AbilityKit';
+import { errText } from '../utils/errors';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
 import { PreferencesManager, PrefKeys } from '../models/Preferences';
@@ -39,7 +40,7 @@ export default class EntryAbility extends UIAbility {
       hilog.info(0x0001, TAG, 'Preferences initialized');
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'Preferences init failed: %{private}s', String(err));
+        'Preferences init failed: %{private}s', errText(err));
     }
 
     // Inject the HUKS proxy-password cipher + run a startup self-test.
@@ -66,7 +67,7 @@ export default class EntryAbility extends UIAbility {
       hilog.info(0x0001, TAG, 'HUKS selfTest %{public}s', ok ? 'OK' : 'FAIL');
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'HUKS cipher setup failed: %{private}s', String(err));
+        'HUKS cipher setup failed: %{private}s', errText(err));
     }
   }
 
@@ -130,7 +131,7 @@ export default class EntryAbility extends UIAbility {
       }
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'parseIntent failed: %{private}s', String(err));
+        'parseIntent failed: %{private}s', errText(err));
     }
 
     return { kind: 'unknown', uri: '' };
@@ -155,7 +156,7 @@ export default class EntryAbility extends UIAbility {
       hilog.info(0x0001, TAG, 'App language override: %{public}s', tag);
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'applyAppLanguage failed: %{private}s', String(err));
+        'applyAppLanguage failed: %{private}s', errText(err));
     }
   }
 
@@ -211,7 +212,7 @@ export default class EntryAbility extends UIAbility {
       hilog.info(0x0001, TAG, 'Status/navigation bar theme applied (dark).');
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'setWindowSystemBarProperties failed: %{public}s', String(err));
+        'setWindowSystemBarProperties failed: %{public}s', errText(err));
     }
   }
 

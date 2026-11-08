@@ -17,6 +17,7 @@
 // (one re-entry) instead of a crash.
 
 import { huks } from '@kit.UniversalKeystoreKit';
+import { errText } from '../utils/errors';
 import cryptoFramework from '@ohos.security.cryptoFramework';
 import { util } from '@kit.ArkTS';
 import { hilog } from '@kit.PerformanceAnalysisKit';
@@ -144,8 +145,11 @@ export class HukProxyCipher implements ProxyCipher {
       return HUKS_PREFIX +
         this.b64Encode(nonce) + ':' + this.b64Encode(ciphertext) + ':' + this.b64Encode(tag);
     } catch (err) {
-      hilog.error(DOMAIN, TAG, 'encrypt failed, keeping legacy plaintext: %{private}s', String(err));
-      return plain;
+      // Never fall back to plaintext: PreferencesManager.setString would then
+      // persist the raw proxy password in the preferences XML. Throwing makes
+      // the write fail (setString logs it) instead of leaking the credential.
+      hilog.error(DOMAIN, TAG, 'encrypt failed, refusing to store plaintext: %{private}s', errText(err));
+      throw new Error('Proxy password encryption failed');
     }
   }
 
@@ -163,7 +167,7 @@ export class HukProxyCipher implements ProxyCipher {
       const result = await huks.finishSession(session.handle, opts);
       return this.bytesToStr(result.outData ?? new Uint8Array(0));
     } catch (err) {
-      hilog.error(DOMAIN, TAG, 'decrypt failed (broken envelope): %{private}s', String(err));
+      hilog.error(DOMAIN, TAG, 'decrypt failed (broken envelope): %{private}s', errText(err));
       return null;
     }
   }
@@ -196,7 +200,7 @@ export class HukProxyCipher implements ProxyCipher {
       hilog.info(DOMAIN, TAG, 'selfTest %{public}s', ok ? 'OK' : 'FAIL-ROUNDTRIP');
       return ok;
     } catch (err) {
-      hilog.error(DOMAIN, TAG, 'selfTest FAIL: %{private}s', String(err));
+      hilog.error(DOMAIN, TAG, 'selfTest FAIL: %{private}s', errText(err));
       return false;
     }
   }

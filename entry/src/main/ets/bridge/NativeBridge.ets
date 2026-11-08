@@ -1,4 +1,5 @@
 import native from 'libtransmissionbtm_napi.so';
+import { errText } from '../utils/errors';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 
 // NOTE: NativeBridge does NOT import domain models.
@@ -87,7 +88,7 @@ export class NativeBridge {
       // P2 fix (codex review): a double-stop or stale handle is benign — the
       // native live-session set (transmission.cc) already guards re-close.
       // Swallow so service teardown never throws.
-      hilog.warn(0x0001, TAG, 'sessionStop ignored: %{private}s', String(e));
+      hilog.warn(0x0001, TAG, 'sessionStop ignored: %{private}s', errText(e));
     } finally {
       // P2 fix (codex review): always release the registry entry, even if
       // the native call throws — otherwise the stale id→pointer pair leaks
@@ -146,9 +147,12 @@ export class NativeBridge {
    * @param url      http(s):// URL to fetch
    * @param dstPath  Absolute destination path (e.g. <cacheDir>/x.torrent)
    * @param timeout  Optional timeout in seconds (default 30)
+   * @param caBundle Optional PEM CA-bundle path. The bundled libcurl has no
+   *                 default trust store on OH — without a bundle every HTTPS
+   *                 fetch fails with "unable to get local issuer certificate".
    */
-  curlDownload(url: string, dstPath: string, timeout?: number): void {
-    native.curlDownload(url, dstPath, timeout ?? 30);
+  curlDownload(url: string, dstPath: string, timeout?: number, caBundle?: string): void {
+    native.curlDownload(url, dstPath, timeout ?? 30, caBundle ?? '');
   }
 
   torrentStart(sessionId: number, torrentId: number): void {
@@ -282,8 +286,15 @@ export class NativeBridge {
       }
     }
     if (skipIndices.length === 0) {
-      const emptyBuf = new ArrayBuffer(0);
-      native.torrentSetDnd(this.toPtr(sessionId), torrentId, emptyBuf, false);
+      // "Every file wanted" must send every index: tr_torrentSetFileDLs
+      // iterates the list, so an empty buffer is a no-op and files previously
+      // skipped stayed skipped while the UI showed them all selected.
+      const allBuf = new ArrayBuffer(files.length * 4);
+      const allView = new Int32Array(allBuf);
+      for (let i = 0; i < files.length; i++) {
+        allView[i] = i;
+      }
+      native.torrentSetDnd(this.toPtr(sessionId), torrentId, allBuf, true);
     } else {
       const buf = new ArrayBuffer(skipIndices.length * 4);
       const view = new Int32Array(buf);

@@ -4,8 +4,20 @@
 >
 > **Test-count reconcile note:** the numbers below are historical records and drift across snapshots — they were logged as each milestone closed, not re-run as a suite:
 > - **On-device ohosTest**: unit-only `222/222` (M7 unit), then `231/231` total once 8 in-process E2E landed (M7 E2E). Note `222 + 8 = 230`, not 231 — the doc itself is off by one at that boundary; both figures are recorded verbatim below and were never re-reconciled. The stale `232/232` on the CLAUDE.md build line predates the E2E numbering. **`225/225` (2026-09-28, emulator — current)** after the ohosTest native-packaging fix; the suite had silently not run between the RPC removal and that date.
-> - **Host vitest** (Node-only, no device): `76/76` (R8) → `93/93` (proxy-cipher) → `80/80` (R9) → `95/95` (2026-09-08, RPC removal) → **`97/97` (2026-09-19, keep-alive fix; latest)**. Each supersedes the prior; the last is current.
+> - **Host vitest** (Node-only, no device): `76/76` (R8) → `93/93` (proxy-cipher) → `80/80` (R9) → `95/95` (2026-09-08, RPC removal) → `97/97` (2026-09-19) → **`102/102` (2026-11-08; latest)**. Each supersedes the prior; the last is current.
+> - **ohosTest `225/225`** re-confirmed on the Pura 90 API24 emulator 2026-11-08 after the fmt-ABI fix.
 > - The current `aa test` path on this box SIGABRTs in the harness (`JsTestRunner`), so on-device runs go through `assembleHap -p module=entry@ohosTest` + `hdc install` + `aa test`.
+
+---
+
+## 2026-11-08 — 体系化 review 批次（I1–I7 遍历，20 项修复）
+
+方法、覆盖账与逐条证据：`docs/review/`（`method.md` / `ledger.md` / `report.md` §七）。要点：
+
+- **S1 静默**：代理密码明文写进 `settings.json`（引擎合并顺序把保存前的 strip 覆盖掉；改为保存后重写文件删 `proxy-url`）；实时下发设置把沙箱下载目录改回 `/storage/...`（下发路径不再携带目录键）；HUKS 失败退回明文（改为抛错）；`alt-speed-time-enabled` 从未发送 → 调度窗口被忽略、全天限速；`ratio-limit` 以整数编码被引擎静默丢弃；全选文件发空 DnD 数组 = no-op；`SessionController` 停止后 `refresh` 复活保活锁 / acquire 竞态；文件复制循环 fd 泄漏。
+- **S3 崩溃**：`tr_ctorNew(nullptr)` 必崩（改为无会话 metainfo 解析）；片段索引越界读；DnD 文件索引回绕；`waitSessionIdle` 超时仍关闭会话；`curlDownload` 路径校验分支漏 free；以及验证时发现的 **fmt ABI 漂移** —— 桥侧 vendored fmt 9.0.0 vs `libtransmission.a` 内 fmt 12.1.0，首次在桥代码构造 `tr_torrent_metainfo` 即堆损坏，引擎线程 SIGSEGV。已用引擎树的 fmt 12.1.0 头替换，CMakeLists 注明版本必须一致。
+- **S2 误导**：重置确认框遮罩冒泡（点确认同时触发取消）；冷启动 WiFi-only 判定永不触发；`ConnectivityMonitor.start` 失败泄漏 NetConnection/监听器。
+- **验证**：宿主 vitest **102/102**；`audit.mjs` BLOCKING 0；debug HAP BUILD SUCCESSFUL；模拟器 ohosTest **225/225**（首跑第 213 例 SIGSEGV，修复 fmt 后全绿）。
 
 ---
 

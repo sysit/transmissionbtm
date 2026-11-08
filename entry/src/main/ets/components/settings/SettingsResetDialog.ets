@@ -3,7 +3,7 @@
 // (if showResetDialog) and supplies the confirm/cancel handlers; this component
 // is purely presentational.
 
-import { Colors, FontSize, Spacing, Radius } from '../../utils/constants';
+import { CLICK_EFFECT, Colors, FontSize, Spacing, Radius } from '../../utils/constants';
 
 @Component
 export struct SettingsResetDialog {
@@ -11,7 +11,18 @@ export struct SettingsResetDialog {
   onCancel: () => void = () => {};
 
   build() {
-    Column() {
+    // The cancel layer is a SIBLING behind the card. As an onClick on the root
+    // Column it also received taps that hit the card (ArkUI has no
+    // stopPropagation), so tapping the title cancelled and Confirm fired
+    // Confirm+Cancel together.
+    Stack({ alignContent: Alignment.Center }) {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor('rgba(0,0,0,0.6)')
+        .clickEffect(CLICK_EFFECT)
+        .onClick(() => { this.onCancel(); });
+
       Column() {
         Text($r('app.string.settings_reset_defaults'))
           .fontSize(FontSize.HEADLINE)
@@ -30,7 +41,7 @@ export struct SettingsResetDialog {
             .fontColor(Colors.TEXT_SECONDARY)
             .backgroundColor(Colors.ELEVATED)
             .layoutWeight(1)
-            .onClick(() => { this.onCancel(); });
+            .clickEffect(CLICK_EFFECT).onClick(() => { this.onCancel(); });
 
           Button($r('app.string.settings_reset_confirm'))
             .fontSize(FontSize.CAPTION)
@@ -38,7 +49,7 @@ export struct SettingsResetDialog {
             .backgroundColor(Colors.ERROR)
             .layoutWeight(1)
             .margin({ left: Spacing.MD })
-            .onClick(() => { this.onConfirm(); });
+            .clickEffect(CLICK_EFFECT).onClick(() => { this.onConfirm(); });
         }
         .width('100%');
       }
@@ -48,10 +59,6 @@ export struct SettingsResetDialog {
     }
     .width('100%')
     .height('100%')
-    .justifyContent(FlexAlign.Center)
-    .alignItems(HorizontalAlign.Center)
-    .padding(Spacing.XL)
-    .backgroundColor('rgba(0,0,0,0.6)')
-    .onClick(() => { this.onCancel(); });
+    .padding(Spacing.XL);
   }
 }

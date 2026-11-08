@@ -14,6 +14,7 @@
 //   monitor.destroy();
 
 import { connection } from '@kit.NetworkKit';
+import { errText } from '../utils/errors';
 import { wifiManager } from '@kit.ConnectivityKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
@@ -92,10 +93,23 @@ export class ConnectivityMonitor {
         });
       });
       hilog.info(0x0001, TAG, 'Connectivity monitoring started');
+      // Evaluate the network we STARTED on. wasAvailable defaults to true and
+      // every gate above is transition-driven, so launching on cellular with
+      // WiFi-only enabled transferred over cellular until the first event.
+      if (await this.isWifiOnlyEnabled()
+          && (!(await this.isDefaultNetworkWifi()) || !(await this.isSsidAllowed()))) {
+        this.wasAvailable = false;
+        this.onLost();
+      }
     } catch (err) {
       this.isStarted = false;
       hilog.error(0x0001, TAG,
-        'Failed to start connectivity monitoring: %{private}s', String(err));
+        'Failed to start connectivity monitoring: %{private}s', errText(err));
+      // The NetConnection and its three listeners exist by the time register()
+      // can fail, so this is not a no-op cleanup: leaving netConn set meant
+      // destroy() (which gated on isStarted) returned immediately and the
+      // registered listeners leaked for the life of the process.
+      await this.destroy();
     }
   }
 
@@ -106,7 +120,10 @@ export class ConnectivityMonitor {
    * listeners kept firing.
    */
   async destroy(): Promise<void> {
-    if (!this.isStarted) {
+    // Gate on the resource, not the flag: a start() that failed after
+    // createNetConnection() clears isStarted but still owns a connection.
+    if (this.netConn === null) {
+      this.isStarted = false;
       return;
     }
     this.isStarted = false;
@@ -129,7 +146,7 @@ export class ConnectivityMonitor {
       hilog.info(0x0001, TAG, 'Connectivity monitoring stopped');
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'Failed to stop connectivity monitoring: %{private}s', String(err));
+        'Failed to stop connectivity monitoring: %{private}s', errText(err));
     }
   }
 
@@ -219,7 +236,7 @@ export class ConnectivityMonitor {
       return await prefs.getBoolean(KEY_WIFI_ONLY, true);
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'isWifiOnlyEnabled failed: %{private}s', String(err));
+        'isWifiOnlyEnabled failed: %{private}s', errText(err));
       return false;
     }
   }
@@ -249,7 +266,7 @@ export class ConnectivityMonitor {
       return names.includes(ssid);
     } catch (err) {
       hilog.warn(0x0001, TAG,
-        'SSID check failed (fail-open): %{private}s', String(err));
+        'SSID check failed (fail-open): %{private}s', errText(err));
       return true;
     }
   }
@@ -268,7 +285,7 @@ export class ConnectivityMonitor {
       );
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'isWifiNetwork failed: %{private}s', String(err));
+        'isWifiNetwork failed: %{private}s', errText(err));
       return false;
     }
   }
@@ -293,7 +310,7 @@ export class ConnectivityMonitor {
       return bearers.some((t: number) => t === connection.NetBearType.BEARER_WIFI);
     } catch (err) {
       hilog.warn(0x0001, TAG,
-        'default network query failed (fail-open): %{private}s', String(err));
+        'default network query failed (fail-open): %{private}s', errText(err));
       return true;
     }
   }

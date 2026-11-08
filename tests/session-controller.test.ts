@@ -160,13 +160,15 @@ describe('SessionController', () => {
     expect(fake.calls.filter(c => c === 'suspend:false').length).toBe(1);
   });
 
-  it('holds the keep-alive while a network-loss suspend has the engine paused', () => {
+  it('holds the keep-alive while a network-loss suspend has the engine paused', async () => {
     const fake = new FakeSession();
     const ka = new FakeKeepAlive();
     const ctrl = new SessionController(
       fake as unknown as TransmissionSession,
       ka as unknown as KeepAliveManager
     );
+    // refresh() is gated on _started, so drive a real start first.
+    await ctrl.start({} as SessionConfig);
 
     fake.hasDL = true;
     ctrl.reload(); // downloading → acquire the continuous task
@@ -191,6 +193,7 @@ describe('SessionController', () => {
     fake.hasDL = false;
     ctrl.reload();
     expect(ka.released).toBe(1);
+    ctrl.stop();
   });
 
   it('re-acquires after the OS cancels the continuous task on its own', async () => {
@@ -200,6 +203,7 @@ describe('SessionController', () => {
       fake as unknown as TransmissionSession,
       ka as unknown as KeepAliveManager
     );
+    await ctrl.start({} as SessionConfig);
 
     fake.hasDL = true;
     ctrl.reload();
@@ -224,6 +228,7 @@ describe('SessionController', () => {
     fake.hasDL = false; // nothing in flight → release
     ctrl.reload();
     expect(ka.released).toBe(1);
+    ctrl.stop();
   });
 
   it('keeps the last list and does not throw when getAllTorrents fails', async () => {
@@ -246,10 +251,12 @@ describe('SessionController', () => {
     const spy = vi.fn();
     ctrl.onTorrents = spy;
     ctrl.stop();
-    ctrl.reload(); // reload only reads session, does NOT schedule a poll
+    ctrl.reload(); // gated on _started — must be a no-op after teardown
     expect(ctrl.isStarted).toBe(false);
-    // No timer may fire after stop, so reload() must not re-emit via a poll:
-    // reload() calls refresh() (emits once) — but no new setInterval is created.
-    expect(spy).toHaveBeenCalledTimes(1);
+    // refresh() on a stopped controller must not emit, and more importantly
+    // must not reach updateKeepAlive(): the closed session throws there, the
+    // error path treats it as "still downloading", and the resurrected
+    // continuous task has nobody left to release it.
+    expect(spy).toHaveBeenCalledTimes(0);
   });
 });

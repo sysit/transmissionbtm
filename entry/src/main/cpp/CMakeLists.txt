@@ -39,6 +39,13 @@ target_compile_definitions(transmissionbtm_napi PRIVATE
 # force-include (4.2.0-only) is removed. The bridge builds as C++20 but the
 # 4.1.0 transmission headers are C++17-clean and need no compat shim.
 
+# fmt is HEADER-ONLY in the bridge but its symbols live inside
+# libtransmission.a. The vendored headers MUST be the same version the engine
+# was built with (12.1.0, copied from .build-third-party/probe-410). A version
+# mismatch compiles cleanly and corrupts the heap the first time the bridge
+# constructs an engine class with fmt members (e.g. tr_torrent_metainfo):
+# v9 inline ctor/dtor against a v12 object layout = SIGSEGV on the engine
+# thread later. Verified 2026-11-08 (225/225 ohosTest after aligning).
 target_include_directories(transmissionbtm_napi PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${THIRD_PARTY}/fmt/include

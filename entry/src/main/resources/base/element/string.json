@@ -125,6 +125,7 @@
     { "name": "downloads_relocate_move", "value": "Move" },
     { "name": "downloads_storage_usage", "value": "Storage used" },
     { "name": "downloads_storage_clean", "value": "Clean orphans" },
+    { "name": "downloads_storage_session_not_ready", "value": "Session not ready — start a download first" },
     { "name": "downloads_storage_no_orphans", "value": "No orphan files to clean" },
     { "name": "downloads_storage_clean_confirm_title", "value": "Clean orphan data?" },
     { "name": "downloads_storage_clean_confirm_msg", "value": "Remove %d file/folder not referenced by any torrent (frees %s)?" },

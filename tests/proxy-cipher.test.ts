@@ -57,4 +57,10 @@ describe('LegacyProxyCipher', () => {
     expect(await cipher.encrypt('')).toBe('');
     expect(await cipher.decrypt('')).toBe('');
   });
+
+  it('cannot decode a HUKS envelope — returns null, not the ciphertext', async () => {
+    // The old passthrough made the UI treat ciphertext as a non-empty
+    // password and send it to the proxy. null = "unset".
+    expect(await cipher.decrypt('huk1:aa:bb:cc')).toBeNull();
+  });
 });

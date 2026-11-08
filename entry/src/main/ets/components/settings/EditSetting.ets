@@ -4,7 +4,7 @@
 // with a TextInput for editing. Persists via PreferencesManager.
 
 import { promptAction } from '@kit.ArkUI';
-import { Colors, FontSize, Spacing } from '../../utils/constants';
+import { CLICK_EFFECT, Colors, FontSize, Spacing } from '../../utils/constants';
 import { PreferencesManager } from '../../models/Preferences';
 
 @Component
@@ -92,7 +92,7 @@ export struct EditSetting {
       top: Spacing.MD,
       bottom: Spacing.MD,
     })
-    .onClick(() => {
+    .clickEffect(CLICK_EFFECT).onClick(() => {
       if (this.dialogController) {
         this.dialogController.open();
       }
@@ -144,7 +144,7 @@ struct EditSettingDialog {
           .fontSize(FontSize.CAPTION)
           .fontColor(Colors.TEXT_SECONDARY)
           .backgroundColor(Colors.ELEVATED)
-          .onClick(() => {
+          .clickEffect(CLICK_EFFECT).onClick(() => {
             this.controller?.close();
           });
 
@@ -153,7 +153,7 @@ struct EditSettingDialog {
           .fontColor('#ffffff')
           .backgroundColor(Colors.DOWNLOAD)
           .margin({ left: Spacing.MD })
-          .onClick(() => {
+          .clickEffect(CLICK_EFFECT).onClick(() => {
             this.onSave(this.inputText);
           });
       }

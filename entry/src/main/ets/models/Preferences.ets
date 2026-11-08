@@ -8,6 +8,7 @@
 // SessionConfig from stored preferences, falling back to defaults.
 
 import { preferences } from '@kit.ArkData';
+import { errText } from '../utils/errors';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { SessionConfig, EncryptionMode, defaultSessionConfig } from './SessionConfig';
 import { ProxyCipher, LegacyProxyCipher } from '../security/ProxyCipher';
@@ -175,7 +176,7 @@ export class PreferencesManager {
       hilog.info(0x0001, TAG, 'PreferencesManager initialized');
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'PreferencesManager init failed: %{private}s', String(err));
+        'PreferencesManager init failed: %{private}s', errText(err));
     }
   }
 
@@ -294,7 +295,7 @@ export class PreferencesManager {
       return await this.guard().get(key, def) as boolean;
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'getBoolean(%{private}s) failed: %{private}s', key, String(err));
+        'getBoolean(%{private}s) failed: %{private}s', key, errText(err));
       return def;
     }
   }
@@ -304,7 +305,7 @@ export class PreferencesManager {
       return await this.guard().get(key, def) as number;
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'getInt(%{private}s) failed: %{private}s', key, String(err));
+        'getInt(%{private}s) failed: %{private}s', key, errText(err));
       return def;
     }
   }
@@ -314,7 +315,7 @@ export class PreferencesManager {
       return await this.guard().get(key, def) as number;
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'getFloat(%{private}s) failed: %{private}s', key, String(err));
+        'getFloat(%{private}s) failed: %{private}s', key, errText(err));
       return def;
     }
   }
@@ -331,7 +332,7 @@ export class PreferencesManager {
       return raw;
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'getString(%{private}s) failed: %{private}s', key, String(err));
+        'getString(%{private}s) failed: %{private}s', key, errText(err));
       return def;
     }
   }
@@ -345,7 +346,7 @@ export class PreferencesManager {
       await this.notifySettingsChanged();
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'setBoolean(%{private}s) failed: %{private}s', key, String(err));
+        'setBoolean(%{private}s) failed: %{private}s', key, errText(err));
     }
   }
 
@@ -356,7 +357,7 @@ export class PreferencesManager {
       await this.notifySettingsChanged();
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'setInt(%{private}s) failed: %{private}s', key, String(err));
+        'setInt(%{private}s) failed: %{private}s', key, errText(err));
     }
   }
 
@@ -367,7 +368,7 @@ export class PreferencesManager {
       await this.notifySettingsChanged();
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'setFloat(%{private}s) failed: %{private}s', key, String(err));
+        'setFloat(%{private}s) failed: %{private}s', key, errText(err));
     }
   }
 
@@ -381,7 +382,7 @@ export class PreferencesManager {
       await this.notifySettingsChanged();
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'setString(%{private}s) failed: %{private}s', key, String(err));
+        'setString(%{private}s) failed: %{private}s', key, errText(err));
     }
   }
 
@@ -414,7 +415,7 @@ export class PreferencesManager {
       config = await this.getSessionConfig();
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'notifySettingsChanged re-read failed: %{private}s', String(err));
+        'notifySettingsChanged re-read failed: %{private}s', errText(err));
       return;
     }
     const listeners = Array.from(this.settingsListeners);
@@ -423,7 +424,7 @@ export class PreferencesManager {
         listener(config);
       } catch (err) {
         hilog.error(0x0001, TAG,
-          'settings listener failed: %{private}s', String(err));
+          'settings listener failed: %{private}s', errText(err));
       }
     }
   }
@@ -483,7 +484,7 @@ export class PreferencesManager {
       };
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'getSessionConfig failed, returning defaults: %{private}s', String(err));
+        'getSessionConfig failed, returning defaults: %{private}s', errText(err));
       return defaultSessionConfig();
     }
   }
@@ -530,7 +531,7 @@ export class PreferencesManager {
       await store.flush();
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'setSessionConfig failed: %{private}s', String(err));
+        'setSessionConfig failed: %{private}s', errText(err));
     }
   }
 
@@ -563,7 +564,7 @@ export class PreferencesManager {
       hilog.info(0x0001, TAG, 'Preferences reset to defaults');
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'resetToDefaults failed: %{private}s', String(err));
+        'resetToDefaults failed: %{private}s', errText(err));
     }
   }
 

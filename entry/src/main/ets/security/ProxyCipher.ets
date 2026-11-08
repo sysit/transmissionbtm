@@ -32,7 +32,10 @@ export class LegacyProxyCipher implements ProxyCipher {
     return plain;
   }
   async decrypt(stored: string): Promise<string | null> {
-    return stored;
+    // A HUKS envelope can only be decoded by HukProxyCipher. Handing it back
+    // unchanged (the old behavior) made the UI treat ciphertext as a non-empty
+    // password and sent it to the proxy. null = "cannot decode" → unset.
+    return isHukStored(stored) ? null : stored;
   }
 }
 

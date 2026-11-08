@@ -11,7 +11,7 @@
 // the UI lifecycle.
 
 import { common } from '@kit.AbilityKit';
-import { Colors, FontSize, Spacing, Radius } from '../../utils/constants';
+import { CLICK_EFFECT, Colors, FontSize, Spacing, Radius } from '../../utils/constants';
 import { PreferencesManager, PrefKeys } from '../../models/Preferences';
 
 const PRIVACY_URL = 'https://sysit.github.io/transmissionbtm/privacy-policy.html';
@@ -73,7 +73,7 @@ export struct PrivacyDialog {
         .width('100%')
         .height('100%')
         .backgroundColor('#CC000000')
-        .onClick(() => {
+        .clickEffect(CLICK_EFFECT).onClick(() => {
           // Consume the backdrop tap — the gate is dismissed only via buttons.
         })
 
@@ -103,7 +103,7 @@ export struct PrivacyDialog {
             Text($r('app.string.privacy_view_policy'))
               .fontSize(FontSize.MD)
               .fontColor(Colors.DOWNLOAD)
-              .onClick(() => { this.openPolicy(); })
+              .clickEffect(CLICK_EFFECT).onClick(() => { this.openPolicy(); })
           }
           .width('100%')
           .alignItems(HorizontalAlign.Start)
@@ -138,7 +138,7 @@ export struct PrivacyDialog {
               .backgroundColor(Colors.ELEVATED)
               .layoutWeight(1)
               .height(44)
-              .onClick(() => { this.onDisagree(); })
+              .clickEffect(CLICK_EFFECT).onClick(() => { this.onDisagree(); })
 
             Button($r('app.string.privacy_agree'))
               .fontSize(FontSize.MD)
@@ -148,7 +148,7 @@ export struct PrivacyDialog {
               .height(44)
               .enabled(this.agreed)
               .margin({ left: Spacing.MD })
-              .onClick(() => { this.onAgree(); })
+              .clickEffect(CLICK_EFFECT).onClick(() => { this.onAgree(); })
           }
           .width('100%')
           .padding({ top: Spacing.MD })

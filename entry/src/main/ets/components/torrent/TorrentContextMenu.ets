@@ -4,7 +4,7 @@
 // Actions are conditionally shown based on torrent state (pause vs resume).
 
 import { TorrentInfo } from '../../models/TorrentInfo';
-import { Colors, Radius, Spacing, FontSize } from '../../utils/constants';
+import { CLICK_EFFECT, Colors, Radius, Spacing, FontSize } from '../../utils/constants';
 import { statusResource } from '../../utils/i18n';
 
 /** Action identifiers for torrent context menu. */
@@ -47,7 +47,7 @@ export struct TorrentContextMenu {
           .width('100%')
           .height('100%')
           .backgroundColor('#00000080')
-          .onClick(() => { this.hide(); });
+          .clickEffect(CLICK_EFFECT).onClick(() => { this.hide(); });
 
         // Menu panel
         Column() {
@@ -140,7 +140,7 @@ export struct TorrentContextMenu {
       .borderRadius(Radius.MD)
       .backgroundColor(Colors.ELEVATED)
       .margin({ top: Spacing.MD })
-      .onClick(() => { this.hide(); });
+      .clickEffect(CLICK_EFFECT).onClick(() => { this.hide(); });
   }
 
   @Builder
@@ -164,7 +164,7 @@ export struct TorrentContextMenu {
     .width('100%')
     .height(48)
     .padding({ left: Spacing.LG, right: Spacing.LG })
-    .onClick(() => {
+    .clickEffect(CLICK_EFFECT).onClick(() => {
       this.hide();
       if (this.onAction) {
         this.onAction(action, this.torrent);

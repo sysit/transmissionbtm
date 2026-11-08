@@ -4,6 +4,7 @@
 // and credits. Version is fetched from the native bridge on render.
 
 import { Colors, FontSize, Spacing, Radius, AppConstants } from '../utils/constants';
+import { errText } from '../utils/errors';
 import { NativeBridge } from '../bridge/NativeBridge';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 
@@ -30,7 +31,7 @@ export struct AboutPage {
     } catch (err) {
       this.versionError = $r('app.string.about_version_error');
       hilog.error(0x0001, TAG,
-        'fetchVersion failed: %{private}s', String(err));
+        'fetchVersion failed: %{private}s', errText(err));
     } finally {
       this.isLoadingVersion = false;
     }

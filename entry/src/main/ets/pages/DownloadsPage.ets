@@ -8,6 +8,7 @@
 // stay here because they use the UI context (getContext) and the file picker.
 
 import { hilog } from '@kit.PerformanceAnalysisKit';
+import { errText } from '../utils/errors';
 import { TorrentInfo } from '../models/TorrentInfo';
 import { SessionConfig } from '../models/SessionConfig';
 import { PreferencesManager } from '../models/Preferences';
@@ -22,7 +23,7 @@ import { AddTorrentPage } from './AddTorrentPage';
 import { FileTreePage } from './FileTreePage';
 import { EmptyState } from '../components/ui/EmptyState';
 import { formatSpeed, formatSize } from '../utils/format';
-import { Colors, FontSize, Spacing, Radius } from '../utils/constants';
+import { CLICK_EFFECT, Colors, FontSize, Spacing, Radius } from '../utils/constants';
 import { KeepAliveManager } from '../services/KeepAliveManager';
 import { ConnectivityMonitor } from '../services/ConnectivityMonitor';
 import { SessionController } from '../services/SessionController';
@@ -207,7 +208,7 @@ export struct DownloadsPage {
       if (this.isDisposed) { return; }
       await this.controller.start(config);
     } catch (e) {
-      hilog.error(0x0001, TAG, 'Session start failed: %{private}s', String(e));
+      hilog.error(0x0001, TAG, 'Session start failed: %{private}s', errText(e));
       this.isLoading = false;
     }
   }
@@ -320,7 +321,7 @@ export struct DownloadsPage {
         }
       }
     } catch (e) {
-      hilog.warn(0x0001, TAG, 'dirSize failed: %{private}s', String(e));
+      hilog.warn(0x0001, TAG, 'dirSize failed: %{private}s', errText(e));
     }
     return total;
   }
@@ -367,7 +368,7 @@ export struct DownloadsPage {
         orphans.push(`${root}/${name}`);
       }
     } catch (e) {
-      hilog.warn(0x0001, TAG, 'scanOrphans failed: %{private}s', String(e));
+      hilog.warn(0x0001, TAG, 'scanOrphans failed: %{private}s', errText(e));
     }
     return orphans;
   }
@@ -412,12 +413,23 @@ export struct DownloadsPage {
         }
       }
     } catch (e) {
-      hilog.warn(0x0001, TAG, 'deleteRecursive failed: %{private}s', String(e));
+      hilog.warn(0x0001, TAG, 'deleteRecursive failed: %{private}s', errText(e));
     }
   }
 
   /** On "Clean orphans" tap: if any orphans exist, size them and open confirm. */
   private onCleanOrphansPress(): void {
+    // Never scan without a live session. referencedDownloadRoots() is built
+    // from this.torrents, so a failed or still-pending session start leaves it
+    // empty and EVERY top-level entry under downloads/ looks unreferenced —
+    // confirming the dialog would then delete the whole library.
+    if (!this.controller.isStarted) {
+      promptAction.showToast({
+        message: $r('app.string.downloads_storage_session_not_ready'),
+        duration: 2000,
+      });
+      return;
+    }
     const orphans: string[] = this.scanOrphanPaths();
     if (orphans.length === 0) {
       promptAction.showToast({
@@ -449,6 +461,14 @@ export struct DownloadsPage {
     // synchronously, then the intersection keeps only paths that are STILL
     // orphans.
     this.controller.reload();
+    // The dialog can sit open for minutes; if the session stopped meanwhile,
+    // the reload above produced nothing and every path would re-qualify as an
+    // orphan. Abort instead of deleting on an unverified reference set.
+    if (!this.controller.isStarted) {
+      this.pendingOrphans = [];
+      this.showCleanOrphansDialog = false;
+      return;
+    }
     const fresh: string[] = this.scanOrphanPaths();
     const stillOrphans: Set<string> = new Set();
     for (let i = 0; i < fresh.length; i++) {
@@ -514,9 +534,9 @@ export struct DownloadsPage {
         duration: 2000,
       });
     } catch (e) {
-      hilog.error(0x0001, TAG, 'Save to Files failed: %{private}s', String(e));
+      hilog.error(0x0001, TAG, 'Save to Files failed: %{private}s', errText(e));
       promptAction.showToast({
-        message: $r('app.string.downloads_toast_save_failed', String(e)),
+        message: $r('app.string.downloads_toast_save_failed', errText(e)),
         duration: 2000,
       });
     }
@@ -620,8 +640,8 @@ export struct DownloadsPage {
     } catch (e) {
       // A picker throw is a real failure (permission / DOWNLOAD unsupported),
       // NOT "no files" — rethrow so the caller shows "保存失败: <err>".
-      this.diag(`save picker error=${String(e)}`);
-      throw new Error(String(e));
+      this.diag(`save picker error=${errText(e)}`);
+      throw new Error(errText(e));
     }
     if (uris.length === 0) {
       this.diag('save returned 0 uris (user cancelled)');
@@ -638,8 +658,8 @@ export struct DownloadsPage {
       baseDir = new fileUri.FileUri(uris[0]).path;
       this.diag(`baseDir=${baseDir}`);
     } catch (e) {
-      this.diag(`FileUri convert err=${String(e)}`);
-      throw new Error(String(e));
+      this.diag(`FileUri convert err=${errText(e)}`);
+      throw new Error(errText(e));
     }
 
     let copied = 0;
@@ -651,17 +671,24 @@ export struct DownloadsPage {
         const destPath = `${destDir}/${j.name}`;
         this.diag(`copy ${j.rel}/${j.name} -> ${destPath}`);
         const s = fs.openSync(j.src, fs.OpenMode.READ_ONLY);
-        const d = fs.openSync(destPath, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
+        // The source is opened first: if the destination open throws (long or
+        // reserved name — ENAMETOOLONG has hit this project before), the old
+        // single finally block had not been entered yet and `s` leaked one fd
+        // per failing file. Nest the tries so each fd closes on its own path.
         try {
-          await fs.copyFile(s.fd, d.fd);
-          copied++;
-          this.diag(`copied ok ${j.rel}/${j.name}`);
+          const d = fs.openSync(destPath, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
+          try {
+            await fs.copyFile(s.fd, d.fd);
+            copied++;
+            this.diag(`copied ok ${j.rel}/${j.name}`);
+          } finally {
+            try { fs.closeSync(d); } catch (e2) { /* ignore */ }
+          }
         } finally {
           try { fs.closeSync(s); } catch (e1) { /* ignore */ }
-          try { fs.closeSync(d); } catch (e2) { /* ignore */ }
         }
       } catch (e) {
-        this.diag(`copyFail ${j.rel}/${j.name} err=${String(e)}`);
+        this.diag(`copyFail ${j.rel}/${j.name} err=${errText(e)}`);
       }
     }
     this.diag(`copy done copied=${copied}`);
@@ -729,8 +756,8 @@ export struct DownloadsPage {
       promptAction.showToast({ message: $r('app.string.downloads_toast_moved'), duration: 2000 });
       this.controller.reload();
     } catch (e) {
-      hilog.error(0x0001, TAG, 'Relocate failed: %{private}s', String(e));
-      promptAction.showToast({ message: $r('app.string.downloads_toast_move_failed', String(e)), duration: 2000 });
+      hilog.error(0x0001, TAG, 'Relocate failed: %{private}s', errText(e));
+      promptAction.showToast({ message: $r('app.string.downloads_toast_move_failed', errText(e)), duration: 2000 });
     }
   }
 
@@ -1035,7 +1062,7 @@ export struct DownloadsPage {
           color: '#3b82f640',
           offsetY: 6,
         })
-        .onClick(() => { this.showAddPage = true; });
+        .clickEffect(CLICK_EFFECT).onClick(() => { this.showAddPage = true; });
     }
     .width('100%')
     .justifyContent(FlexAlign.End)
@@ -1072,7 +1099,7 @@ export struct DownloadsPage {
         .width('100%')
         .height('100%')
         .backgroundColor('#00000080')
-        .onClick(() => { this.showRelocateDialog = false; });
+        .clickEffect(CLICK_EFFECT).onClick(() => { this.showRelocateDialog = false; });
 
       Column() {
         Text($r('app.string.downloads_relocate_title'))
@@ -1104,7 +1131,7 @@ export struct DownloadsPage {
           .height(48)
           .borderRadius(Radius.MD)
           .margin({ top: Spacing.LG })
-          .onClick(() => { this.doRelocate(); });
+          .clickEffect(CLICK_EFFECT).onClick(() => { this.doRelocate(); });
 
         Button($r('app.string.common_cancel'))
           .fontSize(FontSize.BODY)
@@ -1114,7 +1141,7 @@ export struct DownloadsPage {
           .borderRadius(Radius.MD)
           .backgroundColor(Colors.ELEVATED)
           .margin({ top: Spacing.SM })
-          .onClick(() => { this.showRelocateDialog = false; });
+          .clickEffect(CLICK_EFFECT).onClick(() => { this.showRelocateDialog = false; });
       }
       .width('90%')
       .borderRadius(Radius.LG)
@@ -1147,7 +1174,7 @@ export struct DownloadsPage {
         .fontWeight(this.storageOrphanCount > 0 ? FontWeight.Medium : FontWeight.Regular)
         .fontColor(this.storageOrphanCount > 0 ? Colors.DOWNLOAD : Colors.TEXT_TERTIARY)
         .padding({ left: Spacing.SM })
-        .onClick(() => { this.onCleanOrphansPress(); });
+        .clickEffect(CLICK_EFFECT).onClick(() => { this.onCleanOrphansPress(); });
     }
     .width('100%')
     .padding({ left: Spacing.LG, right: Spacing.LG, bottom: Spacing.SM });
@@ -1160,7 +1187,7 @@ export struct DownloadsPage {
         .width('100%')
         .height('100%')
         .backgroundColor('#00000080')
-        .onClick(() => { this.showCleanOrphansDialog = false; });
+        .clickEffect(CLICK_EFFECT).onClick(() => { this.showCleanOrphansDialog = false; });
 
       Column() {
         Text($r('app.string.downloads_storage_clean_confirm_title'))
@@ -1184,7 +1211,7 @@ export struct DownloadsPage {
           .height(48)
           .borderRadius(Radius.MD)
           .margin({ top: Spacing.LG })
-          .onClick(() => { this.doCleanOrphans(); });
+          .clickEffect(CLICK_EFFECT).onClick(() => { this.doCleanOrphans(); });
 
         Button($r('app.string.common_cancel'))
           .fontSize(FontSize.BODY)
@@ -1194,7 +1221,7 @@ export struct DownloadsPage {
           .borderRadius(Radius.MD)
           .backgroundColor(Colors.ELEVATED)
           .margin({ top: Spacing.SM })
-          .onClick(() => { this.showCleanOrphansDialog = false; });
+          .clickEffect(CLICK_EFFECT).onClick(() => { this.showCleanOrphansDialog = false; });
       }
       .width('90%')
       .borderRadius(Radius.LG)

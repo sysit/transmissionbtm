@@ -119,6 +119,22 @@ export class AppConstants {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// Interaction Feedback
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Shared press feedback for every tappable element. ArkUI's native
+ * clickEffect: while pressed the node scales down and glows, so taps on
+ * cards / rows / plain-Text buttons are visibly acknowledged. LIGHT keeps
+ * big cards from visually "sinking" under the finger; scale 0.92 is enough
+ * to read as a press without looking like a mis-render.
+ */
+export const CLICK_EFFECT: ClickEffect = {
+  level: ClickEffectLevel.LIGHT,
+  scale: 0.92,
+};
+
+// ═══════════════════════════════════════════════════════════════════
 // Torrent Status Codes
 // ═══════════════════════════════════════════════════════════════════
 

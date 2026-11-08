@@ -4,7 +4,7 @@
 // dialog with all options. Persists the selected index via
 // PreferencesManager.
 
-import { Colors, FontSize, Spacing } from '../../utils/constants';
+import { CLICK_EFFECT, Colors, FontSize, Spacing } from '../../utils/constants';
 import { PreferencesManager } from '../../models/Preferences';
 
 @Component
@@ -62,7 +62,7 @@ export struct SelectSetting {
       top: Spacing.MD,
       bottom: Spacing.MD,
     })
-    .onClick(() => {
+    .clickEffect(CLICK_EFFECT).onClick(() => {
       if (this.dialogController) {
         this.dialogController.open();
       }
@@ -103,7 +103,7 @@ struct SelectOptionDialog {
           .backgroundColor(index === this.selectedLocal ? Colors.DOWNLOAD : Colors.ELEVATED)
           .width('100%')
           .margin({ bottom: Spacing.SM })
-          .onClick(() => {
+          .clickEffect(CLICK_EFFECT).onClick(() => {
             this.selectedLocal = index;
             this.onSelect(index);
           });
@@ -116,7 +116,7 @@ struct SelectOptionDialog {
         .backgroundColor(Colors.ELEVATED)
         .width('100%')
         .margin({ top: Spacing.SM })
-        .onClick(() => {
+        .clickEffect(CLICK_EFFECT).onClick(() => {
           this.controller?.close();
         });
     }

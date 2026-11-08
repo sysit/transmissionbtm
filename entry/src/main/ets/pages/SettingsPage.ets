@@ -11,7 +11,8 @@
 //   Blocklist  — IP blocklist toggle + URL
 //   Seeding    — ratio stop, idle stop
 
-import { Colors, FontSize, Spacing, Radius, AppConstants } from '../utils/constants';
+import { CLICK_EFFECT, Colors, FontSize, Spacing, Radius, AppConstants } from '../utils/constants';
+import { errText } from '../utils/errors';
 import { SettingsGroup } from '../components/settings/SettingsGroup';
 import { ToggleSetting } from '../components/settings/ToggleSetting';
 import { EditSetting } from '../components/settings/EditSetting';
@@ -148,7 +149,7 @@ export struct SettingsPage {
     } catch (err) {
       this.loadError = $r('app.string.settings_load_error');
       hilog.error(0x0001, TAG,
-        'loadPreferences failed: %{private}s', String(err));
+        'loadPreferences failed: %{private}s', errText(err));
     } finally {
       this.isLoading = false;
       this.languageLoaded = true;
@@ -179,7 +180,7 @@ export struct SettingsPage {
       hilog.info(0x0001, TAG, 'Settings reset to defaults');
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'resetToDefaults failed: %{private}s', String(err));
+        'resetToDefaults failed: %{private}s', errText(err));
     }
   }
 
@@ -561,6 +562,6 @@ export struct SettingsPage {
       .width('90%')
       .height(44)
       .margin({ top: Spacing.XL })
-      .onClick(() => { this.showResetDialog = true; });
+      .clickEffect(CLICK_EFFECT).onClick(() => { this.showResetDialog = true; });
   }
 }

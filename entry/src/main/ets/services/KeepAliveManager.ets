@@ -21,6 +21,7 @@
 // the task starts and removes it when the task stops.
 
 import { backgroundTaskManager } from '@kit.BackgroundTasksKit';
+import { errText } from '../utils/errors';
 import { common, wantAgent, WantAgent } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 
@@ -94,7 +95,7 @@ export class KeepAliveManager {
           hilog.info(0x0001, TAG, 'Continuous task re-acquire after system cancel');
           this.acquire('re-acquire after system cancel').catch((e: Error) => {
             hilog.error(0x0001, TAG,
-              'Continuous task re-acquire failed: %{public}s', String(e));
+              'Continuous task re-acquire failed: %{public}s', errText(e));
           });
         });
       backgroundTaskManager.on('continuousTaskSuspend',
@@ -109,7 +110,7 @@ export class KeepAliveManager {
         });
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'continuous task state listeners unavailable: %{private}s', String(err));
+        'continuous task state listeners unavailable: %{private}s', errText(err));
     }
   }
 
@@ -142,7 +143,7 @@ export class KeepAliveManager {
       // Public on purpose: the reason (e.g. "BackgroundTask is restricted",
       // permission denied) is a system string, not user data, and it is the
       // only way to tell a refused continuous task apart from a frozen process.
-      hilog.error(0x0001, TAG, 'Failed to start continuous task: %{public}s', String(err));
+      hilog.error(0x0001, TAG, 'Failed to start continuous task: %{public}s', errText(err));
     }
   }
 
@@ -158,11 +159,11 @@ export class KeepAliveManager {
     try {
       const context = this.contextProvider();
       backgroundTaskManager.stopBackgroundRunning(context).catch((e: Error) => {
-        hilog.error(0x0001, TAG, 'Failed to stop continuous task: %{private}s', String(e));
+        hilog.error(0x0001, TAG, 'Failed to stop continuous task: %{private}s', errText(e));
       });
       hilog.info(0x0001, TAG, 'Continuous task stopped');
     } catch (err) {
-      hilog.error(0x0001, TAG, 'Failed to stop continuous task: %{private}s', String(err));
+      hilog.error(0x0001, TAG, 'Failed to stop continuous task: %{private}s', errText(err));
     }
   }
 

@@ -15,6 +15,7 @@
 #include <libtransmission/transmission.h>
 #include <libtransmission/peer-common.h>   // tr_swarm_stats, tr_swarmGetStats
 #include <libtransmission/torrent.h>
+#include <libtransmission/torrent-metainfo.h>
 #include <libtransmission/session.h>
 #include <cstring>
 #include <cstdlib>
@@ -38,13 +39,6 @@ static int32_t getInt32Napi(napi_env env, napi_value val) {
   int32_t i = 0;
   napi_get_value_int32(env, val, &i);
   return i;
-}
-
-static int64_t getInt64FromBigInt(napi_env env, napi_value val) {
-  uint64_t u;
-  bool lossless;
-  napi_get_value_bigint_uint64(env, val, &u, &lossless);
-  return (int64_t) u;
 }
 
 // 4.1: getVerifyProgress uses tor->has_piece() (public accessor)
@@ -373,30 +367,22 @@ static napi_value TorrentListFilesFromFile(napi_env env, napi_callback_info info
   char *path = getStringUtf8(env, args[0]);
   if (path == nullptr) return nullptr;
 
-  tr_ctor *ctor = tr_ctorNew(nullptr);
-  if (!tr_ctorSetMetainfoFromFile(ctor, path, nullptr)) {
+  // Sessionless parse: tr_ctorNew(nullptr) dereferenced the null session inside
+  // the engine's ctor, so this export crashed on every call.
+  tr_torrent_metainfo metainfo;
+  if (!metainfo.parse_torrent_file(path, nullptr, nullptr)) {
     free(path);
-    tr_ctorFree(ctor);
     napi_throw_error(env, nullptr, "Failed to parse torrent file");
     return nullptr;
   }
   free(path);
 
-  auto const *metainfo = tr_ctorGetMetainfo(ctor);
-  if (metainfo == nullptr) {
-    tr_ctorFree(ctor);
-    napi_throw_error(env, nullptr, "No metainfo in torrent file");
-    return nullptr;
-  }
-
-  // 4.1: use file_count() accessor instead of fileCount()
-  tr_file_index_t fileCount = metainfo->file_count();
+  tr_file_index_t fileCount = metainfo.file_count();
   napi_value result;
   napi_create_array_with_length(env, fileCount, &result);
   for (tr_file_index_t i = 0; i < fileCount; i++)
-    napi_set_element(env, result, i, newStringUtf8(env, metainfo->file_subpath(i).c_str()));
+    napi_set_element(env, result, i, newStringUtf8(env, metainfo.file_subpath(i).c_str()));
 
-  tr_ctorFree(ctor);
   return result;
 }
 
@@ -541,6 +527,13 @@ static void *torrentGetFileStatFunc(tr_session *s, void *d, Err *err) {
 
   tr_piece_index_t pc = tor->piece_count();
   if (pc == 0) return nullptr;
+  // A zero-length trailing file (BEP-3 padding) maps byteStart == total_size,
+  // which byte_loc() reports as piece #pc — one past the last piece. The loop
+  // below reads tabs[tIdx] <= lastPiece, so an unclamped pc read one byte past
+  // the pc-byte availability buffer. Clamp into range (the engine's own
+  // file-piece-map clamps the same case with std::min(end, piece_count-1)).
+  if (firstPiece >= pc) firstPiece = pc - 1;
+  if (lastPiece >= pc) lastPiece = pc - 1;
   int8_t *tabs = (int8_t *) malloc(pc);
   if (!tabs) return nullptr;
   tr_torrentAvailability(tor, tabs, (int)pc);
@@ -792,6 +785,17 @@ static void *torrentSetDndFunc(tr_session *s, void *d, Err *err) {
   auto *sd = (SetDndData *) d;
   tr_torrent *tor = findTorrentById(s, sd->id, err);
   if (tor) {
+    // Bytes from ArkTS are int32; a negative value would wrap to ~2^32 as
+    // tr_file_index_t and make the engine try to allocate a ~512MB bitfield
+    // (or abort on its assert) on the session thread.
+    tr_file_index_t const fileCount = tor->file_count();
+    for (tr_file_index_t i = 0; i < sd->count; i++) {
+      if (sd->files[i] >= fileCount) {
+        err->set(ERR_ARG, "Invalid file index: %u (count %u)",
+                 (unsigned)sd->files[i], (unsigned)fileCount);
+        return nullptr;
+      }
+    }
     tr_torrentSetFileDLs(tor, sd->files, sd->count, !sd->dnd);
   }
   return nullptr;

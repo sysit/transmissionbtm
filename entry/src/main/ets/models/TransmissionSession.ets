@@ -14,11 +14,26 @@
 //   (TransmissionService was deleted in E3 — system-app-only on HarmonyOS NEXT)
 
 import { NativeBridge } from '../bridge/NativeBridge';
+import { errText } from '../utils/errors';
 import { SessionConfig, EncryptionMode } from './SessionConfig';
 import { TorrentInfo, TorrentStatus, TorrentError, KBPS_TO_BPS } from './TorrentInfo';
 import { TorrentFile, RawFileEntry } from './TorrentFile';
 import { SessionRunState } from './SessionState';
 import { hilog } from '@kit.PerformanceAnalysisKit';
+
+/**
+ * Force a JSON real for a Transmission `double` setting.
+ *
+ * The engine's serializer only accepts a JSON real for a double field
+ * (`to_double()`: `src.value_if<double>()`). `JSON.stringify(3.0)` emits `3`,
+ * which rapidjson parses as int64, so the field is silently skipped and the
+ * engine keeps its old value — a user-set ratio of 3 was applied as 2.
+ * Nudging by 1e-9 keeps stringify in real form while changing the limit far
+ * below any ratio the engine can observe.
+ */
+function asJsonReal(value: number): number {
+  return Number.isInteger(value) ? value + 1e-9 : value;
+}
 
 export class TransmissionSession {
   /** Numeric session ID. Set by start(); may also be set externally
@@ -87,7 +102,7 @@ export class TransmissionSession {
    *     where no native args exist to cover them.
    */
   private buildSettingsObject(
-    config: SessionConfig, includeCore: boolean
+    config: SessionConfig, includeDirs: boolean
   ): Record<string, string | number | boolean> {
     const s: Record<string, string | number | boolean> = {};
     s['peer-port'] = config.peerPort;
@@ -95,8 +110,14 @@ export class TransmissionSession {
     // randomizes the port on every start, ignoring the Settings "peer port"
     // control (codex P1).
     s['peer-port-random-on-start'] = false;
-    s['incomplete-dir'] = config.incompleteDir;
-    s['incomplete-dir-enabled'] = config.incompleteDir.length > 0;
+    // Directories are resolved to app-sandbox paths by DownloadsPage at start
+    // and are never persisted (prefs keep the unusable /storage/... defaults),
+    // so a live re-read always carries the WRONG dirs. Omit them on re-apply:
+    // the session's dirs are fixed for its lifetime (torrents inherit them).
+    if (includeDirs) {
+      s['incomplete-dir'] = config.incompleteDir;
+      s['incomplete-dir-enabled'] = config.incompleteDir.length > 0;
+    }
     s['speed-limit-down'] = config.speedLimitDown;
     s['speed-limit-up'] = config.speedLimitUp;
     s['speed-limit-down-enabled'] = config.speedLimitDownEnabled;
@@ -104,6 +125,11 @@ export class TransmissionSession {
     s['alt-speed-down'] = config.altSpeedDown;
     s['alt-speed-up'] = config.altSpeedUp;
     s['alt-speed-enabled'] = config.altSpeedEnabled;
+    // The UI presents this as a scheduled window ("Scheduled lower speed
+    // limits" + begin/end/day). The engine's scheduler is OFF by default
+    // (`scheduler_enabled = false`), and with it off it ignores the window —
+    // enabling alt speed then throttles 24/7 instead of only inside it.
+    s['alt-speed-time-enabled'] = config.altSpeedEnabled;
     s['alt-speed-time-begin'] = config.altSpeedTimeBegin;
     s['alt-speed-time-end'] = config.altSpeedTimeEnd;
     s['alt-speed-time-day'] = config.altSpeedDay;
@@ -118,7 +144,7 @@ export class TransmissionSession {
     s['trash-original-torrent-files'] = config.trashOriginalTorrentFile;
     s['blocklist-enabled'] = config.blocklistEnabled;
     s['blocklist-url'] = config.blocklistUrl;
-    s['ratio-limit'] = config.seedRatioLimit;
+    s['ratio-limit'] = asJsonReal(config.seedRatioLimit);
     s['ratio-limit-enabled'] = config.seedRatioLimited;
     s['idle-seeding-limit'] = config.idleSeedingLimit;
     s['idle-seeding-limit-enabled'] = config.idleSeedingLimitEnabled;
@@ -139,10 +165,12 @@ export class TransmissionSession {
       }
       s['proxy-url'] = url;
     }
-    if (includeCore) {
+    if (includeDirs) {
       s['download-dir'] = config.downloadDir;
-      s['encryption'] = this.encrModeNumber(config);
     }
+    // Encryption is safe in both paths: at start the explicit native arg wins
+    // over this key; on re-apply it is the only way to change it live.
+    s['encryption'] = this.encrModeNumber(config);
     return s;
   }
 
@@ -156,7 +184,11 @@ export class TransmissionSession {
    * explicit args are authoritative and override these in native code.
    */
   private buildSettingsJson(config: SessionConfig): string {
-    return JSON.stringify(this.buildSettingsObject(config, false));
+    // includeDirs=true: the incomplete-dir setting has no native argument and
+    // must ride in the JSON. download-dir is redundant here (the explicit
+    // native arg overrides it) but harmless — and it keeps one shared code
+    // path. Re-apply (updateSettings) stays false: see buildSettingsObject.
+    return JSON.stringify(this.buildSettingsObject(config, true));
   }
 
   /**
@@ -171,12 +203,12 @@ export class TransmissionSession {
     if (this.sessionId <= 0 || this.state === SessionRunState.STOPPED) {
       return;
     }
-    const json = JSON.stringify(this.buildSettingsObject(config, true));
+    const json = JSON.stringify(this.buildSettingsObject(config, false));
     try {
       this.bridge.sessionSettingsUpdate(this.sessionId, json);
     } catch (e) {
       hilog.error(0x0001, 'TransmissionSession',
-        'updateSettings failed: %{private}s', String(e));
+        'updateSettings failed: %{private}s', errText(e));
     }
   }
 
@@ -265,25 +297,26 @@ export class TransmissionSession {
   // Torrent queries
   // ═══════════════════════════════════════════════════════════════════
 
-  /** Fetch all torrents currently loaded in the session. */
+  /**
+   * Fetch all torrents currently loaded in the session.
+   *
+   * Throws on failure instead of returning an empty list: the caller
+   * (SessionController.refresh) keeps its last good list when this throws, but
+   * an empty array is indistinguishable from "the user removed everything", so
+   * swallowing the error here blanked the whole list for one poll.
+   */
   getAllTorrents(): TorrentInfo[] {
-    try {
-      const names: string[] = this.bridge.listTorrentNames(this.sessionId);
-      if (!names || names.length === 0) {
-        return [];
-      }
-      // listTorrentNames() is id/hash/name only. Merge the live brief stat so
-      // status/percent/sizes/speeds are real — otherwise every torrent reports
-      // its default STOPPED (0) and shows as "Paused" even while the engine is
-      // downloading it (user: "两个种子都是pause状态").
-      const list = TorrentInfo.fromNativeJson(names.join('\n'));
-      this.applyStatBrief(list);
-      return list;
-    } catch (e) {
-      hilog.error(0x0001, 'TransmissionSession',
-        'getAllTorrents failed: %{private}s', String(e));
+    const names: string[] = this.bridge.listTorrentNames(this.sessionId);
+    if (!names || names.length === 0) {
       return [];
     }
+    // listTorrentNames() is id/hash/name only. Merge the live brief stat so
+    // status/percent/sizes/speeds are real — otherwise every torrent reports
+    // its default STOPPED (0) and shows as "Paused" even while the engine is
+    // downloading it (user: "两个种子都是pause状态").
+    const list = TorrentInfo.fromNativeJson(names.join('\n'));
+    this.applyStatBrief(list);
+    return list;
   }
 
   /**
@@ -302,9 +335,16 @@ export class TransmissionSession {
     try {
       buf = this.bridge.torrentStatBrief(this.sessionId);
     } catch (e) {
+      // Polled every 5s: a persistent failure would otherwise leave the list
+      // frozen at its last good values with nothing in the log explaining why.
+      hilog.error(0x0001, 'TransmissionSession',
+        'statBrief failed, list kept at previous values: %{private}s', errText(e));
       return;
     }
-    if (!buf || buf.byteLength < 80) {
+    // Length AND alignment: BigInt64Array's constructor throws on a buffer
+    // whose byteLength is not a multiple of 8, so a truncated/short read would
+    // escalate to the caller instead of leaving the list at its last values.
+    if (!buf || buf.byteLength < 80 || buf.byteLength % 8 !== 0) {
       return;
     }
     const view = new BigInt64Array(buf);

@@ -9,7 +9,23 @@ import { ProgressBar } from '../ui/ProgressBar';
 import { StatChip } from '../ui/StatChip';
 import { formatSpeed, formatSize, formatETA } from '../../utils/format';
 import { statusResource } from '../../utils/i18n';
-import { Colors, Radius, Spacing, FontSize } from '../../utils/constants';
+import { CLICK_EFFECT, Colors, Radius, Spacing, FontSize } from '../../utils/constants';
+
+// Pressed state for the action buttons. At 40x36 a scale-only ClickEffect is
+// barely perceptible, so the whole button dims while the finger is down —
+// unmistakable at a glance. Attached to the node that owns the onClick: a
+// pressed state on a child without the gesture never fires.
+@Styles
+function actionPressed() {
+  .opacity(0.45)
+}
+
+// Small buttons get a deeper shrink and a heavier halo than the shared
+// CLICK_EFFECT (0.92 / LIGHT), which reads as nothing on a 40pt pill.
+const ACTION_CLICK_EFFECT: ClickEffect = {
+  level: ClickEffectLevel.MIDDLE,
+  scale: 0.85,
+};
 
 @Component
 export struct TorrentCard {
@@ -25,9 +41,18 @@ export struct TorrentCard {
 
   build() {
     Column() {
-      this.buildHeader();
-      this.buildProgressSection();
-      this.buildStatsRow();
+      // Toggle lives on this inner block, NOT the card root: a tap on an
+      // action button must scale only that button, and must not also collapse
+      // the card. ArkUI click events bubble to ancestors, so narrowing the
+      // handler to a container that excludes the detail section fixes both.
+      Column() {
+        this.buildHeader();
+        this.buildProgressSection();
+        this.buildStatsRow();
+      }
+      .width('100%')
+      .clickEffect(CLICK_EFFECT).onClick(() => { this.isExpanded = !this.isExpanded; });
+
       if (this.isExpanded) {
         this.buildDetailSection();
       }
@@ -35,8 +60,7 @@ export struct TorrentCard {
     .width('100%')
     .padding(Spacing.LG)
     .borderRadius(Radius.LG)
-    .backgroundColor(Colors.SURFACE)
-    .onClick(() => { this.isExpanded = !this.isExpanded; });
+    .backgroundColor(Colors.SURFACE);
   }
 
   @Builder
@@ -203,7 +227,7 @@ export struct TorrentCard {
   ActionButton(icon: string, label: ResourceStr, action?: () => void) {
     Column() {
       Text(icon)
-        .fontSize(16)
+        .fontSize(18)
         .fontColor(Colors.TEXT)
         .width(40)
         .height(36)
@@ -216,7 +240,8 @@ export struct TorrentCard {
         .margin({ top: 4 });
     }
     .alignItems(HorizontalAlign.Center)
-    .onClick(() => {
+    .stateStyles({ pressed: actionPressed })
+    .clickEffect(ACTION_CLICK_EFFECT).onClick(() => {
       if (action) {
         action();
       }

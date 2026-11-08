@@ -5,8 +5,10 @@
 // Validates inputs before passing to TransmissionSession.addTorrent().
 
 import { hilog } from '@kit.PerformanceAnalysisKit';
+import { errText } from '../utils/errors';
+import { BusinessError } from '@kit.BasicServicesKit';
 import { NativeBridge } from '../bridge/NativeBridge';
-import { TorrentAddResult } from '../utils/constants';
+import { CLICK_EFFECT, TorrentAddResult } from '../utils/constants';
 import { Colors, FontSize, Spacing, Radius } from '../utils/constants';
 import { picker, fileIo as fs } from '@kit.CoreFileKit';
 import { common } from '@kit.AbilityKit';
@@ -15,6 +17,7 @@ import { FilePreview } from '../components/add/FilePreview';
 import { TorrentStatusBanner } from '../components/add/TorrentStatusBanner';
 
 const TAG = 'AddTorrentPage';
+
 
 /** Tab identifiers for the add torrent page. */
 enum AddTab {
@@ -27,10 +30,22 @@ enum AddTab {
  * D2: run the synchronous native curlDownload off the UI thread via taskpool.
  * libcurl's curl_easy_perform can block for up to `timeout` seconds; running
  * it on the ArkTS main thread would freeze the UI while fetching a URL.
+ * Returns '' on success, or the failure text. Errors are caught INSIDE the
+ * worker and returned as strings: an Error thrown across the taskpool
+ * boundary arrives on the main thread as a bare object ("[object Object]")
+ * with its message stripped, which hid the real curl/network reason.
  */
 @Concurrent
-function runCurlDownload(url: string, dstPath: string, timeout: number): void {
-  NativeBridge.getInstance().curlDownload(url, dstPath, timeout);
+function runCurlDownload(url: string, dstPath: string, timeout: number,
+    caBundle: string): string {
+  try {
+    NativeBridge.getInstance().curlDownload(url, dstPath, timeout, caBundle);
+    return '';
+  } catch (err) {
+    const be = err as BusinessError;
+    return typeof be.message === 'string' && be.message.length > 0
+      ? be.message : String(err);
+  }
 }
 
 /**
@@ -123,7 +138,7 @@ export struct AddTorrentPage {
         .fontSize(FontSize.HEADLINE)
         .fontColor(Colors.TEXT_SECONDARY)
         .padding(Spacing.SM)
-        .onClick(() => {
+        .clickEffect(CLICK_EFFECT).onClick(() => {
           this.onCancel?.();
         });
     }
@@ -164,7 +179,7 @@ export struct AddTorrentPage {
       }
     }
     .alignItems(HorizontalAlign.Center)
-    .onClick(() => { this.currentTab = tab; });
+    .clickEffect(CLICK_EFFECT).onClick(() => { this.currentTab = tab; });
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -221,7 +236,7 @@ export struct AddTorrentPage {
           .height(48)
           .padding({ left: Spacing.LG, right: Spacing.LG })
           .margin({ left: Spacing.SM })
-          .onClick(() => { this.onBrowseFile(); });
+          .clickEffect(CLICK_EFFECT).onClick(() => { this.onBrowseFile(); });
       }
       .width('100%')
       .margin({ bottom: Spacing.LG });
@@ -388,7 +403,7 @@ export struct AddTorrentPage {
         .backgroundColor(this.isAdding ? Colors.ELEVATED : Colors.DOWNLOAD)
         .enabled(!this.isAdding)
         .margin({ bottom: Spacing.SM })
-        .onClick(() => { this.onAddTorrent(); });
+        .clickEffect(CLICK_EFFECT).onClick(() => { this.onAddTorrent(); });
 
       // Cancel
       Button($r('app.string.common_cancel'))
@@ -399,7 +414,7 @@ export struct AddTorrentPage {
         .borderRadius(Radius.MD)
         .backgroundColor(Colors.SURFACE)
         .margin({ bottom: Spacing.XXL })
-        .onClick(() => {
+        .clickEffect(CLICK_EFFECT).onClick(() => {
           this.onCancel?.();
         });
     }
@@ -432,7 +447,7 @@ export struct AddTorrentPage {
     } catch (err) {
       // User cancelled or picker not available — keep current path
       hilog.info(0x0001, TAG,
-        'File picker dismissed: %{private}s', String(err));
+        'File picker dismissed: %{private}s', errText(err));
     }
   }
 
@@ -476,7 +491,7 @@ export struct AddTorrentPage {
       // URI (which a consumer app can't open as a local file — tell the user
       // to save it to local Download first) from a local file whose open
       // failed for another reason (surface the real error).
-      const eStr = String(err);
+      const eStr = errText(err);
       hilog.error(0x0001, TAG, 'copyPickerUriToCache FAILED uri=%{private}s err=%{private}s',
         uri, eStr);
       this.showError(uri.startsWith('file://')
@@ -518,6 +533,12 @@ export struct AddTorrentPage {
   }
 
   private async onAddTorrent(): Promise<void> {
+    // Re-entrancy guard. `.enabled(!isAdding)` only takes effect on the next
+    // render pass, so two taps inside one frame both reach here; the second
+    // would add the same torrent again and surface a misleading DUPLICATE.
+    if (this.isAdding) {
+      return;
+    }
     this.statusMessage = '';
     this.statusIsError = false;
 
@@ -574,24 +595,64 @@ export struct AddTorrentPage {
       this.handleAddResult(await taskpool.execute(
         concurrentTorrentAdd, ptr, input, this.downloadDir, false, this.addPaused) as number);
     } catch (e) {
-      this.showError($r('app.string.addtorrent_error_generic', String(e)));
+      this.showError($r('app.string.addtorrent_error_generic', errText(e as object)));
       this.isAdding = false;
     }
   }
 
+  /**
+   * Copy rawfile/cacert.pem into cacheDir and return its absolute path.
+   * Rewrites unconditionally: ~200KB, negligible next to the download itself,
+   * and it self-heals if the bundle content changes between upgrades.
+   */
+  private async ensureCaBundleInCache(): Promise<string> {
+    const caPath = `${getContext(this).cacheDir}/cacert.pem`;
+    const content = getContext(this).resourceManager.getRawFileContentSync('cacert.pem');
+    const file = fs.openSync(caPath, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE |
+      fs.OpenMode.TRUNC);
+    try {
+      fs.writeSync(file.fd, content.buffer as ArrayBuffer);
+    } finally {
+      fs.closeSync(file.fd);
+    }
+    return caPath;
+  }
+
   /** D2 (docs/11): curlDownload the URL into the app cache, then add the file. */
   private async addFromUrl(ptr: BigInt, url: string): Promise<void> {
+    const dstPath = `${getContext(this).cacheDir}/url_${Date.now()}.torrent`;
     try {
       this.statusMessage = $r('app.string.addtorrent_downloading');
       this.statusIsError = false;
-      const dstPath = `${getContext(this).cacheDir}/url_${Date.now()}.torrent`;
+      // The bundled libcurl has no OS trust store on OH; point it at the CA
+      // bundle shipped in rawfile so HTTPS .torrent URLs can verify at all.
+      // resourceDir resolves empty on device, so copy the rawfile into cache
+      // (a real path libcurl can fopen) instead of guessing bundle paths.
+      const caBundle = await this.ensureCaBundleInCache();
       // Blocking libcurl fetch → taskpool worker, so the UI thread stays live.
-      await taskpool.execute(runCurlDownload, url, dstPath, 60);
+      const dlErr = await taskpool.execute(
+        runCurlDownload, url, dstPath, 60, caBundle) as string;
+      if (dlErr.length > 0) {
+        hilog.error(0x0001, TAG, 'curlDownload failed: %{private}s', dlErr);
+        this.showError($r('app.string.addtorrent_error_download', dlErr));
+        this.isAdding = false;
+        return;
+      }
       this.handleAddResult(await taskpool.execute(
         concurrentTorrentAdd, ptr, dstPath, this.downloadDir, false, this.addPaused) as number);
     } catch (e) {
-      this.showError($r('app.string.addtorrent_error_download', String(e)));
+      hilog.error(0x0001, TAG, 'URL add failed: %{private}s', errText(e as object));
+      this.showError($r('app.string.addtorrent_error_download', errText(e as object)));
       this.isAdding = false;
+    } finally {
+      // The engine copies the metainfo into its own config dir, so this cached
+      // copy is ours to remove whether the fetch, the parse, or the add failed
+      // — otherwise every URL add leaks one file in cacheDir forever.
+      try {
+        fs.unlinkSync(dstPath);
+      } catch (e) {
+        // Already gone (deleteSource) or never written (fetch failed early).
+      }
     }
   }
 

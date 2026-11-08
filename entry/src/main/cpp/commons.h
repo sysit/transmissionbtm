@@ -172,7 +172,9 @@ bool retainSessionForDispatch(tr_session *session);
 void releaseSessionDispatch(tr_session *session);
 // Wait (bounded, ~tr_sessionClose's 15s timeout) for in-flight dispatches on
 // `session` to drain before the caller proceeds to tr_sessionClose.
-void waitSessionIdle(tr_session *session);
+/** Wait until every in-flight dispatch on `session` has released it.
+ *  Returns false when the 15s bound expired with a dispatch still running. */
+bool waitSessionIdle(tr_session *session);
 
 // ── Hex conversion (4.0.6: tr_binary_to_hex removed from the public API) ─
 void tr_binary_to_hex(void const *input, char *output, size_t byte_length);

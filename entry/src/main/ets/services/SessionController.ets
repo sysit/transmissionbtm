@@ -17,6 +17,7 @@
 //   DownloadsPage — owns a SessionController, subscribes, and renders.
 
 import { TransmissionSession } from '../models/TransmissionSession';
+import { errText } from '../utils/errors';
 import { PreferencesManager } from '../models/Preferences';
 import { SessionConfig } from '../models/SessionConfig';
 import { TorrentInfo } from '../models/TorrentInfo';
@@ -118,7 +119,7 @@ export class SessionController {
       this.startPolling();
       this.startConnectivityMonitor();
     } catch (e) {
-      hilog.error(0x0001, TAG, 'Session start failed: %{private}s', String(e));
+      hilog.error(0x0001, TAG, 'Session start failed: %{private}s', errText(e));
       this._started = false;
     } finally {
       this.onLoading(false);
@@ -139,7 +140,7 @@ export class SessionController {
     this.stopPolling();
     if (this.connectivity !== null) {
       this.connectivity.destroy().catch((e: Error) => {
-        hilog.error(0x0001, TAG, 'connectivity destroy failed: %{private}s', String(e));
+        hilog.error(0x0001, TAG, 'connectivity destroy failed: %{private}s', errText(e));
       });
       this.connectivity = null;
     }
@@ -148,7 +149,7 @@ export class SessionController {
       this.session.stop();
       hilog.info(0x0001, TAG, 'Session stopped');
     } catch (e) {
-      hilog.error(0x0001, TAG, 'Session stop failed: %{private}s', String(e));
+      hilog.error(0x0001, TAG, 'Session stop failed: %{private}s', errText(e));
     }
     this._started = false;
     // Release the continuous task LAST: sessionClose can block for tens of
@@ -163,8 +164,12 @@ export class SessionController {
         // release above and re-hold the task, with the poll stopped and nobody
         // left to release it. Undo it on completion. (KeepAliveManager.release
         // is a no-op when it isn't holding.)
-        inflight.then(() => { this.keepAlive?.release(); })
-                .catch(() => { /* acquire failure already logged */ });
+        // Only undo while still stopped: if start() ran again in the meantime,
+        // the task this acquire produced is the new session's legitimate hold
+        // and releasing it would freeze a live download.
+        inflight.then(() => {
+          if (!this._started) { this.keepAlive?.release(); }
+        }).catch(() => { /* acquire failure already logged */ });
       }
     }
     this.acquiring = false;
@@ -228,7 +233,11 @@ export class SessionController {
     try {
       return this.session.hasDownloadingTorrents();
     } catch (e) {
-      return false;
+      // This gates the continuous task: a silent `false` releases the keep-alive
+      // and lets the OS freeze a session that is still downloading.
+      hilog.error(0x0001, TAG,
+        'hasDownloading failed, treating as active to keep the task: %{private}s', errText(e));
+      return true;
     }
   }
 
@@ -251,11 +260,22 @@ export class SessionController {
 
   /** Read the full torrent list once and emit it. Also drives the keep-alive. */
   private refresh(): void {
+    // reload() is public and can be called after stop() (a page that outlives
+    // the controller's teardown). Reading a closed session throws, which
+    // updateKeepAlive() would translate into a spurious acquire() on a
+    // stop-generation controller — the continuous task then stays held with
+    // nobody left to release it.
+    if (!this._started) {
+      return;
+    }
     let list: TorrentInfo[] = this.latest;
     try {
       list = this.session.getAllTorrents();
     } catch (e) {
-      // Session may not be active — keep the last list emitted
+      // Keep the last list emitted — but say so. A silent fallback here froze
+      // the UI at stale values with nothing in the log explaining the 5s stall.
+      hilog.error(0x0001, TAG,
+        'getAllTorrents failed, keeping the previous list: %{private}s', errText(e));
     }
     this.latest = list;
     this.onTorrents(list);
@@ -292,10 +312,16 @@ export class SessionController {
       const p = this.keepAlive.acquire('active torrent transfer');
       this.inflightAcquire = p;
       p.catch((e: Error) => {
-        hilog.error(0x0001, TAG, 'keep-alive acquire failed: %{private}s', String(e));
+        hilog.error(0x0001, TAG, 'keep-alive acquire failed: %{private}s', errText(e));
       }).finally(() => {
-        this.acquiring = false; // a failed acquire is retried on the next poll
-        this.inflightAcquire = null;
+        // Identity-guarded: stop()+start() can put a NEW acquire in flight
+        // while this one is still settling. Clearing the slot unconditionally
+        // would drop the new one's handle and let the next poll issue a
+        // duplicate acquire.
+        if (this.inflightAcquire === p) {
+          this.inflightAcquire = null;
+          this.acquiring = false; // a failed acquire is retried on the next poll
+        }
       });
     } else if (!active && this.keepAlive.isHolding()) {
       this.keepAlive.release();
@@ -314,7 +340,7 @@ export class SessionController {
     );
     this.netPaused = false;
     this.connectivity.start().catch((e: Error) => {
-      hilog.error(0x0001, TAG, 'connectivity start failed: %{private}s', String(e));
+      hilog.error(0x0001, TAG, 'connectivity start failed: %{private}s', errText(e));
     });
   }
 }

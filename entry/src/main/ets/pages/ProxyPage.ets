@@ -8,6 +8,7 @@
 // M2 components (prefKey wiring).
 
 import { Colors, FontSize, Spacing } from '../utils/constants';
+import { errText } from '../utils/errors';
 import { SettingsGroup } from '../components/settings/SettingsGroup';
 import { ToggleSetting } from '../components/settings/ToggleSetting';
 import { EditSetting } from '../components/settings/EditSetting';
@@ -50,7 +51,7 @@ export struct ProxyPage {
         PrefKeys.PROXY_PASSWORD, this.proxyPassword);
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'loadPreferences failed: %{private}s', String(err));
+        'loadPreferences failed: %{private}s', errText(err));
     } finally {
       this.isLoading = false;
     }

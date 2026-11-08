@@ -4,7 +4,8 @@
 // Allows toggling which files to download.
 // Rendered inline from DownloadsPage when the user taps "Files" on a torrent.
 
-import { Colors, FontSize, Spacing, Radius } from '../utils/constants';
+import { CLICK_EFFECT, Colors, FontSize, Spacing, Radius } from '../utils/constants';
+import { errText } from '../utils/errors';
 import { TorrentFile } from '../models/TorrentFile';
 import { TorrentDir } from '../models/TorrentDir';
 import { FileTreeModel } from '../models/FileTreeModel';
@@ -64,7 +65,7 @@ export struct FileTreePage {
       }
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'Failed to load torrent files: %{private}s', String(err));
+        'Failed to load torrent files: %{private}s', errText(err));
     }
     this.isLoading = false;
   }
@@ -75,7 +76,7 @@ export struct FileTreePage {
       this.session.setFileWanted(this.torrentId, files);
     } catch (err) {
       hilog.error(0x0001, TAG,
-        'Failed to apply file selection: %{private}s', String(err));
+        'Failed to apply file selection: %{private}s', errText(err));
     }
   }
 
@@ -117,7 +118,7 @@ export struct FileTreePage {
         .fontSize(FontSize.HEADLINE)
         .fontColor(Colors.DOWNLOAD)
         .padding({ right: Spacing.MD })
-        .onClick(() => {
+        .clickEffect(CLICK_EFFECT).onClick(() => {
           this.onBack?.();
         });
 

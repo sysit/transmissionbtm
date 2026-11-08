@@ -7,7 +7,7 @@
 import { TorrentDir } from '../../models/TorrentDir';
 import { TorrentFile } from '../../models/TorrentFile';
 import { formatSize } from '../../utils/format';
-import { Colors, Radius, Spacing, FontSize } from '../../utils/constants';
+import { CLICK_EFFECT, Colors, Radius, Spacing, FontSize } from '../../utils/constants';
 
 @Component
 export struct FileTreeView {
@@ -105,7 +105,7 @@ export struct FileTreeView {
       .height(44)
       .padding({ left: Spacing.SM, right: Spacing.SM })
       .borderRadius(Radius.SM)
-      .onClick(() => { this.toggleDir(dir.path); });
+      .clickEffect(CLICK_EFFECT).onClick(() => { this.toggleDir(dir.path); });
 
       // Recursively render children when expanded
       if (this.isDirExpanded(dir.path)) {

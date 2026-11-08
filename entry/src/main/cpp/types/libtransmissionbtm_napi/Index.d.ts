@@ -80,7 +80,7 @@ declare module 'libtransmissionbtm_napi.so' {
   function torrentReannounce(session: BigInt, torrentId: number): void;
 
   // ── HTTP download (libcurl) ──────────────────────────
-  function curlDownload(url: string, dst: string, timeout: number): void;
+  function curlDownload(url: string, dst: string, timeout: number, caBundle?: string): void;
 
   // ── ThreadSafeFunction callbacks ─────────────────────
   /** Initialize TSFN callbacks. Takes up to 4 ArkTS callback functions:

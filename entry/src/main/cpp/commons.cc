@@ -10,6 +10,7 @@
 //   throwException → throwNapiException
 
 #include "commons.h"
+#include <libtransmission/torrent-metainfo.h>
 #include <cstdio>
 #include <cstdarg>
 #include <mutex>
@@ -44,8 +45,19 @@ extern "C" napi_value throwNapiException(const char *file, int line, napi_env en
 // ── Torrent constructor from file ───────────────────────────────────
 tr_ctor *ctorFromFile(napi_env env, napi_value jsession, napi_value jpath, bool throwErr) {
   tr_session *session = (jsession != nullptr) ? getSession(env, jsession) : nullptr;
-  char *path = getStringUtf8(env, jpath);
-  tr_ctor *ctor = tr_ctorNew(session);
+  // Declared up front: throwOrLog can `goto CATCH`, which must not jump over
+  // an initialization (C++ forbids it).
+  char *path = nullptr;
+  tr_ctor *ctor = nullptr;
+  // tr_ctor's constructor dereferences the session unconditionally
+  // (torrent-ctor.cc: session->downloadDir()), so a stale/forged handle must be
+  // rejected here — before tr_ctorNew — instead of crashing the UI thread.
+  if (session == nullptr) {
+    throwOrLog(env, ERR_ARG, throwErr, "Invalid session handle");
+    return nullptr;
+  }
+  path = getStringUtf8(env, jpath);
+  ctor = tr_ctorNew(session);
 
   if (path == nullptr) {
     tr_ctorFree(ctor);
@@ -71,25 +83,24 @@ bool
 infoFromFile(napi_env env, napi_value jsession, napi_value jpath, bool throwErr) {
   (void)jsession;
   char *path = nullptr;
-  tr_ctor *ctor = nullptr;
   bool result = false;
 
   path = getStringUtf8(env, jpath);
   if (path == nullptr) goto CATCH;
 
-  ctor = tr_ctorNew(nullptr);
-  if (tr_ctorSetMetainfoFromFile(ctor, path, nullptr)) {
-    // tr_ctorGetMetainfo returns non-null when metainfo is present
-    if (tr_ctorGetMetainfo(ctor) != nullptr) result = true;
+  // Sessionless parse. The old tr_ctorNew(nullptr) dereferenced the null
+  // session inside the engine's ctor — this call path crashed unconditionally.
+  {
+    tr_torrent_metainfo metainfo;
+    result = metainfo.parse_torrent_file(path, nullptr, nullptr);
   }
 
-  if (result != true) {
+  if (!result) {
     throwOrLog(env, ERR_IO, throwErr, "Failed to parse torrent file: %s", path);
   }
 
   CATCH:
   free(path);
-  if (ctor != nullptr) tr_ctorFree(ctor);
   return result;
 }
 
@@ -319,11 +330,11 @@ void releaseSessionDispatch(tr_session *session) {
 // Bounded wait matching tr_sessionClose's 15s timeout: a wedged engine loop
 // that never runs the dispatched lambda is surfaced as a log instead of hanging
 // the UI thread (which would be worse than the race we are protecting against).
-void waitSessionIdle(tr_session *session) {
-  if (session == nullptr) return;
+bool waitSessionIdle(tr_session *session) {
+  if (session == nullptr) return true;
   std::unique_lock<std::mutex> lock(gSessionMutex);
-  gSessionCv.wait_for(lock, std::chrono::seconds(15),
-                      [&] { return gSessionRefs.count(session) == 0; });
+  return gSessionCv.wait_for(lock, std::chrono::seconds(15),
+                             [&] { return gSessionRefs.count(session) == 0; });
 }
 
 // ── Session pointer extraction (ArkTS passes BigInt) ────────────────
