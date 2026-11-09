@@ -19,6 +19,7 @@
 - **已知不修（记录在案）**：引擎侧仍 `setenv("TR_CURL_SSL_NO_VERIFY")` —— 打包的 libcurl 在 OH 上无系统信任库，开校验需要把 cacert.pem 的运行时路径下发给引擎，而 cacheDir 可能被系统回收，做错的代价是全部 tracker announce 失效（下载全停），留待 v1.1 用 filesDir 方案 + 真机验证；`[DBG]` 轮询日志保持 INFO 级，供用户反馈时取证。
 - **验证**：`audit.mjs` BLOCKING 0（51 advisory）；宿主 vitest 106/106；debug HAP + release `.app` 均 BUILD SUCCESSFUL（release `.app` 复建于复审修复之后，包内 `ets/modules.abc` 含 `runBlocklistRuleCount`）；release `.app` 过 `hap-sign-tool verify-app`（`Verify success`，叶子证书 `CN=陈锡金(...),Release`）；产物内 module.json `versionCode 6 / versionName 1.0.3`，包内 `.so` 的 `getVersion()` = `1.0.3`；ohosTest **227/227 双模拟器**：Pura 90（API 24 / HarmonyOS 6.1.1）+ **Mate 90 Pro（API 26 / HarmonyOS 7.0.0.107）**，均 `Failure: 0, Error: 0`（含 7_1c 同目录二次启动拒绝、7_1d 十轮 start/stop、1.0.3 版本探针）。
 - **升版三件套**：`AppScope/app.json5`（5→6 / 1.0.2→1.0.3）、`napi_init.cpp` GetVersion、`NativeProbe.test.ets` 断言 —— 三处同改。发版后 `signing/use.sh debug` 已切回（release 签名装不上真机）。
+- **发版（2026-11-09）**：commit `e7352be` 推 `main`；tag `v1.0.3` + GitHub release（只发源码，无二进制，见 [[github-release-policy]]）；AppGallery 上传 release `.app` → 版本选取挂包 → 软件包加密=加密（推荐）→ 填 1.0.3 更新说明 → 提交审核。AGC 状态 `1.0.3 新版本 - 预审中`（预审约 30–40 分钟，通过后自动转人工审核）。在架版本仍为 1.0.2(5)，直到 1.0.3 审核通过发布。
 
 ---
 
