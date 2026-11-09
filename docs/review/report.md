@@ -165,23 +165,27 @@ node scripts/audit.mjs --strict # 连建议项一起列
 
 ---
 
-## 八、遗留发现（本轮未改，已定级）
+## 八、遗留发现的关闭（2026-11-08，13 条全部结案）
 
-| 编号 | 级别 | 位置 | 发现 | 证据 | 为何未改 |
-|---|---|---|---|---|---|
-| D1 | S1 | `Preferences` 读写 | 失败只写 hilog，UI 无错误面；用户看到的是默认值 | E1 | 需要跨 3 个页面的错误呈现设计，非一行修复 |
-| D2 | S1 | 设置 → 引擎 blocklist | `blocklist-enabled`/`blocklist-url` 已下发，但应用没有下载/刷新 blocklist 的路径 → 开关看起来生效、实际列表为空 | E1 | 功能缺块，需产品决策（内置源/手动刷新） |
-| D3 | S1 | `FileTreePage.loadFiles` | 大种子在 UI 线程解析文件列表，主线程卡顿 | E1 | 需要 taskpool 化 + 列表回传，改动面大于本轮批次 |
-| D4 | S2 | `EditSetting` | 数字输入无上下界（0/负数/超大值直达引擎） | E1 | 各字段界限需逐项定义 |
-| D5 | S2 | `EditSetting` 赋值 | `onSave` 回调是 fire-and-forget，持久化失败不回显 | E1 | 与 D1 同一错误面 |
-| D6 | S2 | `ProxyPage` | host/port 无格式校验，非法代理地址直到连接失败才暴露 | E1 | 需与代理页错误提示一起做 |
-| D7 | S2 | 代理密码解密 | `decrypt` 返回 `null`（HUKS 密钥丢失）时 UI 只显示空密码，无"需重新输入"提示 | E1 | 依赖 D1 的错误面 |
-| D8 | S2 | 设置对话框预填 | 对话框打开时读取一次旧值，会话中途变更不会刷新（E0：未构造并发修改场景） | E0 | 低概率，等出现再修 |
-| D9 | S2 | `transmission.cc:SessionStop` | 关闭前读取 `tr_sessionGetSettings` 与事件线程并发（引擎设置对象非线程安全） | E0 | 需引擎侧 API 或调度到事件线程，改动大 |
-| D10 | S2 | `sessionStart` 重复调用 | 未先 `stop` 的第二次 start 会泄漏前一个 session 句柄 | E1 | 上层 `_started` 门禁已挡住常态路径；直连 N-API 的调用者仍可能踩 |
-| D11 | S3 | `napi_create_arraybuffer` 返回值 | 少数导出不检查创建失败，OOM 时解引用空 buffer | E1 | 极端路径，napi-status 建议项未覆盖创建类调用 |
-| D12 | S2 | `findTorrentByHash` | 找不到返回 -1，但注释未写明；调用方若直接当 id 用会落到 `getTorrent(-1)` | E1 | 当前唯一调用方已判负，补注释即可 |
-| D13 | S2 | 会话成员写入 | `sessionId`/`state` 可被页面直接赋值，与 `start()`/`stop()` 无同步 | E1 | 需要重构调用方（FileTreePage/AddTorrentPage），超出本轮 |
+分批执行：B1（D9/D10/D11/D12）→ B2（D1/D5/D4/D6/D7）→ B3（D3/D13）→ B4（D2）→ B5（D8 复核）。
+
+| 编号 | 级别 | 关闭方式 | 证据 |
+|---|---|---|---|
+| D1 | S1 | 各页面在加载/持久化失败时给出错误面：`SettingsPage`/`ProxyPage`/`DownloadsPage`/`AddTorrentPage` 捕获后提示，`Preferences` getter 仍返回默认值并 hilog | 宿主 `vitest` 覆盖 `Preferences` 失败分支；**设备只冒烟了正常路径，未构造存储失败** |
+| D2 | S1 | `DownloadsPage.refreshBlocklist`：缓存超过 7 天 → taskpool 内 `curlDownload`（CA bundle 从 rawfile 拷到 cacheDir）→ 引擎线程 `tr_blocklistSetContent` 解析成 `blocklist.bin` | 设备：日志 `Blocklist rules loaded: 2`；`blocklists/blocklist.bin`（109 B）落盘；再次启动走 `fresh && ruleCount>0` 早退，无下载任务（引擎自己从磁盘恢复）。**未加设置页「立即更新」入口**（需把 live sessionId 穿到 SettingsPage，不值当），URL 变更靠下次启动生效 |
+| D3 | S1 | 文件列表解析整体移入 taskpool（`torrentListFilesByPtr` / `torrentGetFileStatByPtr`，主线程只传 BigInt 会话指针） | 设备：文件树渲染 3 个文件的名称/大小/进度/开关；取消勾选一个 DND 后重新进入文件树仍保持 |
+| D4 | S2 | `EditSetting` 增加 `minValue`/`maxValue`，越界 toast 且对话框不关闭 | 代码 + 宿主测试；设备上数值路径通过 D8 的 51414→51415 操作间接跑过 |
+| D5 | S2 | `applyValue` / `SelectSetting` 先持久化再改显示，写失败回滚并 toast | 同上；`preferences` 宿主测试覆盖写失败 |
+| D6 | S2 | `ProxyPage` host/port 走 `validate` 回调，非法格式不落盘 | 代码 + 宿主 `preferences-proxy-cipher` 测试 |
+| D7 | S2 | `Preferences` 解密失败置标记，`ProxyPage` 提示重新输入密码 | 同上 |
+| D8 | S2 | **E0，未改代码。** 本段在模拟器上真实构造了原判场景 | Peer port 51414→51415 保存后重开对话框，预填 **51415**（跑的正是未修复的旧代码）；Language 由 System default 改 English 后重开，高亮 **English**。结论：`CustomDialogController` 每次 open 会重新求值 builder / 重建 dialog 节点，`aboutToAppear` 重跑，缓存控制器不会陈旧 —— 原判 E0 成立 |
+| D9 | S2 | `SessionStop` 把设置快照与保存调度到会话自己的事件线程（`runInTransmissionThread`） | 代码（`transmission.cc:279-319`）；并发窗口靠人为时序构造，**未做设备复现**，正确性按调用序保证 |
+| D10 | S2 | `commons` 记录每个 live session 的 config dir，`SessionStart` 拒绝同目录第二次 start | 代码（`commons.cc:278`、`transmission.cc:142`） |
+| D11 | S3 | 所有 `napi_create_arraybuffer` 创建失败都判 `napi_status` | 代码（`torrent.cc:587`、`torrent.cc:745`），`napi-status` 审计规则 0 命中 |
+| D12 | S2 | `torrentFindByHash` 注明 `-1` 非合法 id，禁止直接喂给 `getTorrent` | `NativeBridge.ets:184` |
+| D13 | S2 | `SessionController.sessionId` 仅 `start()` 赋值，页面拿 attach-only id；文件树用 id 而非直接持有会话 | 设备：Downloads → 文件树 → 返回后列表操作正常 |
+
+收尾验证：`node scripts/audit.mjs` **BLOCKING 0**（48 advisory）；宿主 `vitest` **106/106**；`assembleHap` debug **BUILD SUCCESSFUL**。
 
 ### 自捕回归
 

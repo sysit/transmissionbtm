@@ -33,6 +33,7 @@ import { abilityDelegatorRegistry } from '@kit.TestKit';
 import { buffer } from '@kit.ArkTS';
 import { fileIo as fs } from '@kit.CoreFileKit';
 import { TransmissionSession } from '../../../main/ets/models/TransmissionSession';
+import { NativeBridge } from '../../../main/ets/bridge/NativeBridge';
 import { defaultSessionConfig, SessionConfig } from '../../../main/ets/models/SessionConfig';
 import { TorrentInfo } from '../../../main/ets/models/TorrentInfo';
 import { TorrentFile, FilePriority } from '../../../main/ets/models/TorrentFile';
@@ -251,6 +252,38 @@ export default function functionalE2ETest() {
       expect(session.isRunning()).assertTrue();
       session.stop();
       expect(session.isStopped()).assertTrue();
+    });
+
+    // D10: a second sessionStart on the same config dir must be rejected, not
+    // silently create a second session that clobbers settings.json. Drives the
+    // N-API bridge directly because TransmissionSession's own guard would hide
+    // the native check.
+    it('7_1c_second_start_on_same_dir_is_rejected', 0, async () => {
+      const bridge = NativeBridge.getInstance();
+      const cfg = makeIsolatedConfig('dupstart');
+      const first: number = bridge.sessionStart(cfg.settingsDir, cfg.downloadDir, 0, '');
+      expect(first > 0).assertTrue();
+      let rejected = false;
+      try {
+        const second: number = bridge.sessionStart(cfg.settingsDir, cfg.downloadDir, 0, '');
+        rejected = second < 0;
+      } catch (e) {
+        rejected = true;
+      }
+      expect(rejected).assertTrue();
+      bridge.sessionStop(first, cfg.settingsDir);
+    });
+
+    // D9: start→stop now snapshots settings on the event thread. Repeated
+    // cycles catch a deadlock or a use-after-close that a single run hides.
+    it('7_1d_ten_start_stop_cycles_are_stable', 0, async () => {
+      for (let i = 0; i < 10; i++) {
+        const session = new TransmissionSession();
+        await session.start(makeIsolatedConfig('cycle'));
+        expect(session.isRunning()).assertTrue();
+        session.stop();
+        expect(session.isStopped()).assertTrue();
+      }
     });
   });
 

@@ -4,6 +4,7 @@
 // dialog with all options. Persists the selected index via
 // PreferencesManager.
 
+import { promptAction } from '@kit.ArkUI';
 import { CLICK_EFFECT, Colors, FontSize, Spacing } from '../../utils/constants';
 import { PreferencesManager } from '../../models/Preferences';
 
@@ -27,13 +28,20 @@ export struct SelectSetting {
         options: this.options,
         initialIndex: this.selectedIndex,
         onSelect: (index: number) => {
+          const previous = this.selectedIndex;
           this.selectedIndex = index;
           if (this.prefKey) {
-            if (this.valueType === 'string' && index < this.optionValues.length) {
-              PreferencesManager.getInstance().setString(this.prefKey, this.optionValues[index]);
-            } else {
-              PreferencesManager.getInstance().setInt(this.prefKey, index);
-            }
+            // D5: a failed write reverts the visible selection — otherwise the
+            // row claims a value that was never stored.
+            const saved: Promise<boolean> = (this.valueType === 'string' && index < this.optionValues.length)
+              ? PreferencesManager.getInstance().setString(this.prefKey, this.optionValues[index])
+              : PreferencesManager.getInstance().setInt(this.prefKey, index);
+            saved.then((ok: boolean) => {
+              if (!ok) {
+                this.selectedIndex = previous;
+                promptAction.showToast({ message: $r('app.string.settings_save_failed') });
+              }
+            });
           }
           this.dialogController?.close();
         },

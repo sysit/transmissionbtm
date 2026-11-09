@@ -275,16 +275,20 @@ extern "C" napi_value newStringUtf8(napi_env env, const char *str) {
 // forged BigInt from ArkTS can never be dereferenced as a tr_session*.
 static std::mutex gSessionMutex;
 static std::unordered_set<tr_session *> gLiveSessions;
+// D10: directory each live session owns — lets SessionStart reject a second
+// session on the same config dir instead of silently leaking the first.
+static std::unordered_map<tr_session *, std::string> gSessionDirs;
 // B1 (codex P1 UAF fix): in-flight dispatch count per session. A taskpool
 // worker retains a ref across its runInTransmissionThread call; SessionStop
 // waits for the count to hit 0 before tr_sessionClose.
 static std::unordered_map<tr_session *, int> gSessionRefs;
 static std::condition_variable gSessionCv;
 
-void registerSessionHandle(tr_session *session) {
+void registerSessionHandle(tr_session *session, const char *configDir) {
   if (session == nullptr) return;
   std::lock_guard<std::mutex> lock(gSessionMutex);
   gLiveSessions.insert(session);
+  if (configDir != nullptr && configDir[0] != '\0') gSessionDirs[session] = configDir;
 }
 
 bool unregisterSessionHandle(tr_session *session) {
@@ -292,7 +296,18 @@ bool unregisterSessionHandle(tr_session *session) {
   std::lock_guard<std::mutex> lock(gSessionMutex);
   // erase returns 1 if present → true = was live (double-stop guard relies
   // on the atomic check-and-erase; two separate lock sections would race).
-  return gLiveSessions.erase(session) != 0;
+  bool wasLive = gLiveSessions.erase(session) != 0;
+  if (wasLive) gSessionDirs.erase(session);
+  return wasLive;
+}
+
+bool hasLiveSessionForDir(const char *configDir) {
+  if (configDir == nullptr) return false;
+  std::lock_guard<std::mutex> lock(gSessionMutex);
+  for (auto const &entry : gSessionDirs) {
+    if (entry.second == configDir && gLiveSessions.count(entry.first) != 0) return true;
+  }
+  return false;
 }
 
 bool isLiveSession(tr_session *session) {

@@ -1,6 +1,6 @@
 # AppGallery 商店文案 + 合规材料
 
-> 面向华为 AppGallery（中国大陆）上架文案与合规说明底稿。目标 bundle：`com.9bt.transmissionbtm`。当前版本 `1.0.0`（versionCode 3）。
+> 面向华为 AppGallery（中国大陆）上架文案与合规说明底稿。目标 bundle：`com.9bt.transmissionbtm`。当前版本 `1.0.3`（versionCode 6）。
 
 ## 1. 基本信息
 
@@ -10,7 +10,7 @@
 | 类目 | 实用工具 → 下载 / 上传工具（P2P 下载） |
 | 设备类型 | 手机、平板、车机（phone / tablet / 2in1） |
 | 语言 | 简体中文、英文 |
-| 版本 | 1.0.0 |
+| 版本 | 1.0.3（versionCode 6） |
 | 软著名称 | transmissionbtm（HarmonyOS BitTorrent 客户端软件） |
 | 开源协议 | **GPLv2**（本应用链接上游 [Transmission](https://github.com/transmission/transmission) libtransmission 4.1.0 stable，GPLv2） |
 
@@ -88,7 +88,17 @@ BitTorrent  下载工具  磁力链  BT下载
 - **软著**：企业上架建议尽早办理（约 60 天）；个人开发者视类目要求
 - **ICP 备案**：中国大陆境内 app 上架需 ICP 备案（7–20 天），需 bundleName + 证书公钥 + 证书 MD5 指纹 —— 材料见 `docs/icp-filing.md`（叶子 MD5 `72:E6:92:4E:90:50:2F:EF:17:F0:44:F3:F2:51:D7:8B`）
 
-## 9. 待办（其余上架步骤）
+## 9. 版本更新说明（AGC 提审时填）
+
+**1.0.3（versionCode 6）**
+
+- 新增：IP 屏蔽列表支持（可选，需自备列表 URL），定期缓存并在会话启动时自动加载。
+- 改进：设置项增加取值范围校验（端口、限速、连接数等），超出范围会提示而不是静默失效。
+- 改进：设置保存失败时提示并回滚显示，不再出现「界面显示已改、实际未保存」。
+- 改进：代理密码读取失败时提示重新输入。
+- 修复：同一配置目录重复启动会话时不再悄悄覆盖设置文件；退出时可靠保存本次会话设置。
+
+## 10. 待办（其余上架步骤）
 
 - [ ] 生成 release 证书链（.p12 + .csr → AGC → .cer → .p7b）——**需 AGC 登录**
 - [ ] 签发 Release `.app` 并上传 AGC（当前为 debug 签名，AGC 拒绝）

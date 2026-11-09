@@ -584,7 +584,14 @@ static napi_value TorrentGetFileStat(napi_env env, napi_callback_info info) {
   }
   napi_value r; void *out;
   size_t bfBytes = (size_t)d.bfLen * sizeof(int64_t);
-  napi_create_arraybuffer(env, bfBytes, &out, &r);
+  // D11: an unchecked create leaves r undefined and out null; the memcpy below
+  // would then write to a null pointer. Only reachable on OOM, but the failure
+  // must be reported, not turned into a crash.
+  if (napi_create_arraybuffer(env, bfBytes, &out, &r) != napi_ok) {
+    if (d.alloc) free(d.bf);
+    napi_throw_error(env, nullptr, "torrentGetFileStat: out of memory");
+    return nullptr;
+  }
   // C11 (codex): guard the copy — a 0-length stat (null/invalid-index torrent)
   // leaves d.bf null or unallocated; memcpy(dst, null, 0) is UB even at len 0.
   if (d.bf != nullptr && bfBytes > 0) {
@@ -725,13 +732,22 @@ static napi_value TorrentStatBrief(napi_env env, napi_callback_info info) {
   // `byteLength < 80`, so a 0-length buffer is safe and skips the merge.
   if (d.stat == nullptr || d.statLen <= 0) {
     napi_value r; void *out;
-    napi_create_arraybuffer(env, 0, &out, &r);
+    napi_status st = napi_create_arraybuffer(env, 0, &out, &r);
     if (d.alloc) free(d.stat); // malloc(0) returned a non-null ptr — release it
+    if (st != napi_ok) {
+      napi_throw_error(env, nullptr, "torrentStatBrief: out of memory");
+      return nullptr;
+    }
     return r;
   }
   size_t bytes = (size_t)d.statLen * sizeof(int64_t);
   napi_value r; void *out;
-  napi_create_arraybuffer(env, bytes, &out, &r);
+  // D11: unchecked create → memcpy into a null `out` on OOM.
+  if (napi_create_arraybuffer(env, bytes, &out, &r) != napi_ok) {
+    if (d.alloc) free(d.stat);
+    napi_throw_error(env, nullptr, "torrentStatBrief: out of memory");
+    return nullptr;
+  }
   memcpy(out, d.stat, bytes);
   if (d.alloc) free(d.stat);
   return r;

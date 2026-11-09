@@ -181,6 +181,8 @@ export class NativeBridge {
   // ═══════════════════════════════════════════════════════════════════
   // Torrent Queries
   // ═══════════════════════════════════════════════════════════════════
+  /** Returns the torrent id, or -1 when no torrent matches. -1 is NOT a valid
+   *  id — never pass it to getTorrent()/stat calls. */
   torrentFindByHash(sessionId: number, hash: ArrayBuffer): number {
     return native.torrentFindByHash(this.toPtr(sessionId), hash);
   }
@@ -244,6 +246,27 @@ export class NativeBridge {
 
   static torrentSetLocationByPtr(ptr: BigInt, torrentId: number, newDir: string): void {
     native.torrentSetLocation(ptr, torrentId, newDir);
+  }
+
+  static torrentListFilesByPtr(ptr: BigInt, torrentId: number): string[] {
+    return native.torrentListFiles(ptr, torrentId);
+  }
+
+  static torrentGetFileStatByPtr(ptr: BigInt, torrentId: number,
+      fileIndex: number): ArrayBuffer {
+    return native.torrentGetFileStat(ptr, torrentId, fileIndex);
+  }
+
+  /** D2: hand a downloaded plaintext blocklist to the engine (converts and
+   *  persists blocklist.bin). Returns the rule count, or -1 on failure.
+   *  Blocking (file parse) — call from a @Concurrent worker. */
+  static sessionBlocklistSetContentByPtr(ptr: BigInt, path: string): number {
+    const count: number | null = native.sessionBlocklistSetContent(ptr, path);
+    return count === null ? -1 : count;
+  }
+
+  static sessionBlocklistRuleCountByPtr(ptr: BigInt): number {
+    return native.sessionBlocklistRuleCount(ptr);
   }
 
   // ═══════════════════════════════════════════════════════════════════

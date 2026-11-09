@@ -15,6 +15,13 @@ export struct EditSetting {
   @Prop inputType: InputType = InputType.Normal;
   /** Persist type: 'string' (default), 'number' calls setInt, 'float' uses parseFloat. */
   @Prop valueType: string = 'string';
+  /** D4: numeric bounds. Out-of-range values are rejected before they reach
+   *  the engine (port 0, negative limits, alt-speed indices past the array). */
+  @Prop minValue: number = Number.MIN_SAFE_INTEGER;
+  @Prop maxValue: number = Number.MAX_SAFE_INTEGER;
+  /** D6: extra format check for string fields (e.g. proxy host). Runs before
+   *  persistence; returning false keeps the dialog open. */
+  validate: (text: string) => boolean = () => true;
   @Link value: string;
 
   private dialogController: CustomDialogController | null = null;
@@ -35,40 +42,59 @@ export struct EditSetting {
         inputType: this.inputType,
         initialValue: this.value,
         onSave: (text: string) => {
-          if (this.prefKey) {
-            if (this.valueType === 'number' || this.valueType === 'float') {
-              // Number(), not parseFloat: parseFloat('8080abc') is 8080, which
-              // would persist 8080 while the row then displays '8080abc'. Empty
-              // is explicitly NaN because Number('') is 0.
-              const trimmed = text.trim();
-              const numVal = trimmed === '' ? NaN : Number(trimmed);
-              // Integer keys (ports, peer/speed limits) take no fraction either.
-              const bad = this.valueType === 'float'
-                ? !isFinite(numVal)
-                : (numVal % 1) !== 0;
-              if (bad) {
-                // Reject rather than silently keeping the old value; the dialog
-                // stays open so the row can never show text that wasn't stored.
-                promptAction.showToast({ message: $r('app.string.settings_invalid_number') });
-                return;
-              }
-              if (this.valueType === 'float') {
-                PreferencesManager.getInstance().setFloat(this.prefKey, numVal);
-              } else {
-                PreferencesManager.getInstance().setInt(this.prefKey, numVal);
-              }
-            } else {
-              PreferencesManager.getInstance().setString(this.prefKey, text);
-            }
-          }
-          // Assign the displayed value only after the persist above succeeded.
-          this.value = text;
-          this.dialogController?.close();
+          this.applyValue(text);
         },
       }),
       autoCancel: true,
       alignment: DialogAlignment.Center,
     });
+  }
+
+  /**
+   * Validate, persist, then update the row + close the dialog. The dialog
+   * stays open on any failure (invalid format, out of range, or a write that
+   * did not land) so the row can never display text that was not stored.
+   */
+  private async applyValue(text: string): Promise<void> {
+    if (this.prefKey) {
+      const pm = PreferencesManager.getInstance();
+      let ok = true;
+      if (this.valueType === 'number' || this.valueType === 'float') {
+        // Number(), not parseFloat: parseFloat('8080abc') is 8080, which
+        // would persist 8080 while the row then displays '8080abc'. Empty
+        // is explicitly NaN because Number('') is 0.
+        const trimmed = text.trim();
+        const numVal = trimmed === '' ? NaN : Number(trimmed);
+        // Integer keys (ports, peer/speed limits) take no fraction either.
+        const badShape = this.valueType === 'float'
+          ? !isFinite(numVal)
+          : (numVal % 1) !== 0;
+        if (badShape) {
+          promptAction.showToast({ message: $r('app.string.settings_invalid_number') });
+          return;
+        }
+        if (numVal < this.minValue || numVal > this.maxValue) {
+          promptAction.showToast({ message: $r('app.string.settings_out_of_range') });
+          return;
+        }
+        ok = this.valueType === 'float'
+          ? await pm.setFloat(this.prefKey, numVal)
+          : await pm.setInt(this.prefKey, numVal);
+      } else {
+        if (!this.validate(text)) {
+          promptAction.showToast({ message: $r('app.string.settings_invalid_value') });
+          return;
+        }
+        ok = await pm.setString(this.prefKey, text);
+      }
+      if (!ok) {
+        promptAction.showToast({ message: $r('app.string.settings_save_failed') });
+        return;
+      }
+    }
+    // Assign the displayed value only after the persist above succeeded.
+    this.value = text;
+    this.dialogController?.close();
   }
 
   build() {

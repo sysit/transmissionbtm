@@ -76,6 +76,54 @@ function concurrentTorrentSetLocation(ptr: BigInt, torrentId: number, newDir: st
   NativeBridge.torrentSetLocationByPtr(ptr, torrentId, newDir);
 }
 
+// ── Blocklist fetch/apply workers (D2, docs/review/report.md) ─────────
+// The engine converts a plaintext list into blocklist.bin in the config dir
+// and reloads that at every session start, so a fresh cache needs no work.
+const BLOCKLIST_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Stable filename-safe cache key for a blocklist URL (djb2). */
+function blocklistCacheKey(url: string): string {
+  let hash = 5381;
+  for (let i = 0; i < url.length; i++) {
+    hash = ((hash * 33) ^ url.charCodeAt(i)) >>> 0;
+  }
+  return hash.toString(16);
+}
+
+/** Blocking libcurl fetch → taskpool worker. Returns '' on success. */
+@Concurrent
+function runBlocklistDownload(url: string, dstPath: string, caBundle: string): string {
+  try {
+    NativeBridge.getInstance().curlDownload(url, dstPath, 120, caBundle);
+    return '';
+  } catch (err) {
+    return errText(err as object);
+  }
+}
+
+/** Rule count on the engine thread → taskpool worker. -1 on failure. */
+@Concurrent
+function runBlocklistRuleCount(ptr: BigInt): number {
+  try {
+    return NativeBridge.sessionBlocklistRuleCountByPtr(ptr);
+  } catch (err) {
+    return -1;  // dead handle — same stripped-message caveat as above
+  }
+}
+
+/** Parse + apply on the engine thread → taskpool worker. -1 on failure. */
+@Concurrent
+function runBlocklistApply(ptr: BigInt, path: string): number {
+  try {
+    return NativeBridge.sessionBlocklistSetContentByPtr(ptr, path);
+  } catch (err) {
+    // Worker heap: an Error crossing the taskpool boundary arrives with its
+    // message stripped, so only the failure signal can survive. The caller
+    // logs the -1.
+    return -1;
+  }
+}
+
 @Component
 export struct DownloadsPage {
   @State torrents: TorrentInfo[] = [];
@@ -191,7 +239,13 @@ export struct DownloadsPage {
       // blocklist, seeding limits) so the Settings/Proxy pages actually drive
       // the live engine. applySandboxPaths then overrides the three directory
       // fields to the app sandbox (those /storage/... defaults don't exist on device).
-      const config = await PreferencesManager.getInstance().getSessionConfig();
+      const pm = PreferencesManager.getInstance();
+      const config = await pm.getSessionConfig();
+      // D1: getters fall back to defaults silently; tell the user the session
+      // is starting on defaults rather than their saved settings.
+      if (pm.consumeError() !== '') {
+        promptAction.showToast({ message: $r('app.string.settings_load_error') });
+      }
       if (this.isDisposed) { return; }
       this.applySandboxPaths(config);
       this.sessionDownloadDir = config.downloadDir;
@@ -207,6 +261,10 @@ export struct DownloadsPage {
       );
       if (this.isDisposed) { return; }
       await this.controller.start(config);
+      if (this.isDisposed) { return; }
+      // D2: nothing ever fetched the blocklist, so the Settings toggle was
+      // inert. Kept off the start path — the fetch runs in the background.
+      this.refreshBlocklist(config);
     } catch (e) {
       hilog.error(0x0001, TAG, 'Session start failed: %{private}s', errText(e));
       this.isLoading = false;
@@ -236,6 +294,101 @@ export struct DownloadsPage {
     if (!fs.accessSync(path)) {
       fs.mkdirSync(path, true);
     }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Blocklist (D2, docs/review/report.md)
+  // ═══════════════════════════════════════════════════════════════════
+
+  /**
+   * Fetch the configured plaintext blocklist when enabled and hand it to the
+   * engine, which converts it to blocklist.bin in the config dir and reloads
+   * that at every session start — hence the weekly cache instead of a fetch per
+   * start. Failures are logged only: a missing blocklist must never break the
+   * session or block the UI (both native steps run on a taskpool worker).
+   */
+  private async refreshBlocklist(config: SessionConfig): Promise<void> {
+    if (!config.blocklistEnabled || config.blocklistUrl.length === 0) {
+      return;
+    }
+    try {
+      const sessionId = this.controller.sessionId;
+      if (sessionId <= 0) {
+        return;
+      }
+      const ptr: BigInt = NativeBridge.getInstance().getSessionPtr(sessionId);
+      const cachePath: string =
+        `${getContext(this).cacheDir}/blocklist_${blocklistCacheKey(config.blocklistUrl)}.txt`;
+      let fresh = false;
+      try {
+        fresh = fs.accessSync(cachePath) &&
+          Date.now() - fs.statSync(cachePath).mtime * 1000 < BLOCKLIST_MAX_AGE_MS;
+      } catch (e) {
+        // Missing or unreadable cache file: just treat it as stale and refetch.
+        fresh = false;
+      }
+      // Rules already loaded + fresh cache: the engine restored blocklist.bin.
+      // The count forces the lazy blocklist.bin parse, so it runs off the UI
+      // thread like the apply step.
+      if (fresh && (await taskpool.execute(runBlocklistRuleCount, ptr) as number) > 0) {
+        return;
+      }
+      if (!fresh) {
+        // Download to a .part sibling: curlDownload truncates the file first
+        // and leaves it on failure, so writing straight to cachePath would
+        // cache a truncated list as "fresh" for a week.
+        const partPath: string = `${cachePath}.part`;
+        const dlErr = await taskpool.execute(runBlocklistDownload, config.blocklistUrl,
+          partPath, this.ensureCaBundleInCache()) as string;
+        if (dlErr.length > 0) {
+          hilog.error(0x0001, TAG, 'Blocklist download failed: %{private}s', dlErr);
+          try {
+            fs.unlinkSync(partPath);
+          } catch (e) {
+            // Nothing partial on disk — curlDownload may have failed to open.
+          }
+        } else {
+          fs.renameSync(partPath, cachePath);
+        }
+      }
+      if (!fs.accessSync(cachePath)) {
+        return;  // fetch failed and no older copy to fall back on
+      }
+      // Applies a fresh download, or the stale copy when the fetch failed.
+      const rules = await taskpool.execute(runBlocklistApply, ptr, cachePath) as number;
+      if (rules > 0) {
+        hilog.info(0x0001, TAG, 'Blocklist rules loaded: %{public}d', rules);
+      } else {
+        // Unparseable body (HTML/gzip) or an empty list: drop the cache so the
+        // next start refetches instead of treating it as good for a week.
+        hilog.error(0x0001, TAG, 'Blocklist parsed no rules — discarding cache');
+        try {
+          fs.unlinkSync(cachePath);
+        } catch (e) {
+          // Already gone — nothing to discard.
+        }
+      }
+    } catch (e) {
+      hilog.error(0x0001, TAG, 'Blocklist refresh failed: %{private}s', errText(e));
+    }
+  }
+
+  /**
+   * Copy rawfile/cacert.pem into cacheDir and return its absolute path. The
+   * bundled libcurl has no OS trust store on OH and resourceDir resolves empty
+   * on device, so HTTPS fetches need a real filesystem path to a CA bundle.
+   */
+  private ensureCaBundleInCache(): string {
+    const caPath = `${getContext(this).cacheDir}/cacert.pem`;
+    const content = getContext(this).resourceManager.getRawFileContentSync('cacert.pem');
+    const file = fs.openSync(caPath, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE |
+      fs.OpenMode.TRUNC);
+    try {
+      fs.writeSync(file.fd, content.buffer as ArrayBuffer);
+    } finally {
+      fs.closeSync(file.fd);
+    }
+    return caPath;
   }
 
   // ═══════════════════════════════════════════════════════════════════

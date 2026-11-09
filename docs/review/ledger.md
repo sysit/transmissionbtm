@@ -12,7 +12,7 @@
 | components/add/FilePreview.ets | C | C | C | C | C | C | C | 纯展示 |
 | components/add/TorrentStatusBanner.ets | C | C | C | C | C | C | C | 纯展示 |
 | components/privacy/PrivacyDialog.ets | C | C | C | C | C | C | C | 纯展示 |
-| components/settings/EditSetting.ets | C | C | C | **N** | C | C | C | 遗留 #7 数值无上下界；#11 赋值 fire-and-forget |
+| components/settings/EditSetting.ets | C | C | C | **N** | C | C | C | 数值无上下界（D4 已修）；赋值 fire-and-forget（D5 已修） |
 | components/settings/SandboxSettingRow.ets | C | C | C | C | C | C | C | 纯展示 |
 | components/settings/SelectSetting.ets | C | C | C | C | C | C | C | 纯展示 |
 | components/settings/SettingsErrorBanner.ets | C | C | C | C | C | C | C | 纯展示 |
@@ -62,17 +62,17 @@
 | cpp/commons.h | C | C | C | C | C | C | C | 仅签名/宏 |
 | cpp/curl.cc | **N** | C | C | C | C | C | C | 路径校验分支漏 free(caBundle)（已修） |
 | cpp/native_to_arkts.cc | C | C | C | C | C | C | C | TSFN 生命周期与 finalize 配对 |
-| cpp/napi_init.cpp | C | C | C | C | C | C | C | 注册表与 Index.d.ts 28/28 对齐（机检） |
+| cpp/napi_init.cpp | C | C | C | C | C | C | C | 注册表与 Index.d.ts 30/30 对齐（机检） |
 | cpp/torrent.cc | C | C | **N** | C | C | C | C | 片段索引 OOB、DnD 索引越界、无会话解析（已修） |
 | cpp/transmission.cc | C | C | **N** | C | **N** | C | C | proxy-url 凭据落盘（已修）；configDir 空指针；关闭超时不硬 free |
 | cpp/third_party/fmt（头文件） | C | C | **N** | C | C | C | C | 桥侧 fmt 9 与引擎库内 fmt 12.1.0 ABI 不一致 → 首次实例化带 fmt 成员的引擎类即堆损坏；已对齐（E3：模拟器 225/225） |
 
-## N-API 导出（28）
+## N-API 导出（30）
 
 | 子模块 | 导出数 | I3 接收侧校验 | 备注 |
 |---|---|---|---|
 | commons | 3 | C | `infoFromFile` 改为无会话解析，不再依赖 ctor |
-| transmission | 7 | C | `sessionStop` 增加 waitSessionIdle 超时保护 |
+| transmission | 9 | C | `sessionStop` 增加 waitSessionIdle 超时保护；blocklist 两方法入表 |
 | torrent | 15 | **N** | `torrentSetDnd` 索引上界、`torrentGetFileStat` 片段钳制（已修） |
 | torrent（续） | — | C | `torrentFindByHash` 返回 -1 契约已由上层判负 |
 | curl | 1 | C | 目的路径绝对/无 `..` 校验 |

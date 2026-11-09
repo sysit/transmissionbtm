@@ -139,6 +139,18 @@ static napi_value SessionStart(napi_env env, napi_callback_info info) {
     napi_throw_type_error(env, nullptr, "Arguments 0 and 1 must be strings");
     return nullptr;
   }
+  // D10: refuse a second live session on the same config directory. Both would
+  // write settings.json and install a SIGTERM handler; the first handle is
+  // never closed (leak) and its settings get clobbered. The ArkTS layer already
+  // gates on _started — this covers direct N-API callers and a page that
+  // outlived teardown.
+  if (hasLiveSessionForDir(configDir)) {
+    free(configDir); free(downloadsDir);
+    napi_throw_error(env, nullptr,
+                     "A session is already running for this config directory");
+    return nullptr;
+  }
+
   int32_t encrMode = 0;
   if (napi_get_value_int32(env, args[2], &encrMode) != napi_ok) {
     free(configDir); free(downloadsDir);
@@ -240,7 +252,7 @@ static napi_value SessionStart(napi_env env, napi_callback_info info) {
   StripCredentialsFromSettings(settings);
   tr_sessionSaveSettings(session, configDir, settings);
   ScrubProxyUrlFromSettingsFile(configDir);
-  registerSessionHandle(session);
+  registerSessionHandle(session, configDir);
 
   free(configDir);
   free(downloadsDir);
@@ -264,6 +276,20 @@ static napi_value SessionStart(napi_env env, napi_callback_info info) {
 }
 
 // ── sessionStop ─────────────────────────────────────────────────────
+// D9: take the settings snapshot and persist it on the session's own event
+// thread. tr_sessionGetSettings walks the session settings that thread may be
+// mutating — reading it from the caller's thread races the engine. The save
+// itself also belongs there: it serializes the same object.
+typedef struct { const char *configDir; } SaveSettingsData;
+static void *saveSettingsFunc(tr_session *session, void *data, Err *err) {
+  (void)err;
+  auto *sd = static_cast<SaveSettingsData *>(data);
+  auto settings = tr_sessionGetSettings(session);
+  StripCredentialsFromSettings(settings);
+  tr_sessionSaveSettings(session, sd->configDir, settings);
+  return nullptr;
+}
+
 static napi_value SessionStop(napi_env env, napi_callback_info info) {
   size_t argc = 2;
   napi_value args[2];
@@ -290,6 +316,20 @@ static napi_value SessionStop(napi_env env, napi_callback_info info) {
     return nullptr;
   }
 
+  // D9: snapshot + save on the event thread while the handle is still live
+  // (the dispatch path validates and refcounts it). If it throws, nothing has
+  // been closed and the handle stays registered — report and let the caller
+  // retry stop() rather than dropping this run's settings silently.
+  SaveSettingsData saveData = { configDir };
+  runInTransmissionThread(__FILE__, __LINE__, env, args[0], saveSettingsFunc, &saveData);
+  if (hasPendingException(env)) {
+    free(configDir);
+    return nullptr;
+  }
+  // R7 + codex review: strip the proxy credential from the settings.json that
+  // was just written (the session may still hold proxy-url internalized).
+  ScrubProxyUrlFromSettingsFile(configDir);
+
   // P1 fix (codex review): double-stop guard. tr_sessionClose frees the
   // session; a second stop with the same handle is a use-after-free. The
   // registry (populated by SessionStart) makes stop idempotent across
@@ -301,14 +341,6 @@ static napi_value SessionStop(napi_env env, napi_callback_info info) {
     napi_get_undefined(env, &result);
     return result;
   }
-
-  // 4.1: tr_sessionGetSettings returns tr_variant by value
-  auto settings = tr_sessionGetSettings(session);
-  // R7 + codex review: strip the proxy credential from the snapshot before
-  // persisting (the session may still hold proxy-url internalized from init).
-  StripCredentialsFromSettings(settings);
-  tr_sessionSaveSettings(session, configDir, settings);
-  ScrubProxyUrlFromSettingsFile(configDir);
   // B1 (codex P1 UAF fix): after unregister, new dispatches fail at
   // retainSessionForDispatch; wait for any *already-in-flight* dispatches
   // (e.g. a taskpool relocate/add) to drain before freeing the session. Without
@@ -317,7 +349,7 @@ static napi_value SessionStop(napi_env env, napi_callback_info info) {
   // keep it alive and report. The handle is re-registered so a later stop()
   // can retry; leaking one session is strictly better than a UAF.
   if (!waitSessionIdle(session)) {
-    registerSessionHandle(session);
+    registerSessionHandle(session, configDir);
     free(configDir);
     napi_throw_error(env, nullptr,
                      "Session still busy after 15s — stop deferred, retry");
@@ -544,6 +576,76 @@ static napi_value ListTorrentNames(napi_env env, napi_callback_info info) {
   return result;
 }
 
+// ── sessionBlocklistSetContent / sessionBlocklistRuleCount ──────────
+// D2: the engine never downloads `blocklist-url` itself — a Transmission
+// client is expected to fetch the plaintext list and hand it over here.
+// Conversion to the engine's binary format (and persisting blocklist.bin in
+// the config dir) happens inside tr_blocklistSetContent, which takes the
+// session lock, so it runs on the engine thread like every other mutation.
+typedef struct BlocklistData {
+  const char *path;  // nullptr clears the blocklist
+  size_t count;      // out: rules now loaded
+} BlocklistData;
+
+static void *transmissionBlocklistSetContentFunc(tr_session *session, void *data, Err *err) {
+  (void)err;
+  BlocklistData *d = static_cast<BlocklistData *>(data);
+  d->count = tr_blocklistSetContent(session, d->path);
+  return nullptr;
+}
+
+static void *transmissionBlocklistRuleCountFunc(tr_session *session, void *data, Err *err) {
+  (void)err;
+  BlocklistData *d = static_cast<BlocklistData *>(data);
+  d->count = tr_blocklistGetRuleCount(session);
+  return nullptr;
+}
+
+static napi_value SessionBlocklistSetContent(napi_env env, napi_callback_info info) {
+  size_t argc = 2;
+  napi_value args[2];
+  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+  if (!requireArgs(env, argc, 2, "sessionBlocklistSetContent")) return nullptr;
+
+  char *path = getStringUtf8(env, args[1]);
+  tr_session *session = getSession(env, args[0]);
+  napi_value result = nullptr;
+  if (path != nullptr && session != nullptr) {
+    BlocklistData d = { path, 0 };
+    runInTransmissionThread(__FILE__, __LINE__, env, args[0],
+        transmissionBlocklistSetContentFunc, &d);
+    if (!hasPendingException(env)) {
+      napi_create_int32(env, (int32_t)d.count, &result);
+    }
+  }
+  free(path);
+  return result;
+}
+
+static napi_value SessionBlocklistRuleCount(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value args[1];
+  napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+
+  if (!requireArgs(env, argc, 1, "sessionBlocklistRuleCount")) return nullptr;
+
+  tr_session *session = getSession(env, args[0]);
+  if (session != nullptr) {
+    BlocklistData d = { nullptr, 0 };
+    runInTransmissionThread(__FILE__, __LINE__, env, args[0],
+        transmissionBlocklistRuleCountFunc, &d);
+    if (!hasPendingException(env)) {
+      napi_value result;
+      napi_create_int32(env, (int32_t)d.count, &result);
+      return result;
+    }
+  }
+  napi_value result;
+  napi_create_int32(env, -1, &result);
+  return result;
+}
+
 // ── Module registration ─────────────────────────────────────────────
 void RegisterTransmission(napi_env env, napi_value exports) {
   napi_property_descriptor desc[] = {
@@ -552,6 +654,8 @@ void RegisterTransmission(napi_env env, napi_value exports) {
     {"sessionSuspend",              nullptr, SessionSuspend,              nullptr, nullptr, nullptr, napi_default, nullptr},
     {"sessionSettingsUpdate",       nullptr, SessionSettingsUpdate,       nullptr, nullptr, nullptr, napi_default, nullptr},
     {"hasDownloadingTorrents",      nullptr, HasDownloadingTorrents,      nullptr, nullptr, nullptr, napi_default, nullptr},
+    {"sessionBlocklistSetContent",  nullptr, SessionBlocklistSetContent,  nullptr, nullptr, nullptr, napi_default, nullptr},
+    {"sessionBlocklistRuleCount",   nullptr, SessionBlocklistRuleCount,   nullptr, nullptr, nullptr, napi_default, nullptr},
     {"listTorrentNames",            nullptr, ListTorrentNames,            nullptr, nullptr, nullptr, napi_default, nullptr}
   };
   napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);

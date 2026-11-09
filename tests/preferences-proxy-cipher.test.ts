@@ -89,6 +89,42 @@ describe('PreferencesManager proxy_password cipher interception', () => {
     expect(readBack).toBe(''); // returns def, never surfaces ciphertext
   });
 
+  // D7: the read above must also flag the loss, exactly once, so the proxy
+  // page can ask for re-entry instead of showing an empty password.
+  it('flags a lost password envelope once', async () => {
+    await pm.setString(PrefKeys.PROXY_PASSWORD, 's3cret');
+    cipher.forceNull = true;
+    await pm.getString(PrefKeys.PROXY_PASSWORD, '');
+    expect(pm.consumePasswordLost()).toBe(true);
+    expect(pm.consumePasswordLost()).toBe(false); // read-once
+  });
+
+  // D1: a getter failure returns its default but records why; the page's
+  // consumeError() reports it once and then stays quiet.
+  it('records a getter failure once for consumeError', async () => {
+    pm.setPasswordCipher({
+      encrypt: (p: string) => Promise.resolve(p),
+      decrypt: (_s: string) => Promise.reject(new Error('huks unavailable')),
+    });
+    await pm.setString(PrefKeys.PROXY_PASSWORD, 'x');
+    const value = await pm.getString(PrefKeys.PROXY_PASSWORD, 'def');
+    expect(value).toBe('def');
+    expect(pm.consumeError()).toContain('huks unavailable');
+    expect(pm.consumeError()).toBe('');
+  });
+
+  // D5: a write that does not land reports false so the UI can keep the
+  // dialog open / revert the toggle instead of showing an unsaved value.
+  it('returns false when the write fails', async () => {
+    pm.setPasswordCipher({
+      encrypt: (_p: string) => Promise.reject(new Error('cipher broken')),
+      decrypt: (s: string) => Promise.resolve(s),
+    });
+    const ok = await pm.setString(PrefKeys.PROXY_PASSWORD, 'boom');
+    expect(ok).toBe(false);
+    expect(pm.consumeError()).toContain('cipher broken');
+  });
+
   it('routes setSessionConfig proxy_password through the cipher', async () => {
     const cfg = defaultSessionConfig();
     cfg.proxyPassword = 'sessionpw';

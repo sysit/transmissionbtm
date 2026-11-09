@@ -157,10 +157,16 @@ extern "C" tr_session *getSession(napi_env env, napi_value jsession);
 // dereferenced as a tr_session* — a stale handle or BigInt(0) from toPtr
 // becomes a wild/null pointer dereference. SessionStart registers, the
 // double-stop guard (SessionStop) atomically check-and-erases.
-void registerSessionHandle(tr_session *session);
+// D10: the config directory is recorded with the handle so SessionStart can
+// refuse a second live session on the same directory. Two sessions sharing a
+// directory both write settings.json and both install the process-level
+// SIGTERM handler — the loser silently clobbers the winner's settings.
+void registerSessionHandle(tr_session *session, const char *configDir = nullptr);
 // Returns true if the handle was live (idempotent — second call is a no-op).
 bool unregisterSessionHandle(tr_session *session);
 bool isLiveSession(tr_session *session);
+// True when a registered (not yet closed) session owns `configDir`.
+bool hasLiveSessionForDir(const char *configDir);
 
 // ── Session lifetime guard (B1, codex P1 UAF fix) ───────────────────
 // getSession() validates the pointer, but the registry lock is released before

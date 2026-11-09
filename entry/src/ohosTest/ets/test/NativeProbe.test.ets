@@ -19,7 +19,7 @@ export default function nativeProbeTest() {
       // Real native value — the C++ side returns the release version string
       // (napi_init.cpp GetVersion), bumped with every release commit.
       // An unavailable .so throws here and fails this test.
-      expect(version === '1.0.2').assertTrue();
+      expect(version === '1.0.3').assertTrue();
     });
   });
 }

@@ -58,7 +58,10 @@ function checkErrorMasking() {
         body.push(lines[j]);
       }
       const text = body.join('\n');
-      const handles = /errText\s*\(|\.message|\.code/.test(text);
+      // noteError() is PreferencesManager's single error sink — it calls
+      // errText() and records the reason for the UI (D1). Recognizing it keeps
+      // the rule "errors are reported through one named path" intact.
+      const handles = /errText\s*\(|noteError\s*\(|\.message|\.code/.test(text);
       if (!handles && /\/\/|\/\*/.test(text))
         add('ADVISORY', 'error-masking', file, i + 1, 'silent catch (comment only) — confirm the fallback is safe');
       else if (!handles)
@@ -245,14 +248,18 @@ function checkResourcePairing() {
 const READ_CALL = /\bnapi_(get_value_[a-z0-9_]+|get_buffer_info|get_arraybuffer_info|get_array_length|get_cb_info|get_typedarray_info)\s*\(/;
 
 function checkNapiStatus() {
+  // D11: `napi_create_arraybuffer`'s output buffer is written to immediately,
+  // so an unchecked create is a null-pointer write on OOM (unlike other
+  // napi_create_* results, which are simply returned to the caller).
+  const CREATE_BUF_CALL = /\bnapi_create_arraybuffer\s*\(/;
   for (const file of CPP()) {
     read(file).split('\n').forEach((line, i) => {
-      const m = line.match(READ_CALL);
-      if (!m) return;
       if (/^\s*(\/\/|\*)/.test(line)) return;
+      const m = line.match(READ_CALL) || line.match(CREATE_BUF_CALL);
+      if (!m) return;
       const before = line.slice(0, m.index);
       if (/=\s*$|\bif\s*\(|\bwhile\s*\(|\breturn\b|\(\s*$/.test(before)) return;
-      add('ADVISORY', 'napi-status', file, i + 1, `${m[1]} result discarded — caller-supplied data may be silently defaulted`);
+      add('ADVISORY', 'napi-status', file, i + 1, `${m[1] || 'napi_create_arraybuffer'} result discarded — caller-supplied data may be silently defaulted`);
     });
   }
 }

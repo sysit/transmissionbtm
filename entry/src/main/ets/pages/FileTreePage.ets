@@ -4,17 +4,63 @@
 // Allows toggling which files to download.
 // Rendered inline from DownloadsPage when the user taps "Files" on a torrent.
 
+import { taskpool } from '@kit.ArkTS';
+import { BusinessError } from '@kit.BasicServicesKit';
 import { CLICK_EFFECT, Colors, FontSize, Spacing, Radius } from '../utils/constants';
 import { errText } from '../utils/errors';
-import { TorrentFile } from '../models/TorrentFile';
+import { TorrentFile, RawFileEntry } from '../models/TorrentFile';
 import { TorrentDir } from '../models/TorrentDir';
 import { FileTreeModel } from '../models/FileTreeModel';
 import { FileTreeView } from '../components/torrent/FileTreeView';
 import { TransmissionSession } from '../models/TransmissionSession';
+import { NativeBridge } from '../bridge/NativeBridge';
 import { formatSize } from '../utils/format';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 
 const TAG = 'FileTreePage';
+
+/** Worker → UI payload for the file tree (JSON, see loadFileRows). */
+interface FileLoadEnvelope {
+  entries: RawFileEntry[];
+  error: string;
+}
+
+/**
+ * D3: listing a torrent's files is 1 + N synchronous native calls, each one a
+ * semaphore hop onto the engine thread — a multi-thousand-file torrent froze
+ * the UI. Run them in a taskpool worker. The worker has an isolated JS heap
+ * (the NativeBridge session map is unreachable there), so the main thread
+ * passes the BigInt tr_session* pointer and the worker calls the stateless
+ * *ByPtr methods. Errors are caught INSIDE the worker and returned in the
+ * envelope: an Error crossing the taskpool boundary arrives with its message
+ * stripped, which would hide why the tree failed to load.
+ */
+@Concurrent
+function loadFileRows(ptr: BigInt, torrentId: number): string {
+  const env: FileLoadEnvelope = { entries: [], error: '' };
+  try {
+    const names: string[] = NativeBridge.torrentListFilesByPtr(ptr, torrentId);
+    for (let i = 0; i < names.length; i++) {
+      // listTorrentFiles returns names only; the per-file stat read is the
+      // remaining N calls (size / bytesCompleted / wanted / priority).
+      const entry: RawFileEntry = {
+        index: i, name: names[i], size: 0, wanted: true, priority: 0,
+      };
+      const file: TorrentFile = TorrentFile.fromNative(entry);
+      file.applyFileStat(NativeBridge.torrentGetFileStatByPtr(ptr, torrentId, i));
+      entry.size = file.size;
+      entry.bytesCompleted = file.bytesCompleted;
+      entry.wanted = file.wanted;
+      entry.priority = file.priority;
+      env.entries.push(entry);
+    }
+  } catch (err) {
+    const be = err as BusinessError;
+    env.error = typeof be.message === 'string' && be.message.length > 0
+      ? be.message : String(err);
+  }
+  return JSON.stringify(env);
+}
 
 @Component
 export struct FileTreePage {
@@ -33,22 +79,26 @@ export struct FileTreePage {
     this.loadFiles();
   }
 
-  private loadFiles(): void {
+  private async loadFiles(): Promise<void> {
     if (this.sessionId <= 0 || this.torrentId <= 0) {
       this.isLoading = false;
       return;
     }
     try {
-      this.session.sessionId = this.sessionId;
-      const files: TorrentFile[] = this.session.listTorrentFiles(this.torrentId);
-      if (files && files.length > 0) {
-        // Populate real size / bytesCompleted / wanted (DnD) / priority per
-        // file (listTorrentFiles returns names only). On-demand at tree open,
-        // so N per-file stat reads are acceptable. The native read lives on
-        // the session facade so the model stays pure.
-        for (const f of files) {
-          this.session.refreshFileStat(this.torrentId, f);
-        }
+      // D13: bind the borrowed handle through attach() — the facade's id is
+      // read-only, so a page cannot impersonate start()/stop() by assignment.
+      this.session.attach(this.sessionId);
+      const ptr: BigInt = NativeBridge.getInstance().getSessionPtr(this.sessionId);
+      // D3: list + N stat reads happen on a worker thread, never here.
+      const text: string = await taskpool.execute(
+        loadFileRows, ptr, this.torrentId) as string;
+      const env: FileLoadEnvelope = JSON.parse(text) as FileLoadEnvelope;
+      if (env.error.length > 0) {
+        hilog.error(0x0001, TAG,
+          'Failed to load torrent files: %{private}s', env.error);
+      } else if (env.entries.length > 0) {
+        const files: TorrentFile[] =
+          env.entries.map((e: RawFileEntry): TorrentFile => TorrentFile.fromNative(e));
         this.root = FileTreeModel.buildTree(files);
 
         // Build selectedFiles array from file wanted states.

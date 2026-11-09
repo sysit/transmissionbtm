@@ -135,6 +135,28 @@ export const CLICK_EFFECT: ClickEffect = {
 };
 
 // ═══════════════════════════════════════════════════════════════════
+// Setting Input Bounds
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Bounds enforced by EditSetting before a value is persisted (D4). Values
+ * outside these ranges are meaningless to libtransmission: port 0 / >65535 is
+ * rejected by the engine, and the alt-speed minute/day fields index fixed-size
+ * arrays.
+ */
+export class Limits {
+  static readonly PORT_MIN: number = 1;
+  static readonly PORT_MAX: number = 65535;
+  /** KB/s — native speed limits are KB/s, matching the settings hints. */
+  static readonly SPEED_KBPS_MAX: number = 1000000;
+  static readonly MINUTE_OF_DAY_MAX: number = 1439;
+  static readonly WEEKDAY_MASK_MAX: number = 127;
+  static readonly PEER_LIMIT_MAX: number = 10000;
+  static readonly PEERS_PER_TORRENT_MAX: number = 1000;
+  static readonly SEED_RATIO_MAX: number = 10000;
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // Torrent Status Codes
 // ═══════════════════════════════════════════════════════════════════
 

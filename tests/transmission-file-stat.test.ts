@@ -32,7 +32,7 @@ function newSession(): TransmissionSession {
     1 /* encryption PREFER */, '{}'
   );
   const session = new TransmissionSession();
-  session.sessionId = sid;
+  session.attach(sid);
   return session;
 }
 

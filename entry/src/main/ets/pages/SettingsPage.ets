@@ -11,7 +11,7 @@
 //   Blocklist  — IP blocklist toggle + URL
 //   Seeding    — ratio stop, idle stop
 
-import { CLICK_EFFECT, Colors, FontSize, Spacing, Radius, AppConstants } from '../utils/constants';
+import { CLICK_EFFECT, Colors, FontSize, Spacing, Radius, AppConstants, Limits } from '../utils/constants';
 import { errText } from '../utils/errors';
 import { SettingsGroup } from '../components/settings/SettingsGroup';
 import { ToggleSetting } from '../components/settings/ToggleSetting';
@@ -146,6 +146,13 @@ export struct SettingsPage {
       this.seedRatioLimit = String(await pm.getInt(PrefKeys.SEED_RATIO_LIMIT, Number(this.seedRatioLimit)));
       this.idleSeedingLimitEnabled = await pm.getBoolean(PrefKeys.IDLE_SEEDING_LIMIT_ENABLED, this.idleSeedingLimitEnabled);
       this.idleSeedingLimit = String(await pm.getInt(PrefKeys.IDLE_SEEDING_LIMIT, Number(this.idleSeedingLimit)));
+
+      // D1: getters swallow failures and return the default, so the catch
+      // below never sees them. Report once instead of showing defaults as if
+      // they were the saved values.
+      if (pm.consumeError() !== '') {
+        this.loadError = $r('app.string.settings_load_error');
+      }
     } catch (err) {
       this.loadError = $r('app.string.settings_load_error');
       hilog.error(0x0001, TAG,
@@ -327,6 +334,8 @@ export struct SettingsPage {
           value: $speedLimitDown,
           inputType: InputType.Number,
           valueType: 'number',
+          minValue: 0,
+          maxValue: Limits.SPEED_KBPS_MAX,
         });
       }
 
@@ -343,6 +352,8 @@ export struct SettingsPage {
           value: $speedLimitUp,
           inputType: InputType.Number,
           valueType: 'number',
+          minValue: 0,
+          maxValue: Limits.SPEED_KBPS_MAX,
         });
       }
 
@@ -360,6 +371,8 @@ export struct SettingsPage {
           value: $altSpeedDown,
           inputType: InputType.Number,
           valueType: 'number',
+          minValue: 0,
+          maxValue: Limits.SPEED_KBPS_MAX,
         });
         EditSetting({
           label: $r('app.string.settings_alt_upload'),
@@ -368,6 +381,8 @@ export struct SettingsPage {
           value: $altSpeedUp,
           inputType: InputType.Number,
           valueType: 'number',
+          minValue: 0,
+          maxValue: Limits.SPEED_KBPS_MAX,
         });
         EditSetting({
           label: $r('app.string.settings_alt_begin'),
@@ -376,6 +391,8 @@ export struct SettingsPage {
           value: $altSpeedTimeBegin,
           inputType: InputType.Number,
           valueType: 'number',
+          minValue: 0,
+          maxValue: Limits.MINUTE_OF_DAY_MAX,
         });
         EditSetting({
           label: $r('app.string.settings_alt_end'),
@@ -384,6 +401,8 @@ export struct SettingsPage {
           value: $altSpeedTimeEnd,
           inputType: InputType.Number,
           valueType: 'number',
+          minValue: 0,
+          maxValue: Limits.MINUTE_OF_DAY_MAX,
         });
         EditSetting({
           label: $r('app.string.settings_alt_days'),
@@ -392,6 +411,8 @@ export struct SettingsPage {
           value: $altSpeedDay,
           inputType: InputType.Number,
           valueType: 'number',
+          minValue: 0,
+          maxValue: Limits.WEEKDAY_MASK_MAX,
         });
       }
     }
@@ -411,6 +432,8 @@ export struct SettingsPage {
         value: $peerPort,
         inputType: InputType.Number,
         valueType: 'number',
+        minValue: Limits.PORT_MIN,
+        maxValue: Limits.PORT_MAX,
       });
       EditSetting({
         label: $r('app.string.settings_global_peer_limit'),
@@ -419,6 +442,8 @@ export struct SettingsPage {
         value: $peerLimitGlobal,
         inputType: InputType.Number,
         valueType: 'number',
+        minValue: 1,
+        maxValue: Limits.PEER_LIMIT_MAX,
       });
       EditSetting({
         label: $r('app.string.settings_peers_per_torrent'),
@@ -427,6 +452,8 @@ export struct SettingsPage {
         value: $peerLimitPerTorrent,
         inputType: InputType.Number,
         valueType: 'number',
+        minValue: 1,
+        maxValue: Limits.PEERS_PER_TORRENT_MAX,
       });
       SelectSetting({
         label: $r('app.string.settings_encryption'),
@@ -526,6 +553,8 @@ export struct SettingsPage {
           value: $seedRatioLimit,
           inputType: InputType.Number,
           valueType: 'float',
+          minValue: 0,
+          maxValue: Limits.SEED_RATIO_MAX,
         });
       }
 

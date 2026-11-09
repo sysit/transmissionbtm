@@ -42,7 +42,7 @@ import native from 'libtransmissionbtm_napi.so';
 2. `nativeToArktsInit()` — C++ side stores the `napi_env` reference and the callback function refs used by the TSFN
 3. `envSet("TR_CURL_SSL_NO_VERIFY", "true")` + `envSet("TR_CURL_PROXY_SSL_NO_VERIFY", "true")`
 
-### 1.2 Complete Native Method Catalog (28 methods)
+### 1.2 Native Method Catalog (30 methods; ground truth = `Register*` descriptors in `cpp/*.cc`)
 
 **Session (transmission.cc):**
 
@@ -54,6 +54,8 @@ import native from 'libtransmissionbtm_napi.so';
 | `sessionSuspend` | Suspend/resume session |
 | `hasDownloadingTorrents` | True if any torrent downloading/checking |
 | `listTorrentNames` | `"<id> <hashString> <name>"` per torrent |
+| `sessionBlocklistSetContent` | Parse a plaintext blocklist into `blocklist.bin` and load it. Returns rule count, null on failure |
+| `sessionBlocklistRuleCount` | Rules currently loaded in the primary blocklist |
 | `getEncryptionMode` | Current encryption mode |
 
 **Torrent (torrent.cc):**

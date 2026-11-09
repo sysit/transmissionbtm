@@ -7,9 +7,11 @@
 // All settings persist via PreferencesManager through the
 // M2 components (prefKey wiring).
 
-import { Colors, FontSize, Spacing } from '../utils/constants';
+import { promptAction } from '@kit.ArkUI';
+import { Colors, FontSize, Limits, Spacing } from '../utils/constants';
 import { errText } from '../utils/errors';
 import { SettingsGroup } from '../components/settings/SettingsGroup';
+import { SettingsErrorBanner } from '../components/settings/SettingsErrorBanner';
 import { ToggleSetting } from '../components/settings/ToggleSetting';
 import { EditSetting } from '../components/settings/EditSetting';
 import { PreferencesManager, PrefKeys } from '../models/Preferences';
@@ -27,6 +29,7 @@ export struct ProxyPage {
   @State proxyAuthRequired: boolean = defaultSessionConfig().proxyAuthRequired;
   @State proxyUsername: string = defaultSessionConfig().proxyUsername;
   @State proxyPassword: string = defaultSessionConfig().proxyPassword;
+  @State loadError: ResourceStr = '';
 
   aboutToAppear(): void {
     this.loadPreferences();
@@ -34,6 +37,7 @@ export struct ProxyPage {
 
   private async loadPreferences(): Promise<void> {
     this.isLoading = true;
+    this.loadError = '';
     try {
       const pm = PreferencesManager.getInstance();
 
@@ -49,9 +53,24 @@ export struct ProxyPage {
         PrefKeys.PROXY_USERNAME, this.proxyUsername);
       this.proxyPassword = await pm.getString(
         PrefKeys.PROXY_PASSWORD, this.proxyPassword);
+
+      // D1: getters return defaults on failure — report it once instead of
+      // rendering defaults as saved values.
+      if (pm.consumeError() !== '') {
+        this.loadError = $r('app.string.settings_load_error');
+      }
+      // D7: a stored envelope that no longer decrypts would otherwise show as
+      // an empty password with no explanation. Clear the field and ask.
+      if (pm.consumePasswordLost()) {
+        this.proxyPassword = '';
+        promptAction.showToast({ message: $r('app.string.proxy_password_reentry') });
+      }
     } catch (err) {
       hilog.error(0x0001, TAG,
         'loadPreferences failed: %{private}s', errText(err));
+      // A throw here means the rows below show @State defaults, not the stored
+      // config — say so instead of rendering them as if they were saved.
+      this.loadError = $r('app.string.settings_load_error');
     } finally {
       this.isLoading = false;
     }
@@ -70,6 +89,10 @@ export struct ProxyPage {
           top: Spacing.LG,
           bottom: Spacing.LG,
         });
+
+      if (this.loadError) {
+        SettingsErrorBanner({ error: this.loadError });
+      }
 
       if (this.isLoading) {
         this.BuildLoadingState();
@@ -121,6 +144,14 @@ export struct ProxyPage {
                 hint: 'proxy.example.com',
                 prefKey: PrefKeys.PROXY_URL,
                 value: $proxyUrl,
+                // D6: a host the engine cannot resolve is only discovered at
+                // connect time — reject obvious junk at the input instead.
+                validate: (text: string): boolean => {
+                  const host = text.trim();
+                  // Hostname, IPv4, or bracketed IPv6 — reject spaces, '/',
+                  // '://' and other junk that can only fail at connect time.
+                  return host === '' || /^[a-zA-Z0-9.\-\[\]:]+$/.test(host);
+                },
               });
             }
             .width('100%');
@@ -134,6 +165,8 @@ export struct ProxyPage {
                 value: $proxyPort,
                 inputType: InputType.Number,
                 valueType: 'number',
+                minValue: Limits.PORT_MIN,
+                maxValue: Limits.PORT_MAX,
               });
             }
             .width('100%');

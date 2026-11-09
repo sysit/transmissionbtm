@@ -10,6 +10,31 @@
 
 ---
 
+## 2026-11-09 — v1.0.3 release prep（versionCode 6）
+
+发版内容 = 下面两节的全部修复（13 项结案 + 体系化批次）。用户可见变化：屏蔽列表真正生效（此前开关是摆设）、设置项数值上下界校验、保存失败不再静默（对话框保持打开 / 开关回滚）、代理密码解密失败提示重输、同一配置目录二次启动被拒绝。
+
+- **本轮复检修掉**：`Index.d.ts` 里 `sessionBlocklistSetContent` 注释写「传 null 清除」，实现是 null 直接返回 `undefined` —— 对齐注释（不改行为，无调用方传 null）；`torrent.cc` `[DBG] start` 的 err 串恢复 `%{private}s`（本轮误改回 public，与 HEAD 的 diff 已归零）。
+- **独立 code-reviewer 复审（发版前）**：4 项，3 修 1 记录。**修**：D2 屏蔽列表缓存会把下载失败/解析为 0 规则的结果当「新鲜」缓存 7 天 —— 改为先写 `<cache>.part` 再 rename，下载失败 unlink，解析 0 规则丢弃缓存；`sessionBlocklistRuleCount` 在 UI 线程同步调用会强制引擎懒解析整个列表 —— 移到 taskpool（`runBlocklistRuleCount`，异常返回 -1）；`ProxyPage.loadPreferences` 抛错时 `loadError` 不复位也不提示，会把 @State 默认值当已存配置渲染 —— 补复位 + catch 里置提示。**记录**：`SessionController` 的「超时后延迟 stop 再 re-register」分支结构性不可达（>15 s 的在途调度才会走到），一旦命中 handle 泄漏、配置目录被 D10 的目录锁永久占用；后果限于本进程生命周期，修它要重设计会话生命周期，留待 v1.1。
+- **已知不修（记录在案）**：引擎侧仍 `setenv("TR_CURL_SSL_NO_VERIFY")` —— 打包的 libcurl 在 OH 上无系统信任库，开校验需要把 cacert.pem 的运行时路径下发给引擎，而 cacheDir 可能被系统回收，做错的代价是全部 tracker announce 失效（下载全停），留待 v1.1 用 filesDir 方案 + 真机验证；`[DBG]` 轮询日志保持 INFO 级，供用户反馈时取证。
+- **验证**：`audit.mjs` BLOCKING 0（51 advisory）；宿主 vitest 106/106；debug HAP + release `.app` 均 BUILD SUCCESSFUL（release `.app` 复建于复审修复之后，包内 `ets/modules.abc` 含 `runBlocklistRuleCount`）；release `.app` 过 `hap-sign-tool verify-app`（`Verify success`，叶子证书 `CN=陈锡金(...),Release`）；产物内 module.json `versionCode 6 / versionName 1.0.3`，包内 `.so` 的 `getVersion()` = `1.0.3`；ohosTest **227/227 双模拟器**：Pura 90（API 24 / HarmonyOS 6.1.1）+ **Mate 90 Pro（API 26 / HarmonyOS 7.0.0.107）**，均 `Failure: 0, Error: 0`（含 7_1c 同目录二次启动拒绝、7_1d 十轮 start/stop、1.0.3 版本探针）。
+- **升版三件套**：`AppScope/app.json5`（5→6 / 1.0.2→1.0.3）、`napi_init.cpp` GetVersion、`NativeProbe.test.ets` 断言 —— 三处同改。发版后 `signing/use.sh debug` 已切回（release 签名装不上真机）。
+
+---
+
+## 2026-11-08 — 遗留 13 项（D1–D13）全部结案
+
+§八 的 13 条遗留按 B1–B5 五批关闭，逐条证据见 `docs/review/report.md` §八。要点：
+
+- **D2 blocklist 真正生效**：`DownloadsPage.refreshBlocklist` 在会话启动后台执行 —— 7 天缓存 + taskpool 内 `curlDownload`（CA bundle 由 `rawfile/cacert.pem` 拷进 cacheDir，OH 上 libcurl 无系统信任库）→ 引擎线程 `tr_blocklistSetContent` 解析为 `blocklist.bin`。设备证据：`Blocklist rules loaded: 2`、`blocklists/blocklist.bin` 109 B 落盘、二次启动早退（引擎自己从磁盘恢复，不重复下载）。未加设置页「立即更新」按钮。
+- **D3 文件列表 taskpool 化**、**D13 会话成员只读**：设备验证文件树 3 个文件渲染 + DND 取消勾选跨重进保持。
+- **D1/D4/D5/D6/D7**：失败可见化（页面提示 + 写失败回滚）、数值上下界、代理 host/port 校验、HUKS 解密失败提示重输。
+- **D8 撤销（E0）**：模拟器上真实构造了「改值后重开对话框」场景，旧代码预填的就是新值（Peer port 51414→51415；Language System default→English 高亮同步），`CustomDialogController` 每次 open 会重建 dialog 节点并重跑 `aboutToAppear`。不改代码。
+- **D9/D10/D11/D12**：设置快照调度到事件线程、同目录二次 start 拒绝、创建类 N-API 调用判 status、`findByHash` 的 -1 语义注释。
+- **验证**：`audit.mjs` BLOCKING 0（48 advisory）、宿主 vitest 106/106、debug HAP BUILD SUCCESSFUL、模拟器 ohosTest **227/227**（`aa test -b com.9bt.transmissionbtm -m entry_test -s unittest OpenHarmonyTestRunner`；注意 `-s class '*'` 会被判非法参数，直接省略即可跑全量）；N-API 方法数 28 → 30（新增 `sessionBlocklistSetContent`/`sessionBlocklistRuleCount`）。
+
+---
+
 ## 2026-11-08 — 体系化 review 批次（I1–I7 遍历，20 项修复）
 
 方法、覆盖账与逐条证据：`docs/review/`（`method.md` / `ledger.md` / `report.md` §七）。要点：

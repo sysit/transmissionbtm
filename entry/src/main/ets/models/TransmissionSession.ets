@@ -36,9 +36,30 @@ function asJsonReal(value: number): number {
 }
 
 export class TransmissionSession {
-  /** Numeric session ID. Set by start(); may also be set externally
-   *  (FileTreePage, AddTorrentPage) when the session is managed elsewhere. */
-  sessionId: number = 0;
+  private sessionIdValue: number = 0;
+
+  /**
+   * Numeric session ID. Read-only from outside: start() assigns it and stop()
+   * clears it. A page that borrows a session started elsewhere must call
+   * attach() — writing the field directly (as FileTreePage used to) skipped
+   * every lifecycle invariant and could point this facade at a dead handle.
+   */
+  get sessionId(): number {
+    return this.sessionIdValue;
+  }
+
+  /**
+   * Bind this facade to a session started elsewhere (e.g. the DownloadsPage
+   * session). Only the query/file calls are safe afterwards: start()/stop()
+   * must not be used on an attached session — its lifetime belongs to the
+   * owner.
+   */
+  attach(sessionId: number): void {
+    if (sessionId <= 0) {
+      throw new Error(`attach() needs a live session id, got ${sessionId}`);
+    }
+    this.sessionIdValue = sessionId;
+  }
 
   /** Current lifecycle state. */
   state: SessionRunState = SessionRunState.STOPPED;
@@ -69,7 +90,7 @@ export class TransmissionSession {
     // native sessionStart expects 0=ALLOW, 1=PREFER, 2=REQUIRE.
     const encrMode: number = this.encrModeNumber(config);
 
-    this.sessionId = this.bridge.sessionStart(
+    this.sessionIdValue = this.bridge.sessionStart(
       config.settingsDir,
       config.downloadDir,
       encrMode,
@@ -78,7 +99,7 @@ export class TransmissionSession {
 
     if (this.sessionId < 0) {
       this.state = SessionRunState.STOPPED;
-      this.sessionId = 0;
+      this.sessionIdValue = 0;
       throw new Error('Failed to start native transmission session');
     }
 
@@ -220,7 +241,7 @@ export class TransmissionSession {
     this.state = SessionRunState.STOPPED;
     if (this.sessionId > 0) {
       this.bridge.sessionStop(this.sessionId, this.configDir);
-      this.sessionId = 0;
+      this.sessionIdValue = 0;
     }
   }
 

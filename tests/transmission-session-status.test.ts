@@ -53,7 +53,7 @@ function newSession(): TransmissionSession {
     1 /* encryption PREFER */, '{}'
   );
   const session = new TransmissionSession();
-  session.sessionId = sid;
+  session.attach(sid);
   return session;
 }
 
@@ -122,5 +122,16 @@ describe('TransmissionSession.getAllTorrents status merge', () => {
 
     const list = session.getAllTorrents();
     expect(list).toEqual([]);
+  });
+});
+
+// D13: the borrowed-handle path is attach(), which refuses a dead id. Before
+// this, a page wrote sessionId directly and could point the facade at 0.
+describe('TransmissionSession.attach', () => {
+  it('rejects a non-live id and adopts a live one', () => {
+    const session = new TransmissionSession();
+    expect(() => session.attach(0)).toThrow();
+    session.attach(7);
+    expect(session.sessionId).toBe(7);
   });
 });

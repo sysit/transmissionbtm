@@ -1,5 +1,5 @@
 // transmissionbtm — N-API type declarations (M1 full bridge)
-// All 28 methods exported from libtransmissionbtm_napi.so.
+// All 30 methods exported from libtransmissionbtm_napi.so.
 // Signatures match C++ N-API exports exactly (ground truth: napi_get_cb_info arg extraction).
 
 /**
@@ -21,6 +21,15 @@ declare module 'libtransmissionbtm_napi.so' {
   function sessionSuspend(session: BigInt, suspend: boolean): void;
   function sessionSettingsUpdate(session: BigInt, settingsJson: string): void;
   function hasDownloadingTorrents(session: BigInt): boolean;
+  /**
+   * Load an uncompressed plaintext blocklist (Peerguardian/level1 format) as
+   * the session's primary blocklist. The engine converts it to blocklist.bin
+   * in the config dir. Returns the rule count, or null if the session handle
+   * is dead, path is null, or the file could not be read.
+   */
+  function sessionBlocklistSetContent(session: BigInt, path: string | null): number | null;
+  /** Rules currently loaded in the primary blocklist, or -1 if no session. */
+  function sessionBlocklistRuleCount(session: BigInt): number;
   function listTorrentNames(session: BigInt): string[];
 
   // ── Torrent CRUD ─────────────────────────────────────

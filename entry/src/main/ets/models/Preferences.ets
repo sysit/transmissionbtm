@@ -290,12 +290,38 @@ export class PreferencesManager {
 
   // ── Typed Getters ────────────────────────────────────────────────
 
+  // D1: getters keep returning the default — the model must stay usable when
+  // the store is broken. The failure is recorded instead of only logged, so a
+  // page can call consumeError() after loading and tell the user that what it
+  // just rendered are defaults, not saved values.
+  private lastError: string = '';
+  private passwordLostFlag: boolean = false;
+
+  /** Returns + clears the last read/decrypt failure, or '' when clean. */
+  consumeError(): string {
+    const e = this.lastError;
+    this.lastError = '';
+    return e;
+  }
+
+  /** True when a stored proxy-password envelope failed to decrypt (HUKS key
+   *  lost). Returns + clears the flag; the UI must ask for re-entry. */
+  consumePasswordLost(): boolean {
+    const lost = this.passwordLostFlag;
+    this.passwordLostFlag = false;
+    return lost;
+  }
+
+  private noteError(where: string, err: object): void {
+    this.lastError = `${where}: ${errText(err)}`;
+    hilog.error(0x0001, TAG, '%{private}s failed: %{private}s', where, errText(err));
+  }
+
   async getBoolean(key: string, def: boolean = false): Promise<boolean> {
     try {
       return await this.guard().get(key, def) as boolean;
     } catch (err) {
-      hilog.error(0x0001, TAG,
-        'getBoolean(%{private}s) failed: %{private}s', key, errText(err));
+      this.noteError(`getBoolean(${key})`, err);
       return def;
     }
   }
@@ -304,8 +330,7 @@ export class PreferencesManager {
     try {
       return await this.guard().get(key, def) as number;
     } catch (err) {
-      hilog.error(0x0001, TAG,
-        'getInt(%{private}s) failed: %{private}s', key, errText(err));
+      this.noteError(`getInt(${key})`, err);
       return def;
     }
   }
@@ -314,8 +339,7 @@ export class PreferencesManager {
     try {
       return await this.guard().get(key, def) as number;
     } catch (err) {
-      hilog.error(0x0001, TAG,
-        'getFloat(%{private}s) failed: %{private}s', key, errText(err));
+      this.noteError(`getFloat(${key})`, err);
       return def;
     }
   }
@@ -326,53 +350,65 @@ export class PreferencesManager {
       if (key === PrefKeys.PROXY_PASSWORD) {
         // Decrypt the stored envelope. Legacy plaintext (no huk1: prefix) is
         // returned as-is. A broken envelope decrypts to null → fall back to def
-        // (an unset password) rather than surfacing ciphertext to the UI.
-        return await this.passwordCipher.decrypt(raw) ?? def;
+        // (an unset password) rather than surfacing ciphertext to the UI, and
+        // flag it (D7) so the proxy page can ask for re-entry instead of
+        // silently showing an empty password.
+        const decrypted = await this.passwordCipher.decrypt(raw);
+        if (decrypted === null) {
+          this.passwordLostFlag = true;
+          return def;
+        }
+        return decrypted;
       }
       return raw;
     } catch (err) {
-      hilog.error(0x0001, TAG,
-        'getString(%{private}s) failed: %{private}s', key, errText(err));
+      this.noteError(`getString(${key})`, err);
       return def;
     }
   }
 
   // ── Typed Setters ────────────────────────────────────────────────
 
-  async setBoolean(key: string, value: boolean): Promise<void> {
+  // D5: setters report whether the write actually landed. Callers must not
+  // update the bound UI value on false — a row that shows text which was never
+  // stored is exactly the silent failure this batch removes.
+  async setBoolean(key: string, value: boolean): Promise<boolean> {
     try {
       await this.guard().put(key, value);
       await this.guard().flush();
       await this.notifySettingsChanged();
+      return true;
     } catch (err) {
-      hilog.error(0x0001, TAG,
-        'setBoolean(%{private}s) failed: %{private}s', key, errText(err));
+      this.noteError(`setBoolean(${key})`, err);
+      return false;
     }
   }
 
-  async setInt(key: string, value: number): Promise<void> {
+  async setInt(key: string, value: number): Promise<boolean> {
     try {
       await this.guard().put(key, value);
       await this.guard().flush();
       await this.notifySettingsChanged();
+      return true;
     } catch (err) {
-      hilog.error(0x0001, TAG,
-        'setInt(%{private}s) failed: %{private}s', key, errText(err));
+      this.noteError(`setInt(${key})`, err);
+      return false;
     }
   }
 
-  async setFloat(key: string, value: number): Promise<void> {
+  async setFloat(key: string, value: number): Promise<boolean> {
     try {
       await this.guard().put(key, value);
       await this.guard().flush();
       await this.notifySettingsChanged();
+      return true;
     } catch (err) {
-      hilog.error(0x0001, TAG,
-        'setFloat(%{private}s) failed: %{private}s', key, errText(err));
+      this.noteError(`setFloat(${key})`, err);
+      return false;
     }
   }
 
-  async setString(key: string, value: string): Promise<void> {
+  async setString(key: string, value: string): Promise<boolean> {
     try {
       const toStore = (key === PrefKeys.PROXY_PASSWORD)
         ? await this.passwordCipher.encrypt(value)
@@ -380,9 +416,10 @@ export class PreferencesManager {
       await this.guard().put(key, toStore);
       await this.guard().flush();
       await this.notifySettingsChanged();
+      return true;
     } catch (err) {
-      hilog.error(0x0001, TAG,
-        'setString(%{private}s) failed: %{private}s', key, errText(err));
+      this.noteError(`setString(${key})`, err);
+      return false;
     }
   }
 

@@ -3,6 +3,7 @@
 // Reusable toggle row: label + optional description + switch.
 // Persists the value to PreferencesManager on every toggle.
 
+import { promptAction } from '@kit.ArkUI';
 import { Colors, FontSize, Spacing } from '../../utils/constants';
 import { PreferencesManager } from '../../models/Preferences';
 
@@ -32,9 +33,18 @@ export struct ToggleSetting {
       Toggle({ type: ToggleType.Switch, isOn: this.checked })
         .onChange((isOn: boolean) => {
           this.checked = isOn;
-          if (this.prefKey) {
-            PreferencesManager.getInstance().setBoolean(this.prefKey, isOn);
+          if (!this.prefKey) {
+            return;
           }
+          // D5: only keep the new position when the write landed. Reverting on
+          // failure keeps the switch from showing an unsaved value.
+          PreferencesManager.getInstance().setBoolean(this.prefKey, isOn)
+            .then((ok: boolean) => {
+              if (!ok) {
+                this.checked = !isOn;
+                promptAction.showToast({ message: $r('app.string.settings_save_failed') });
+              }
+            });
         })
         .selectedColor(Colors.DOWNLOAD);
     }
