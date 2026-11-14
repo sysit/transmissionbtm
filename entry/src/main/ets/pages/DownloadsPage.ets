@@ -1220,6 +1220,14 @@ export struct DownloadsPage {
     .width('100%')
     .justifyContent(FlexAlign.End)
     .padding(Spacing.LG)
+    // The row is out-of-flow (.position bottom-right) and spans the full width,
+    // so ArkUI's geometry-based hit test made this transparent strip swallow
+    // every tap into the List's bottom ~88vp — expanded-card action buttons
+    // (pause/reannounce/…) scrolled to the page bottom went dead while the
+    // same buttons worked higher up (A/B-verified on device, 2026-11-14).
+    // Transparent keeps the '+' button tappable and lets empty areas fall
+    // through to the List below.
+    .hitTestBehavior(HitTestMode.Transparent)
     .position({ right: 0, bottom: 0 });
   }
 
