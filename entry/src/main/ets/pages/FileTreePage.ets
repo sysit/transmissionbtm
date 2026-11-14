@@ -249,11 +249,15 @@ export struct FileTreePage {
           root: this.root,
           selectedFiles: $selectedFiles,
           onToggleFile: (files: boolean[]) => { this.onFileWanted(files); },
-        });
+        })
+          // A tree shorter than the viewport gets centered by Scroll (ArkUI
+          // default), floating a one-row tree mid-page. Filling the viewport
+          // restores the column's natural top alignment.
+          .constraintSize({ minHeight: '100%' })
       }
       .layoutWeight(1)
       .scrollBar(BarState.Off)
-      .padding({ left: Spacing.MD, right: Spacing.MD });
+      .padding({ left: Spacing.MD, right: Spacing.MD, top: Spacing.LG });
     }
   }
 }
