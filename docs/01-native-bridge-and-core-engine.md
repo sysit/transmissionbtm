@@ -42,7 +42,7 @@ import native from 'libtransmissionbtm_napi.so';
 2. `nativeToArktsInit()` — C++ side stores the `napi_env` reference and the callback function refs used by the TSFN
 3. `envSet("TR_CURL_SSL_NO_VERIFY", "true")` + `envSet("TR_CURL_PROXY_SSL_NO_VERIFY", "true")`
 
-### 1.2 Native Method Catalog (30 methods; ground truth = `Register*` descriptors in `cpp/*.cc`)
+### 1.2 Native Method Catalog (32 methods; ground truth = `Register*` descriptors in `cpp/*.cc`)
 
 **Session (transmission.cc):**
 
@@ -183,11 +183,11 @@ Caches ArkTS callback references during `nativeToArktsInit()`:
 ```
 libtransmissionbtm_napi.so (N-API)
   +-- 9 C++ source files (commons, torrent, transmission, native_to_arkts, hash, curl, env, napi_init)
-  +-- libtransmission.a (Transmission 4.1.0 stable)
+  +-- libtransmission.a (Transmission 4.1.4 stable)
   |     +-- libdht.a, libb64.a, libnatpmp.a, libminiupnpc.a, libutp.a, libpsl.a, libMadlerCrcany.a
-  +-- libcurl.a (8.5.0, HTTP/HTTPS/FTP only)
-  +-- libevent.a (2.1.12-stable)
-  +-- libssl.a + libcrypto.a (OpenSSL 3.0.15, heavily stripped)
+  +-- libcurl.a (8.23.0, HTTP/HTTPS/FTP only)
+  +-- libevent.a (2.1.13-stable)
+  +-- libssl.a + libcrypto.a (OpenSSL 3.5.9 LTS, heavily stripped)
   +-- hilog_ndk.z (OH logging)
 ```
 
@@ -207,7 +207,7 @@ libtransmissionbtm_napi.so (N-API)
 1. **openssl**: Download → Configure for OH (no-idea, no-camellia, no-seed, no-bf, no-cast, no-rc2, no-md2, no-md4, no-mdc2, no-dsa, no-err, no-engine, no-tests, no-dso, no-dynamic-engine, no-stdio) → Build static
 2. **curl** (depends openssl): Download → `--disable-shared --enable-static --disable-dict/gopher/imap/pop3/rtsp/smtp/telnet/tftp` → Build static
 3. **libevent** (depends openssl): Download → CMake with `DISABLE_BENCHMARK/TESTS/SAMPLES=ON` → Build static
-4. **transmission** (depends all above): Build from upstream 4.1.0 stable via `scripts/build-third-party.sh` → CMake with `-DENABLE_DAEMON/CLI/GTK/QT/MAC/UTILS/TESTS=OFF` → Build static.
+4. **transmission** (depends all above): Build from upstream 4.1.4 stable via `scripts/build-third-party.sh` → CMake with `-DENABLE_DAEMON/CLI/GTK/QT/MAC/UTILS/TESTS=OFF` → Build static. **The engine compiles as `-std=gnu++17`; the bridge must match (see CLAUDE.md fmt-ABI note) or `tr_session` member offsets shift by 8 bytes.**
 
 ---
 

@@ -10,6 +10,25 @@
 
 ---
 
+## 2026-11-09 — v1.0.4: full upstream bump + the C++17/C++20 ABI trap（versionCode 7）
+
+**用户可见变化** = 引擎与依赖全部升到最新 stable，关于页四行版本号全部来自实际链接进 `.so` 的二进制的头文件（`getEngineVersions()`），ArkUI 行读实际 targetVersion 而不是写死的「5.0」。
+
+| 库 | 旧 | 新 |
+|----|----|----|
+| libtransmission | 4.1.0（tag `2724011`） | **4.1.4** stable（commit `a6d907d9ea`） |
+| OpenSSL | 3.0.15 | **3.5.9** LTS |
+| libcurl | 8.5.0 | **8.23.0** |
+| libevent | 2.1.12 | **2.1.13** |
+
+- **升级适配（4.1.4 API 漂移）**：`tr_torrentRemoveInSessionThread` 少了尾部 `(callback, user_data)` 两参（6→4）；4.1.1+ 引擎的 CRC 改用 madler-crcany（`libMadlerCrcany.a` 替掉 `libcrc32c.a`）；`crypto-utils.h` 的 `#error no crypto library specified` 根因是引擎用 `-DWITH_CRYPTO=openssl`（CMake 只对引擎自己的 TU 转成 `WITH_OPENSSL`）—— 桥改用 `target_compile_definitions(... WITH_OPENSSL=1)` 声明，取代此前**手改头文件**的 `#define`（新脚本 `rm -rf include` 一装头就把它抹掉）。
+- **SIGSEGV 根因 = 编译标准不一致（本次最重要的坑）**：4.1.4 给 `tr_session` 新增了 `config_dir_lock_` 成员，它内嵌 `tr_pathbuf`→`fmt::basic_memory_buffer<char,4096>`；fmt 的空 `alloc_` 成员只在 **C++20** 下被 `[[no_unique_address]]` 折叠。引擎按 `-std=gnu++17` 编译（`sizeof(tr_config_dir_lock)=4144`），桥按 `CMAKE_CXX_STANDARD 20` 编译（=4136）→ `tr_session` 从 `config_dir_` 之后每个成员偏 8 字节 → `session_thread_` 读到 `blocklist_dir_` 的 data 指针。**识别特征**：崩溃地址减 24 正好是 ASCII（`0x00732f617461642f` = `/data/s\0`），栈顶 `tr_session::am_in_session_thread()+36` ← `runInTransmissionThread` ← `TorrentAdd`。修法：桥改 `CMAKE_CXX_STANDARD 17`（与引擎一致），并把 `std::string_view::starts_with`（C++20）换成 `compare(0,7,"magnet:")==0`。教训写成 CLAUDE.md 的 fmt-ABI 旁注。
+- **版本号不再手写**：`constants.ets` 删掉 `APP_VERSION`/`BUILD_DATE`/`ENGINE_VERSION` 三个会漂的常量；关于页的 app 版本 = `getVersion()`（napi_init.cpp）、构建日期 = `__DATE__`、四个库版本 = `getEngineVersions()`（编译期头文件宏 + `event_get_version()`）。**实测发现 `targetVersion` 是编码值不是 API level**（API 24 报 `60101024`，按 `<major><minor><patch><api>` 编码），真机初版显示「API 60101024」→ 取末三位修正为「API 24」。
+- **构建脚本**：`download()` 增加 gzip 完整性校验 —— OpenSSL 3.5.9 曾在 24MB/53MB 处被截断，后续步骤全在 `tar` 深处报错。
+- **验证**：`audit.mjs` BLOCKING 0；宿主 vitest 106/106；ohosTest **229/229 双模拟器**（Pura 90 API24 + Mate 90 Pro API26，「C++17 修复前」与「1.0.4 版本探针」两轮均 `Failure: 0, Error: 0`）；debug HAP 装机后实读关于页：`v1.0.4 / Build Release • 2026-11-09 / libtransmission v4.1.4 / OpenSSL v3.5.9 / libcurl v8.23.0 / libevent v2.1.13-stable / ArkUI Framework API 24`。
+
+---
+
 ## 2026-11-09 — v1.0.3 release prep（versionCode 6）
 
 发版内容 = 下面两节的全部修复（13 项结案 + 体系化批次）。用户可见变化：屏蔽列表真正生效（此前开关是摆设）、设置项数值上下界校验、保存失败不再静默（对话框保持打开 / 开关回滚）、代理密码解密失败提示重输、同一配置目录二次启动被拒绝。

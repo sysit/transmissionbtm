@@ -1,5 +1,5 @@
 // transmissionbtm — N-API type declarations (M1 full bridge)
-// All 30 methods exported from libtransmissionbtm_napi.so.
+// All 32 methods exported from libtransmissionbtm_napi.so.
 // Signatures match C++ N-API exports exactly (ground truth: napi_get_cb_info arg extraction).
 
 /**
@@ -9,6 +9,13 @@
 declare module 'libtransmissionbtm_napi.so' {
   // ── Version ──────────────────────────────────────────
   function getVersion(): string;
+  /** ISO 8601 date (YYYY-MM-DD) this native library was compiled. */
+  function getBuildDate(): string;
+  /**
+   * JSON with the engine and bundled dependency versions the library was
+   * built against: {"transmission","openssl","curl","libevent"}.
+   */
+  function getEngineVersions(): string;
 
   // ── Session lifecycle ────────────────────────────────
   function sessionStart(

@@ -22,3 +22,14 @@
 # Local dev tooling + AI assistant instructions — keep on disk, never in the repo.
 /resume.sh
 /CLAUDE.md
+
+# Install-tree byproducts of scripts/build-third-party.sh. What's tracked is
+# include/ + the .a files CMake actually links; bin/, share/, cmake/pkgconfig
+# metadata and the duplicate sub-dep libs the engine installs next to
+# libtransmission.a are build leftovers.
+entry/src/main/cpp/third_party/*/bin/
+entry/src/main/cpp/third_party/*/share/
+entry/src/main/cpp/third_party/*/lib/cmake/
+entry/src/main/cpp/third_party/*/lib/pkgconfig/
+entry/src/main/cpp/third_party/transmission/lib/lib*.a
+!entry/src/main/cpp/third_party/transmission/lib/libtransmission.a

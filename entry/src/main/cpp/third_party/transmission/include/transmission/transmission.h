@@ -55,6 +55,9 @@ struct tr_torrent;
 struct tr_torrent_metainfo;
 struct tr_variant;
 
+// Interop contract, shared with separately-built clients. A third-party RPC client works
+// against all of them only while they spell these the same way.
+// `libtransmission-app/interop-names.h` inventories every such name, in that header and this one.
 #define TR_RPC_SESSION_ID_HEADER "X-Transmission-Session-Id"
 #define TR_RPC_RPC_VERSION_HEADER "X-Transmission-Rpc-Version"
 
@@ -118,6 +121,12 @@ enum : int8_t
 /** @brief buffer variant of `tr_getDefaultConfigDir()`. See `tr_strv_to_buf()`. */
 size_t tr_getDefaultConfigDirToBuf(char const* appname, char* buf, size_t buflen);
 
+// The appname the interactive clients pass to `tr_getDefaultConfigDir()`.
+// Interop contract, shared with separately-built clients. It lets a user's settings
+// and torrents survive replacing one client with another.
+// The daemon deliberately does not use it, and defaults to its own dir.
+#define TR_CONFIG_DIR_NAME "transmission"
+
 /**
  * @brief returns Transmission's default download directory.
  *
@@ -145,6 +154,8 @@ inline auto constexpr TrDefaultPeerLimitGlobal = 200U;
 #define TR_DEFAULT_PEER_LIMIT_TORRENT_STR "50"
 inline auto constexpr TrDefaultPeerLimitTorrent = 50U;
 
+// Interop contract, shared with separately-built clients. These three make up the RPC
+// URL a user gives a third-party client. See TR_RPC_SESSION_ID_HEADER above.
 inline auto constexpr TrHttpServerDefaultBasePath = std::string_view{ TR_DEFAULT_RPC_URL_STR };
 inline auto constexpr TrHttpServerRpcRelativePath = std::string_view{ "rpc" };
 inline auto constexpr TrHttpServerWebRelativePath = std::string_view{ "web/" };
@@ -254,6 +265,28 @@ void tr_sessionClose(tr_session* session, size_t timeout_secs = 15);
  * during the session.
  */
 char const* tr_sessionGetConfigDir(tr_session const* session);
+
+/**
+ * @brief Return whether another session holds the lock on this session's config dir.
+ *
+ * True does not stop the session. It keeps running, but never writes the config dir,
+ * so nothing it does is saved.
+ *
+ * False means either this session acquired the lock or locking was unavailable.
+ * It does not prove that this session has exclusive ownership of the directory.
+ */
+[[nodiscard]] bool tr_sessionConfigDirIsContended(tr_session const* session);
+
+/**
+ * @brief Return whether another process holds the lock on `config_dir` right now.
+ *
+ * Asks without starting a session, for a caller deciding whether to start one at all.
+ * The answer describes the instant it was taken. A caller that goes on to start a session
+ * should still check `tr_sessionConfigDirIsContended()`. That is the answer that counts.
+ */
+#ifdef __cplusplus
+[[nodiscard]] bool tr_configDirIsContended(std::string_view config_dir);
+#endif
 
 /**
  * @brief Get the default download folder for new torrents.
@@ -844,16 +877,8 @@ tr_torrent* tr_torrentNew(tr_ctor* ctor, tr_torrent** setme_duplicate_of);
 
 using tr_fileFunc = bool (*)(char const* filename, void* user_data, tr_error* error);
 
-using tr_torrent_remove_done_func = void (*)(tr_torrent_id_t id, bool succeeded, void* user_data);
-
 /** @brief Removes our torrent and .resume files for this torrent */
-void tr_torrentRemove(
-    tr_torrent* torrent,
-    bool delete_flag,
-    tr_fileFunc delete_func,
-    void* delete_user_data,
-    tr_torrent_remove_done_func callback,
-    void* callback_user_data);
+void tr_torrentRemove(tr_torrent* torrent, bool delete_flag, tr_fileFunc delete_func, void* delete_user_data);
 
 /** @brief Start a torrent */
 void tr_torrentStart(tr_torrent* torrent);
@@ -1259,46 +1284,46 @@ enum tr_tracker_state : uint8_t
  */
 struct tr_tracker_view
 {
-    char const* announce; // full announce URL
-    char const* scrape; // full scrape URL
-    char host_and_port[72]; // uniquely-identifying tracker name (`${host}:${port}`)
+    char const* announce = ""; // full announce URL
+    char const* scrape = ""; // full scrape URL
+    char host_and_port[72] = {}; // uniquely-identifying tracker name (`${host}:${port}`)
 
     // The tracker site's name. Uses the first label before the public suffix
     // (https://publicsuffix.org/) in the announce URL's host.
     // e.g. "https://www.example.co.uk/announce/"'s sitename is "example"
     // RFC 1034 says labels must be less than 64 chars
-    char sitename[64];
+    char sitename[64] = {};
 
-    char lastAnnounceResult[128]; // if hasAnnounced, the human-readable result of latest announce
-    char lastScrapeResult[128]; // if hasScraped, the human-readable result of the latest scrape
+    char lastAnnounceResult[128] = {}; // if hasAnnounced, the human-readable result of latest announce
+    char lastScrapeResult[128] = {}; // if hasScraped, the human-readable result of the latest scrape
 
-    time_t lastAnnounceStartTime; // if hasAnnounced, when the latest announce request was sent
-    time_t lastAnnounceTime; // if hasAnnounced, when the latest announce reply was received
-    time_t nextAnnounceTime; // if announceState == TR_TRACKER_WAITING, time of next announce
+    time_t lastAnnounceStartTime = {}; // if hasAnnounced, when the latest announce request was sent
+    time_t lastAnnounceTime = {}; // if hasAnnounced, when the latest announce reply was received
+    time_t nextAnnounceTime = {}; // if announceState == TR_TRACKER_WAITING, time of next announce
 
-    time_t lastScrapeStartTime; // if hasScraped, when the latest scrape request was sent
-    time_t lastScrapeTime; // if hasScraped, when the latest scrape reply was received
-    time_t nextScrapeTime; // if scrapeState == TR_TRACKER_WAITING, time of next scrape
+    time_t lastScrapeStartTime = {}; // if hasScraped, when the latest scrape request was sent
+    time_t lastScrapeTime = {}; // if hasScraped, when the latest scrape reply was received
+    time_t nextScrapeTime = {}; // if scrapeState == TR_TRACKER_WAITING, time of next scrape
 
-    int downloadCount; // number of times this torrent's been downloaded, or -1 if unknown
-    int lastAnnouncePeerCount; // if hasAnnounced, the number of peers the tracker gave us
-    int leecherCount; // number of leechers the tracker knows of, or -1 if unknown
-    int seederCount; // number of seeders the tracker knows of, or -1 if unknown
-    int downloader_count; // number of downloaders (BEP-21) the tracker knows of, or -1 if unknown
+    int downloadCount = {}; // number of times this torrent's been downloaded, or -1 if unknown
+    int lastAnnouncePeerCount = {}; // if hasAnnounced, the number of peers the tracker gave us
+    int leecherCount = {}; // number of leechers the tracker knows of, or -1 if unknown
+    int seederCount = {}; // number of seeders the tracker knows of, or -1 if unknown
+    int downloader_count = {}; // number of downloaders (BEP-21) the tracker knows of, or -1 if unknown
 
-    size_t tier; // which tier this tracker is in
-    tr_tracker_id_t id; // unique transmission-generated ID for use in libtransmission API
+    size_t tier = {}; // which tier this tracker is in
+    tr_tracker_id_t id = {}; // unique transmission-generated ID for use in libtransmission API
 
-    tr_tracker_state announceState; // whether we're announcing, waiting to announce, etc.
-    tr_tracker_state scrapeState; // whether we're scraping, waiting to scrape, etc.
+    tr_tracker_state announceState = {}; // whether we're announcing, waiting to announce, etc.
+    tr_tracker_state scrapeState = {}; // whether we're scraping, waiting to scrape, etc.
 
-    bool hasAnnounced; // true iff we've announced to this tracker during this session
-    bool hasScraped; // true iff we've scraped this tracker during this session
-    bool isBackup; // only one tracker per tier is used; the others are kept as backups
-    bool lastAnnounceSucceeded; // if hasAnnounced, whether or not the latest announce succeeded
-    bool lastAnnounceTimedOut; // true iff the latest announce request timed out
-    bool lastScrapeSucceeded; // if hasScraped, whether or not the latest scrape succeeded
-    bool lastScrapeTimedOut; // true iff the latest scrape request timed out
+    bool hasAnnounced = {}; // true iff we've announced to this tracker during this session
+    bool hasScraped = {}; // true iff we've scraped this tracker during this session
+    bool isBackup = {}; // only one tracker per tier is used; the others are kept as backups
+    bool lastAnnounceSucceeded = {}; // if hasAnnounced, whether or not the latest announce succeeded
+    bool lastAnnounceTimedOut = {}; // true iff the latest announce request timed out
+    bool lastScrapeSucceeded = {}; // if hasScraped, whether or not the latest scrape succeeded
+    bool lastScrapeTimedOut = {}; // true iff the latest scrape request timed out
 };
 // NOLINTEND(modernize-avoid-c-arrays)
 
@@ -1319,14 +1344,14 @@ size_t tr_torrentTrackerCount(tr_torrent const* torrent);
  */
 struct tr_file_view
 {
-    char const* name; // This file's name. Includes the full subpath in the torrent.
-    uint64_t have; // the current size of the file, i.e. how much we've downloaded
-    uint64_t length; // the total size of the file
-    double progress; // have / length
-    tr_piece_index_t beginPiece; // piece index where this file starts
-    tr_piece_index_t endPiece; // piece index where this file ends (exclusive)
-    tr_priority_t priority; // the file's priority
-    bool wanted; // do we want to download this file?
+    char const* name = ""; // This file's name. Includes the full subpath in the torrent.
+    uint64_t have = {}; // the current size of the file, i.e. how much we've downloaded
+    uint64_t length = {}; // the total size of the file
+    double progress = {}; // have / length
+    tr_piece_index_t beginPiece = {}; // piece index where this file starts
+    tr_piece_index_t endPiece = {}; // piece index where this file ends (exclusive)
+    tr_priority_t priority = {}; // the file's priority
+    bool wanted = {}; // do we want to download this file?
 };
 tr_file_view tr_torrentFile(tr_torrent const* torrent, tr_file_index_t file);
 
@@ -1338,9 +1363,9 @@ size_t tr_torrentFileCount(tr_torrent const* torrent);
  */
 struct tr_webseed_view
 {
-    char const* url; // the url to download from
-    bool is_downloading; // can be true even if speed is 0, e.g. slow download
-    uint64_t download_bytes_per_second; // current download speed
+    char const* url = ""; // the url to download from
+    bool is_downloading = {}; // can be true even if speed is 0, e.g. slow download
+    uint64_t download_bytes_per_second = {}; // current download speed
 };
 
 struct tr_webseed_view tr_torrentWebseed(tr_torrent const* torrent, size_t nth);
@@ -1353,22 +1378,22 @@ size_t tr_torrentWebseedCount(tr_torrent const* torrent);
  */
 struct tr_torrent_view
 {
-    char const* name;
-    char const* hash_string;
+    char const* name = "";
+    char const* hash_string = "";
 
-    char const* comment; // optional; may be nullptr
-    char const* creator; // optional; may be nullptr
-    char const* source; // optional; may be nullptr
+    char const* comment = ""; // optional; may be nullptr
+    char const* creator = ""; // optional; may be nullptr
+    char const* source = ""; // optional; may be nullptr
 
-    uint64_t total_size; // total size of the torrent, in bytes
+    uint64_t total_size = {}; // total size of the torrent, in bytes
 
-    time_t date_created;
+    time_t date_created = {};
 
-    uint32_t piece_size;
-    tr_piece_index_t n_pieces;
+    uint32_t piece_size = {};
+    tr_piece_index_t n_pieces = {};
 
-    bool is_private;
-    bool is_folder;
+    bool is_private = {};
+    bool is_folder = {};
 };
 
 struct tr_torrent_view tr_torrentView(tr_torrent const* tor);

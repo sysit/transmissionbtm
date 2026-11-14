@@ -340,6 +340,11 @@ struct tr_torrent
         return completion_.has_piece(piece);
     }
 
+    [[nodiscard]] TR_CONSTEXPR20 bool is_piece_checked(tr_piece_index_t const piece) const
+    {
+        return checked_pieces_.test(piece);
+    }
+
     [[nodiscard]] TR_CONSTEXPR20 auto has_block(tr_block_index_t block) const
     {
         return completion_.has_block(block);
@@ -435,13 +440,7 @@ struct tr_torrent
 
     void set_file_priority(tr_file_index_t file, tr_priority_t priority)
     {
-        if (priority != file_priorities_.file_priority(file))
-        {
-            file_priorities_.set(file, priority);
-            priority_changed_.emit(this, &file, 1U, priority);
-            set_dirty();
-            mark_changed();
-        }
+        set_file_priorities(&file, 1U, priority);
     }
 
     /// LOCATION
@@ -991,9 +990,15 @@ struct tr_torrent
         return session->torrent_queue().get_pos(id());
     }
 
-    void set_queue_position(size_t new_pos) // NOLINT(readability-make-member-function-const)
+    void set_queue_position(size_t const new_pos) // NOLINT(readability-make-member-function-const)
     {
-        session->torrent_queue().set_pos(id(), new_pos);
+        for (auto const& changed_id : session->torrent_queue().set_pos(id(), new_pos))
+        {
+            if (auto* const tor = session->torrents().get(changed_id))
+            {
+                tor->mark_changed();
+            }
+        }
     }
 
     static constexpr struct
@@ -1042,16 +1047,8 @@ private:
         tr_torrent* tor,
         bool delete_flag,
         tr_fileFunc delete_func,
-        void* delete_user_data,
-        tr_torrent_remove_done_func callback,
-        void* callback_user_data);
-    friend void tr_torrentRemove(
-        tr_torrent* tor,
-        bool delete_flag,
-        tr_fileFunc delete_func,
-        void* delete_user_data,
-        tr_torrent_remove_done_func callback,
-        void* callback_user_data);
+        void* delete_user_data);
+    friend void tr_torrentRemove(tr_torrent* tor, bool delete_flag, tr_fileFunc delete_func, void* delete_user_data);
     friend void tr_torrentSetDownloadDir(tr_torrent* tor, char const* path);
     friend void tr_torrentSetPriority(tr_torrent* tor, tr_priority_t priority);
     friend void tr_torrentStart(tr_torrent* tor);
@@ -1174,11 +1171,6 @@ private:
         }
 
         return n_secs;
-    }
-
-    [[nodiscard]] TR_CONSTEXPR20 bool is_piece_checked(tr_piece_index_t piece) const
-    {
-        return checked_pieces_.test(piece);
     }
 
     [[nodiscard]] bool check_piece(tr_piece_index_t piece) const;

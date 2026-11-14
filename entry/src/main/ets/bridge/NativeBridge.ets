@@ -8,6 +8,14 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 
 const TAG = 'NativeBridge';
 
+/** Engine + bundled dependency versions, read from the shipped binaries. */
+export interface EngineVersions {
+  transmission: string;
+  openssl: string;
+  curl: string;
+  libevent: string;
+}
+
 export class NativeBridge {
   private static instance: NativeBridge | null = null;
 
@@ -62,6 +70,26 @@ export class NativeBridge {
   // ═══════════════════════════════════════════════════════════════════
   getVersion(): string {
     return native.getVersion();
+  }
+
+  // ISO 8601 (YYYY-MM-DD) compile date of the native library. Lives in C++
+  // (__DATE__) so it cannot go stale the way a hand-edited constant does.
+  getBuildDate(): string {
+    return native.getBuildDate();
+  }
+
+  // Engine + dependency versions as compiled into this .so. Same reasoning as
+  // getBuildDate: a hand-written list in ArkTS drifted (About read
+  // 'Transmission 4.1.0' after the 4.1.4 bump). Empty strings on parse
+  // failure — the page renders '—' rather than a wrong number.
+  getEngineVersions(): EngineVersions {
+    const fallback: EngineVersions = { transmission: '', openssl: '', curl: '', libevent: '' };
+    try {
+      return JSON.parse(native.getEngineVersions()) as EngineVersions;
+    } catch (err) {
+      hilog.error(0x0001, TAG, 'getEngineVersions failed: %{private}s', errText(err));
+      return fallback;
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════

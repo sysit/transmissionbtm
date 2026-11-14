@@ -6,7 +6,14 @@
 cmake_minimum_required(VERSION 3.16)
 project(transmissionbtm_napi)
 
-set(CMAKE_CXX_STANDARD 20)
+# MUST be 17 — the engine (scripts/build-third-party.sh) is built with
+# -std=gnu++17, and fmt's empty `alloc_` member is only collapsed by
+# [[no_unique_address]] under C++20. Same headers, different standard →
+# sizeof(tr_config_dir_lock) 4144 (engine) vs 4136 (bridge) → every tr_session
+# member after config_dir_ shifts 8 bytes → session_thread_ read as
+# blocklist_dir_'s data pointer → SIGSEGV in am_in_session_thread().
+# Only surfaced with 4.1.4, which added config_dir_lock_ to tr_session.
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # ── Compiler flags ────────────────────────────────────────────
@@ -33,11 +40,19 @@ add_library(transmissionbtm_napi SHARED ${SOURCES})
 target_compile_definitions(transmissionbtm_napi PRIVATE
     M1_FULL_BRIDGE
     __TRANSMISSION__
+    # The engine is built with -DWITH_CRYPTO=openssl, which CMake turns into
+    # WITH_OPENSSL only for the engine's own translation units. The bridge
+    # needs the same define or crypto-utils.h hits its `#error no crypto
+    # library specified`. This used to be a hand-edited `#define WITH_OPENSSL`
+    # pasted into third_party/.../crypto-utils.h — reinstalling headers wiped
+    # it and the bridge stopped compiling (2026-11-09). Keep it here instead.
+    WITH_OPENSSL=1
 )
 
 # 3.1 uses C++17/cable headers with no std::ranges, so the C++20 oh-compat.h
-# force-include (4.2.0-only) is removed. The bridge builds as C++20 but the
-# 4.1.0 transmission headers are C++17-clean and need no compat shim.
+# force-include (4.2.0-only) is removed. The bridge builds as C++17 (see the
+# CMAKE_CXX_STANDARD note above — this is an ABI requirement, not a style
+# choice) and the 4.1.x transmission headers are C++17-clean.
 
 # fmt is HEADER-ONLY in the bridge but its symbols live inside
 # libtransmission.a. The vendored headers MUST be the same version the engine
@@ -72,7 +87,9 @@ target_link_libraries(transmissionbtm_napi
     ${THIRD_PARTY}/miniupnpc/lib/libminiupnpc.a
     ${THIRD_PARTY}/utp/lib/libutp.a
     ${THIRD_PARTY}/psl/lib/libpsl.a
-    ${THIRD_PARTY}/crc32c/lib/libcrc32c.a
+    # 4.1.1+ switched the engine's CRC to madler-crcany (#8529); 4.1.0 used
+    # Google crc32c. Link the one the vendored engine was built against.
+    ${THIRD_PARTY}/crcany/lib/libMadlerCrcany.a
     ${THIRD_PARTY}/deflate/lib/libdeflate.a
     ${THIRD_PARTY}/wildmat/lib/libwildmat.a
     ${THIRD_PARTY}/curl/lib/libcurl.a

@@ -1,4 +1,3 @@
-#define WITH_OPENSSL 1 // transmissionbtm: bridge builds without CMake's WITH_CRYPTO; force OpenSSL backend
 // This file Copyright © Mnemosyne LLC.
 // It may be used under GPLv2 (SPDX: GPL-2.0-only), GPLv3 (SPDX: GPL-3.0-only),
 // or any future license endorsed by Mnemosyne LLC.
@@ -198,7 +197,7 @@ using tr_sha256_string = tr_strbuf<char, (sizeof(tr_sha256_digest_t) * 2U) + 1U>
 /**
  * @brief Calculate CRC32-C checksum for a buffer.
  */
-[[nodiscard]] uint32_t tr_crc32c(uint8_t const* data, size_t count);
+[[nodiscard]] uint32_t tr_crc32c(void const* data, size_t count);
 
 // Convenience utility to efficiently get many random small values.
 // Use this instead of making a lot of calls to tr_rand_int().

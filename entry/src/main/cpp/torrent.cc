@@ -189,8 +189,11 @@ static napi_value TorrentAdd(napi_env env, napi_callback_info info) {
   char *input = getStringUtf8(env, args[1]);
   if (input != nullptr) {
     std::string_view sv(input);
-    if (sv.starts_with("magnet:") || isHexInfoHash(sv)) {
-      std::string magnetUri = sv.starts_with("magnet:")
+    // C++17: std::string_view::starts_with is C++20, and the bridge must
+    // build as C++17 to match the engine's ABI (see CMakeLists.txt).
+    bool const is_magnet = sv.compare(0, 7, "magnet:") == 0;
+    if (is_magnet || isHexInfoHash(sv)) {
+      std::string magnetUri = is_magnet
         ? std::string(sv)
         : "magnet:?xt=urn:btih:" + std::string(sv);
       ctor = tr_ctorNew(getSession(env, args[0]));
@@ -295,7 +298,8 @@ static void *torrentRemoveFunc(tr_session *s, void *d, Err *err) {
     // We are ALREADY on the session thread via runInTransmissionThread, so calling it
     // would queue a second task and return before the removal completes. Use the
     // InSessionThread variant, which runs inline and returns when the removal is done.
-    tr_torrentRemoveInSessionThread(tor, rd->removeData, nullptr, nullptr, nullptr, nullptr);
+    // 4.1.4 dropped the trailing (callback, user_data) pair — 4 params now.
+    tr_torrentRemoveInSessionThread(tor, rd->removeData, nullptr, nullptr);
   }
   return nullptr;
 }

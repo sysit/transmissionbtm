@@ -107,13 +107,14 @@ export class AppConstants {
   // Public target the torrent "Save to Files" action exports into (picker
   // default); shown read-only on the Settings page.
   static readonly SANDBOX_EXPORT_DIR: string = 'Download/com.9bt.transmissionbtm';
-  // No APP_VERSION here on purpose: a hardcoded copy drifts silently (it read
-  // '1.0.1' while 1.0.2 was shipping). The native bridge's getVersion() is the
-  // single source of truth — bump it in napi_init.cpp, not here.
-  static readonly BUILD_DATE: string = '2026-09-29';
+  // No APP_VERSION, BUILD_DATE or ENGINE_VERSION here on purpose: hardcoded
+  // copies drift silently (APP_VERSION read '1.0.1' while 1.0.2 shipped;
+  // BUILD_DATE read '2026-09-29' while 1.0.3 shipped in November;
+  // ENGINE_VERSION still said 'Transmission 4.1.0' after the 4.1.4 bump).
+  // The native bridge owns all three — getVersion()/getBuildDate()/
+  // getEngineVersions() in napi_init.cpp.
   static readonly BUILD_MILESTONE: string = 'Release';
   static readonly PEER_DEFAULT_PORT: number = 51413;
-  static readonly ENGINE_VERSION: string = 'Transmission 4.1.0 + OpenSSL + libcurl + libevent';
   static readonly PLATFORM: string = 'HarmonyOS NEXT';
   static readonly ARCH: string = 'arm64-v8a';
 }

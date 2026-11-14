@@ -2,9 +2,9 @@
 # transmissionbtm — Cross-compile third-party libraries for OH arm64-v8a
 #
 # Build order:
-#   1. OpenSSL 3.0.15 (LTS) — dependency for curl, libevent, transmission
-#   2. libcurl 8.5.0 — dependency for transmission
-#   3. libevent 2.1.12 — dependency for transmission
+#   1. OpenSSL 3.5.9 (LTS) — dependency for curl, libevent, transmission
+#   2. libcurl 8.23.0 — dependency for transmission
+#   3. libevent 2.1.13-stable — dependency for transmission
 #   4. transmission fork + sub-deps (dht, b64, natpmp, miniupnpc, utp, etc.)
 #
 # All output lands in third_party/<lib>/{lib,include}/
@@ -25,7 +25,11 @@ BUILD_DIR="${PROJECT_ROOT}/.build-third-party"
 DL_DIR="${BUILD_DIR}/downloads"
 
 DEVECO="/Applications/DevEco-Studio.app/Contents"
-OH_NDK="${DEVECO}/tools/sdk/default/openharmony/native"
+# DevEco reorganised its bundled SDK: it used to live under tools/sdk/…,
+# now under sdk/… — pick whichever exists so a Studio update doesn't break
+# the toolchain lookup with a bare "clang: No such file or directory".
+OH_NDK="${DEVECO}/sdk/default/openharmony/native"
+[ -d "${OH_NDK}" ] || OH_NDK="${DEVECO}/tools/sdk/default/openharmony/native"
 OH_SYSROOT="${OH_NDK}/sysroot"
 OH_LLVM_BIN="${OH_NDK}/llvm/bin"
 OH_CMAKE_TOOLCHAIN="${OH_NDK}/build/cmake/ohos.toolchain.cmake"
@@ -53,9 +57,10 @@ export CXXFLAGS="${COMMON_FLAGS} -O2"
 export LDFLAGS="-fuse-ld=lld --sysroot=${OH_SYSROOT} -Wl,--build-id=sha1 -Wl,-z,noexecstack -lhilog_ndk.z"
 
 # Versions
-OPENSSL_VERSION="3.0.15"
-CURL_VERSION="8.5.0"
-LIBEVENT_VERSION="2.1.12-stable"
+OPENSSL_VERSION="3.5.9"
+CURL_VERSION="8.23.0"
+LIBEVENT_VERSION="2.1.13-stable"
+TMT_TAG="4.1.4"
 
 echo "=== transmissionbtm third-party build ==="
 echo "  Target:   ${TARGET}"
@@ -80,18 +85,32 @@ CURL_PROXY="--proxy socks5://172.16.1.254:1080"
 
 download() {
   local url="$1" dest="$2" name="$3"
+  if [ -f "${dest}" ] && ! gzip -t "${dest}" 2>/dev/null; then
+    # A dropped connection leaves a truncated .tar.gz behind (OpenSSL 3.5.9
+    # landed at 24 MB of 53 MB and every later step failed deep in `tar`).
+    # The cached file only ever gets written by curl, so a corrupt one is
+    # always a bad download — throw it away and fetch again.
+    echo "  [retry] ${name}: cached tarball is corrupt, re-downloading"
+    rm -f "${dest}"
+  fi
   if [ -f "${dest}" ]; then
     echo "  [skip] ${name} already downloaded"
   else
     echo "  Downloading ${name} ..."
     # Try with proxy first (for GitHub), fall back to direct
-    curl -sSL ${CURL_PROXY} --retry 3 -o "${dest}" "${url}" 2>/dev/null || \
+    curl -sSL ${CURL_PROXY} --connect-timeout 5 --max-time 900 --retry 1 -o "${dest}" "${url}" 2>/dev/null || \
     curl -sSL --retry 3 --connect-timeout 30 -o "${dest}" "${url}" || {
       echo "  ERROR: Download failed for ${name}"
       echo "  URL: ${url}"
       echo "  Place the tarball manually at: ${dest}"
       exit 1
     }
+    if ! gzip -t "${dest}" 2>/dev/null; then
+      echo "  ERROR: ${name} did not download completely (corrupt gzip, $(wc -c <"${dest}") bytes)"
+      echo "  URL: ${url}"
+      echo "  Delete ${dest} and re-run, or place the tarball there manually."
+      exit 1
+    fi
   fi
 }
 
@@ -272,17 +291,17 @@ build_libevent() {
 }
 
 # ═══════════════════════════════════════════════════════════════════
-# 4. transmission 4.1.0 (stable tag) + 18 submodules
+# 4. transmission ${TMT_TAG} (stable tag) + 18 submodules
 #
-# Built from the real 4.1.0 release tag (not a version-masked 4.2.0-dev).
-# Transmission 4.1.0 is C++17 and does NOT use std::ranges, so the C++20
+# Built from the real release tag (not a version-masked 4.2.0-dev).
+# Transmission 4.1.x is C++17 and does NOT use std::ranges, so the C++20
 # compat machinery (oh-compat.h force-include, ranges->tr:: replacement) is
 # NOT needed here — it existed only for the 4.2.x C++20 codebase.
 # ═══════════════════════════════════════════════════════════════════
 
 build_transmission() {
   echo ""
-  echo "=== transmission 4.1.0 (stable) ==="
+  echo "=== transmission ${TMT_TAG} (stable) ==="
 
   local prefix="${THIRD_PARTY}/transmission"
 
@@ -300,16 +319,15 @@ build_transmission() {
     fi
   done
 
-  # Reuse the verified 4.1.0 clone already on disk (probe-410) instead of
-  # re-cloning: the main clone fetch'd early-EOF'd over the proxy during the
-  # attempted re-clone. probe-410 is the same `4.1.0` tag (2724011).
-  local src_dir="${BUILD_DIR}/probe-410"
+  # One clone per tag (probe-<tag without dots>) so a new release never
+  # reuses stale sources; the old clone stays on disk for rollback.
+  local src_dir="${BUILD_DIR}/probe-${TMT_TAG//./}"
   local build_dir="${BUILD_DIR}/transmission-main-build"
 
-  # Clone transmission 4.1.0 stable (shallow for speed)
+  # Clone the release tag (shallow for speed)
   if [ ! -d "${src_dir}" ]; then
-    echo "  Cloning transmission 4.1.0 stable..."
-    git clone --depth 1 --branch 4.1.0 \
+    echo "  Cloning transmission ${TMT_TAG} stable..."
+    git clone --depth 1 --branch "${TMT_TAG}" \
       https://github.com/transmission/transmission.git "${src_dir}" 2>&1 | tail -3
     cd "${src_dir}"
     echo "  Initializing submodules (18 total, via proxy)..."
@@ -697,14 +715,30 @@ print(f"  Patched {count} files with compat shims")
     find "${build_dir}" -path "*/${pkg}*.bld/pfx/lib/*.a" -exec cp {} "${prefix}/lib/" \; 2>/dev/null || true
   done
 
-  # Sub-dependency .a files from SUBPROJECT / direct builds
-  # 4.1 vendors Google crc32c (crc32c::Extend), not madler-crcany
-  for pkg in b64 utp wildmat crc32c; do
+  # Sub-dependency .a files from SUBPROJECT / direct builds.
+  # 4.1.0 vendored Google crc32c; 4.1.1+ switched to madler-crcany (#8529),
+  # whose target/lib name is MadlerCrcany, not `crcany`.
+  for pkg in b64 utp wildmat crc32c crcany; do
     find "${build_dir}" -name "lib${pkg}.a" -exec cp {} "${prefix}/lib/" \; 2>/dev/null || true
   done
+  find "${build_dir}" -name "libMadlerCrcany.a" -exec cp {} "${prefix}/lib/" \; 2>/dev/null || true
 
-  # Copy main transmission headers (preserve dir layout)
+  # Copy main transmission headers. The bridge includes them as
+  # <libtransmission/xyz.h> (include root = …/transmission/include), so
+  # include/libtransmission/ is the copy that matters — refresh it wholesale,
+  # otherwise headers from the previous engine version stay behind and the
+  # bridge compiles against a different API than the .a (the fmt-ABI trap).
+  rm -rf "${prefix}/include/libtransmission"
+  mkdir -p "${prefix}/include/libtransmission" "${prefix}/include/transmission"
+  cp -r "${src_dir}/libtransmission"/*.h "${prefix}/include/libtransmission/" 2>/dev/null || true
   cp -r "${src_dir}/libtransmission"/*.h "${prefix}/include/transmission/" 2>/dev/null || true
+  # version.h is generated by CMake from version.h.in into the build tree, not
+  # shipped in the source dir — the bridge includes it (transmission.cc/curl.cc),
+  # so copy the generated one instead of hand-writing a version every release.
+  find "${build_dir}" -name version.h -path "*libtransmission*" \
+    -exec cp {} "${prefix}/include/libtransmission/" \; 2>/dev/null || true
+  find "${build_dir}" -name version.h -path "*libtransmission*" \
+    -exec cp {} "${prefix}/include/transmission/" \; 2>/dev/null || true
 
   echo "  -> transmission 4.1 installed to ${prefix}"
   echo "  .a files:"

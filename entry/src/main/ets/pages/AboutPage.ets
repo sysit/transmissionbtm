@@ -5,22 +5,30 @@
 
 import { Colors, FontSize, Spacing, Radius, AppConstants } from '../utils/constants';
 import { errText } from '../utils/errors';
-import { NativeBridge } from '../bridge/NativeBridge';
+import { NativeBridge, EngineVersions } from '../bridge/NativeBridge';
 import { hilog } from '@kit.PerformanceAnalysisKit';
+import { bundleManager } from '@kit.AbilityKit';
 
 const TAG = 'AboutPage';
 
 @Component
 export struct AboutPage {
   @State version: string = '';
+  @State buildDate: string = '';
   @State isLoadingVersion: boolean = true;
   @State versionError: ResourceStr = '';
+  @State engineVersions: EngineVersions = {
+    transmission: '', openssl: '', curl: '', libevent: '',
+  };
+  // SDK API level this build targets, read from the installed bundle — the
+  // ArkUI row used to claim '5.0' long after the app moved to API 24.
+  @State targetApi: number = 0;
 
   aboutToAppear(): void {
-    this.fetchVersion();
+    this.fetchNativeInfo();
   }
 
-  private fetchVersion(): void {
+  private fetchNativeInfo(): void {
     this.isLoadingVersion = true;
     try {
       const bridge = NativeBridge.getInstance();
@@ -28,12 +36,28 @@ export struct AboutPage {
       if (v && v.length > 0) {
         this.version = v;
       }
+      this.buildDate = bridge.getBuildDate();
+      this.engineVersions = bridge.getEngineVersions();
     } catch (err) {
       this.versionError = $r('app.string.about_version_error');
       hilog.error(0x0001, TAG,
-        'fetchVersion failed: %{private}s', errText(err));
+        'fetchNativeInfo failed: %{private}s', errText(err));
     } finally {
       this.isLoadingVersion = false;
+    }
+    // Separate from the bridge read above: a missing API level must not take
+    // down the version row, and vice versa.
+    try {
+      // targetVersion is the *encoded* SDK version, not the API level: an
+      // API 24 / 6.1.1 build reports 60101024 (<major><minor><patch><api>).
+      // Shown raw it read 'API 60101024' on device — the API level is the
+      // last three digits.
+      const targetVersion: number = bundleManager.getBundleInfoForSelfSync(
+        bundleManager.BundleFlag.GET_BUNDLE_INFO_DEFAULT).targetVersion;
+      this.targetApi = targetVersion > 999 ? targetVersion % 1000 : targetVersion;
+    } catch (err) {
+      hilog.error(0x0001, TAG,
+        'targetVersion read failed: %{private}s', errText(err));
     }
   }
 
@@ -134,8 +158,10 @@ export struct AboutPage {
           .margin({ bottom: Spacing.SM });
       }
 
-      // Build info
-      Text($r('app.string.about_build', AppConstants.BUILD_MILESTONE, AppConstants.BUILD_DATE))
+      // Build info — date comes from the native build (__DATE__); '—' only
+      // when the bridge failed, which the version error above already flags.
+      Text($r('app.string.about_build', AppConstants.BUILD_MILESTONE,
+        this.buildDate.length > 0 ? this.buildDate : '—'))
         .fontSize(FontSize.SM)
         .fontColor(Colors.TEXT_TERTIARY)
         .margin({ bottom: Spacing.XXL });
@@ -162,15 +188,19 @@ export struct AboutPage {
         .padding({ left: Spacing.MD, bottom: Spacing.SM });
 
       Column() {
-        this.BuildLicenseRow('libtransmission', '4.1.0', 'GPL-2.0 / MIT');
+        // Versions come from the shipped binaries via getEngineVersions(), not
+        // from literals here — those read '4.1.0' / '3.0' long after the deps
+        // moved on. '—' means the bridge could not read them (see versionError).
+        this.BuildLicenseRow('libtransmission', this.engineVersions.transmission, 'GPL-2.0 / MIT');
         this.BuildDivider();
-        this.BuildLicenseRow('OpenSSL', '3.0', 'Apache-2.0');
+        this.BuildLicenseRow('OpenSSL', this.engineVersions.openssl, 'Apache-2.0');
         this.BuildDivider();
-        this.BuildLicenseRow('libcurl', '8.5', 'curl License');
+        this.BuildLicenseRow('libcurl', this.engineVersions.curl, 'curl License');
         this.BuildDivider();
-        this.BuildLicenseRow('libevent', '2.1.12', 'BSD-3-Clause');
+        this.BuildLicenseRow('libevent', this.engineVersions.libevent, 'BSD-3-Clause');
         this.BuildDivider();
-        this.BuildLicenseRow('ArkUI Framework', '5.0', 'HarmonyOS SDK EULA');
+        this.BuildLicenseRow('ArkUI Framework',
+          this.targetApi > 0 ? `API ${this.targetApi}` : '', 'HarmonyOS SDK EULA');
       }
       .width('100%')
       .borderRadius(Radius.LG)
@@ -236,7 +266,10 @@ export struct AboutPage {
         Text(name)
           .fontSize(FontSize.CAPTION)
           .fontColor(Colors.TEXT);
-        Text(`v${version}`)
+        // 'v' only for bare numbers; 'API 24', '—' and the libevent
+        // '2.1.13-stable' style are already labelled.
+        Text(version.length === 0 ? '—'
+          : (/^\d/.test(version) ? `v${version}` : version))
           .fontSize(FontSize.SMALL)
           .fontColor(Colors.TEXT_TERTIARY);
       }
